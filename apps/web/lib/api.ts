@@ -3,9 +3,14 @@
 import type {
   Asset,
   AssetQuery,
+  ExportItem,
   PageResult,
   ScanRun,
   ScanStatusResponse,
+  Shot,
+  ShotAnalysis,
+  ShotDetail,
+  ShotQuery,
   SourceDirectory,
   SourceDirectoryCreate,
 } from "./types";
@@ -51,6 +56,21 @@ function buildAssetQuery(query: AssetQuery): string {
   return params.toString();
 }
 
+function buildShotQuery(query: ShotQuery): string {
+  const params = new URLSearchParams();
+  params.set("page", String(query.page));
+  params.set("page_size", String(query.page_size));
+  if (query.asset_id != null) params.set("asset_id", String(query.asset_id));
+  if (query.status) params.set("status", query.status);
+  return params.toString();
+}
+
+// 资源直链（用于 <img>/<video> src 与下载，浏览器走同源代理，不经 fetch）
+export const shotThumbnailUrl = (id: number) => `/api/shots/${id}/thumbnail`;
+export const shotKeyframeUrl = (id: number) => `/api/shots/${id}/keyframe`;
+export const shotPreviewUrl = (id: number) => `/api/shots/${id}/preview`;
+export const exportDownloadUrl = (id: number) => `/api/exports/${id}/download`;
+
 export const api = {
   listAssets(query: AssetQuery): Promise<PageResult<Asset>> {
     return http<PageResult<Asset>>(`/assets?${buildAssetQuery(query)}`);
@@ -75,5 +95,36 @@ export const api = {
   },
   scanStatus(id: number): Promise<ScanStatusResponse> {
     return http<ScanStatusResponse>(`/source-directories/${id}/status`);
+  },
+
+  // ===== PR-02 镜头分析 / 镜头 / 导出 =====
+  analyzeShots(assetId: number): Promise<{ asset_id: number; run_id: number; status: string }> {
+    return http(`/assets/${assetId}/analyze-shots`, { method: "POST" });
+  },
+  retryShotAnalysis(
+    assetId: number,
+  ): Promise<{ asset_id: number; run_id: number; status: string }> {
+    return http(`/assets/${assetId}/shot-analysis/retry`, { method: "POST" });
+  },
+  shotAnalysis(assetId: number): Promise<ShotAnalysis> {
+    return http<ShotAnalysis>(`/assets/${assetId}/shot-analysis`);
+  },
+  assetShots(query: ShotQuery): Promise<PageResult<Shot>> {
+    return http<PageResult<Shot>>(`/assets/${query.asset_id}/shots?${buildShotQuery(query)}`);
+  },
+  listShots(query: ShotQuery): Promise<PageResult<Shot>> {
+    return http<PageResult<Shot>>(`/shots?${buildShotQuery(query)}`);
+  },
+  getShot(id: number): Promise<ShotDetail> {
+    return http<ShotDetail>(`/shots/${id}`);
+  },
+  exportShot(id: number, mode = "reencode"): Promise<{ export_id: number; status: string }> {
+    return http(`/shots/${id}/export`, {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    });
+  },
+  getExport(id: number): Promise<ExportItem> {
+    return http<ExportItem>(`/exports/${id}`);
   },
 };

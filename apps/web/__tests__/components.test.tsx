@@ -35,14 +35,24 @@ function makeAsset(overrides: Partial<Asset> = {}): Asset {
     last_seen_at: "2026-06-23T00:00:00Z",
     created_at: "2026-06-23T00:00:00Z",
     updated_at: "2026-06-23T00:00:00Z",
+    shot_count: 0,
+    analysis_status: null,
     ...overrides,
   };
 }
 
+const noop = () => {};
+
 describe("AssetTable", () => {
   it("渲染文件名、相对路径与状态", () => {
     render(
-      <AssetTable assets={[makeAsset()]} rescanningIds={new Set()} onRescan={() => {}} />,
+      <AssetTable
+        assets={[makeAsset()]}
+        rescanningIds={new Set()}
+        analyzingIds={new Set()}
+        onRescan={noop}
+        onAnalyze={noop}
+      />,
     );
     expect(screen.getByText("demo.mp4")).toBeInTheDocument();
     expect(screen.getByText("powergo/demo.mp4")).toBeInTheDocument();
@@ -54,30 +64,56 @@ describe("AssetTable", () => {
       <AssetTable
         assets={[makeAsset({ status: "error", error_message: "ffprobe_failed: 损坏" })]}
         rescanningIds={new Set()}
-        onRescan={() => {}}
+        analyzingIds={new Set()}
+        onRescan={noop}
+        onAnalyze={noop}
       />,
     );
     expect(screen.getByText(/ffprobe_failed/)).toBeInTheDocument();
   });
 
-  it("重扫中按钮禁用，可点击触发回调", async () => {
-    const onRescan = vi.fn();
+  it("开始分析按钮可点击触发回调", async () => {
+    const onAnalyze = vi.fn();
     const user = userEvent.setup();
     render(
       <AssetTable
-        assets={[makeAsset({ id: 7 })]}
+        assets={[makeAsset({ id: 7, shot_count: 0 })]}
         rescanningIds={new Set()}
-        onRescan={onRescan}
+        analyzingIds={new Set()}
+        onRescan={noop}
+        onAnalyze={onAnalyze}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "重新扫描" }));
-    expect(onRescan).toHaveBeenCalledWith(7);
+    await user.click(screen.getByRole("button", { name: "开始分析" }));
+    expect(onAnalyze).toHaveBeenCalledWith(7, false);
+  });
 
+  it("已有镜头时显示数量与查看镜头入口", () => {
+    render(
+      <AssetTable
+        assets={[makeAsset({ id: 9, shot_count: 6, status: "shot_split" })]}
+        rescanningIds={new Set()}
+        analyzingIds={new Set()}
+        onRescan={noop}
+        onAnalyze={noop}
+      />,
+    );
+    expect(screen.getByText("6 个镜头")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "查看镜头" })).toHaveAttribute(
+      "href",
+      "/shots?asset_id=9",
+    );
+    expect(screen.getByRole("button", { name: "重新分析" })).toBeInTheDocument();
+  });
+
+  it("重扫中按钮禁用", () => {
     render(
       <AssetTable
         assets={[makeAsset({ id: 7 })]}
         rescanningIds={new Set([7])}
-        onRescan={onRescan}
+        analyzingIds={new Set()}
+        onRescan={noop}
+        onAnalyze={noop}
       />,
     );
     expect(screen.getByRole("button", { name: "重扫中…" })).toBeDisabled();

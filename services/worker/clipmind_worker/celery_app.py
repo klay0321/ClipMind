@@ -1,7 +1,7 @@
 """Celery 应用定义。
 
-PR-01 仅注册扫描任务，worker 仅消费 default + scan 队列。
-media/ai/export 队列与 beat 调度为后续 PR 预留（不在 PR-01 运行）。
+worker 消费 default + scan 队列（扫描任务）；media-worker 消费 media 队列
+（PR-02 拆镜头/派生/导出任务）。ai/export 队列与 beat 调度为后续 PR 预留。
 """
 
 from __future__ import annotations
@@ -17,7 +17,10 @@ celery_app = Celery(
     "clipmind",
     broker=_settings.celery_broker_url,
     backend=_settings.celery_result_backend,
-    include=["clipmind_worker.tasks.scan"],
+    include=[
+        "clipmind_worker.tasks.scan",
+        "clipmind_worker.media.tasks",  # PR-02 拆镜头/派生/导出
+    ],
 )
 
 celery_app.conf.update(

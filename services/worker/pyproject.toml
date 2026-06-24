@@ -15,6 +15,9 @@ dependencies = [
     "redis>=5.2,<6",
     "pydantic>=2.9,<3",
     "pydantic-settings>=2.6,<3",
+    # PR-02 拆镜头：PySceneDetect 内容检测 + OpenCV(headless) 解码后端
+    "scenedetect>=0.6.4,<0.7",
+    "opencv-python-headless>=4.10,<5",
 ]
 
 [project.optional-dependencies]

@@ -30,6 +30,8 @@ jobs:
         with:
           python-version: "3.13"
       - name: 安装 ffmpeg
+        # ffmpeg 传递安装 GLib 运行时，PySceneDetect 的 opencv-python-headless 凭此导入；
+        # 不指定发行版相关的 libglib 包名（避免 Debian/Ubuntu t64 改名问题）。
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
       - name: 安装 Python 依赖
         run: |
@@ -71,3 +73,82 @@ jobs:
         run: |
           cp .env.example .env
           docker compose config
+
+  # PR-02：云端真实镜像构建 + 全栈端到端（本地 Claude 环境无 apt 网络，无法构建镜像）
+  docker-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装 ffmpeg（生成合成测试视频用）
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: 生成合成多场景测试视频到 sample_media（不提交、无公司素材）
+        run: |
+          ffmpeg -y \
+            -f lavfi -i "testsrc=size=320x240:rate=10:duration=2" \
+            -f lavfi -i "smptebars=size=320x240:rate=10:duration=2" \
+            -f lavfi -i "rgbtestsrc=size=320x240:rate=10:duration=2" \
+            -filter_complex "[0:v][1:v][2:v]concat=n=3:v=1[v]" \
+            -map "[v]" -c:v libx264 -pix_fmt yuv420p sample_media/ci_demo.mp4
+          ls -la sample_media/
+      - name: 准备 .env 并构建镜像
+        run: |
+          cp .env.example .env
+          docker compose build
+      - name: 启动全栈
+        run: docker compose up -d
+      - name: 等待 postgres/redis/api 健康，web/worker/media-worker 运行
+        run: |
+          for i in $(seq 1 60); do
+            api=$(docker compose ps api --format '{{.Health}}')
+            pg=$(docker compose ps postgres --format '{{.Health}}')
+            rd=$(docker compose ps redis --format '{{.Health}}')
+            if [ "$api" = "healthy" ] && [ "$pg" = "healthy" ] && [ "$rd" = "healthy" ]; then
+              echo "核心服务健康"; break
+            fi
+            sleep 3
+          done
+          docker compose ps
+          for svc in web worker media-worker; do
+            state=$(docker compose ps "$svc" --format '{{.State}}')
+            echo "$svc: $state"
+            [ "$state" = "running" ] || { echo "$svc 未运行"; exit 1; }
+          done
+      - name: media-worker 中校验 PySceneDetect/OpenCV 真实可用
+        run: docker compose exec -T media-worker python -c "import cv2, scenedetect; print('cv2', cv2.__version__, 'scenedetect', scenedetect.__version__)"
+      - name: 健康探针
+        run: |
+          curl -fsS http://localhost:8000/health/live
+          curl -fsS http://localhost:8000/health/ready
+      - name: 源目录只读（写入必须失败）
+        run: |
+          if docker compose exec -T api sh -c "touch /app/source/should_fail.txt" 2>/dev/null; then
+            echo "源目录可写，违反只读约束"; exit 1
+          else
+            echo "源目录只读 OK（写入被拒绝）"
+          fi
+      - name: 运行端到端断言（扫描→分析→镜头→Range→导出→重分析）
+        env:
+          API_BASE: http://localhost:8000
+        run: python scripts/ci_pr02_e2e.py --mode full
+      - name: 重启服务并校验记录持久化
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          docker compose restart api worker media-worker
+          for i in $(seq 1 40); do
+            [ "$(docker compose ps api --format '{{.Health}}')" = "healthy" ] && break
+            sleep 3
+          done
+          python scripts/ci_pr02_e2e.py --mode check-persist
+      - name: 失败时收集日志
+        if: failure()
+        run: |
+          echo "===== compose ps ====="; docker compose ps
+          echo "===== migrate logs ====="; docker compose logs migrate || true
+          echo "===== api logs ====="; docker compose logs api || true
+          echo "===== worker logs ====="; docker compose logs worker || true
+          echo "===== media-worker logs ====="; docker compose logs media-worker || true
+      - name: 清理
+        if: always()
+        run: docker compose down -v

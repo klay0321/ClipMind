@@ -2,7 +2,7 @@
 
 只在新增或 size/mtime 变化时计算（分层变化检测），不每次读取所有文件。
 全程以只读模式打开源文件。quick_hash 仅作变化指纹，不作完整内容去重依据
-（完整去重的 full_hash 留待 PR-02）。
+（完整去重的 full_hash 留待后续 PR）。
 """
 
 from __future__ import annotations

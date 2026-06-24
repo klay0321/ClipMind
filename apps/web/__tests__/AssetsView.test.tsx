@@ -12,6 +12,7 @@ vi.mock("@/lib/hooks", () => ({
   useScanMutation: vi.fn(),
   useRescanMutation: vi.fn(),
   useCreateSourceDirectory: vi.fn(),
+  useAnalyzeMutation: vi.fn(),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -76,6 +77,8 @@ function makeAsset(overrides: Partial<Asset> = {}): Asset {
     last_seen_at: "2026-06-23T00:00:00Z",
     created_at: "2026-06-23T00:00:00Z",
     updated_at: "2026-06-23T00:00:00Z",
+    shot_count: 0,
+    analysis_status: null,
     ...overrides,
   };
 }
@@ -84,6 +87,7 @@ beforeEach(() => {
   vi.mocked(hooks.useScanMutation).mockReturnValue(mutation());
   vi.mocked(hooks.useRescanMutation).mockReturnValue(mutation());
   vi.mocked(hooks.useCreateSourceDirectory).mockReturnValue(mutation());
+  vi.mocked(hooks.useAnalyzeMutation).mockReturnValue(mutation());
   vi.mocked(hooks.useScanStatus).mockReturnValue(query());
   vi.mocked(hooks.useSourceDirectories).mockReturnValue(query({ data: [] }));
   vi.mocked(hooks.useAssets).mockReturnValue(query());

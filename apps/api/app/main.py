@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
-from app.routers import assets, health, source_directories, system
+from app.routers import assets, exports, health, shots, source_directories, system
 
 settings = get_settings()
 logging.basicConfig(level=settings.log_level.upper())
@@ -36,3 +36,5 @@ app.include_router(health.router)
 app.include_router(system.router, prefix="/api")
 app.include_router(source_directories.router, prefix="/api")
 app.include_router(assets.router, prefix="/api")
+app.include_router(shots.router, prefix="/api")
+app.include_router(exports.router, prefix="/api")

@@ -27,9 +27,10 @@ async function proxy(req: NextRequest, path: string[]): Promise<Response> {
   }
 
   const respHeaders = new Headers(upstream.headers);
-  // 这些头由运行时重新生成，转发原值会导致解析错误
+  // 仅删除 hop-by-hop / 会被运行时重写的头。
+  // 保留 content-length / content-range / accept-ranges：代理视频需要它们支持
+  // HTTP Range（206 + 浏览器拖动进度条）。后端不对响应做 gzip，content-length 准确。
   respHeaders.delete("content-encoding");
-  respHeaders.delete("content-length");
   respHeaders.delete("transfer-encoding");
 
   return new Response(upstream.body, {

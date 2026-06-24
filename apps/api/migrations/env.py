@@ -2,7 +2,9 @@
 
 - 同步连接串来自应用配置（asyncpg -> psycopg）。
 - target_metadata 取自共享层的 Base.metadata（import models 触发注册）。
-- include_object 跳过手工维护的部分唯一索引，保持 autogenerate 干净。
+- 部分唯一索引（uq_active_scan_run / uq_active_media_run）通过模型上正确声明
+  `postgresql_where=text("status IN (...)")` 与迁移自然一致，Alembic 能正确比对
+  其 WHERE 子句，无需 include_object 特殊跳过（compare_type=True 保留类型比对）。
 """
 
 from __future__ import annotations
@@ -28,13 +30,6 @@ config.set_main_option("sqlalchemy.url", settings.sync_database_url)
 target_metadata = Base.metadata
 
 
-def include_object(obj, name, type_, reflected, compare_to) -> bool:  # noqa: ANN001
-    # 部分唯一索引手工维护，跳过 autogenerate 比对避免噪音
-    if type_ == "index" and name == "uq_active_scan_run":
-        return False
-    return True
-
-
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
@@ -42,7 +37,6 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        include_object=include_object,
         compare_type=True,
     )
     with context.begin_transaction():
@@ -59,7 +53,6 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            include_object=include_object,
             compare_type=True,
         )
         with context.begin_transaction():

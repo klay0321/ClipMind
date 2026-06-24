@@ -44,6 +44,12 @@ async def client(engine, monkeypatch):
     monkeypatch.setattr(
         "app.services.scan_dispatch.enqueue_rescan_asset", lambda aid: f"rtask-{aid}"
     )
+    monkeypatch.setattr(
+        "app.services.shot_dispatch.enqueue_analyze_shots", lambda rid: f"mtask-{rid}"
+    )
+    monkeypatch.setattr(
+        "app.services.shot_dispatch.enqueue_export_clip", lambda eid: f"etask-{eid}"
+    )
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

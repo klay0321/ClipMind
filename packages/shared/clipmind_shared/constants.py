@@ -8,6 +8,9 @@ SUPPORTED_VIDEO_EXTENSIONS: tuple[str, ...] = ("mp4", "mov", "mkv", "avi", "webm
 # ----- Celery 任务名（稳定字符串，API 按名入队，避免 import worker 代码）-----
 TASK_SCAN_SOURCE_DIRECTORY = "clipmind.scan_source_directory"
 TASK_RESCAN_ASSET = "clipmind.rescan_asset"
+# PR-02 拆镜头 / 派生文件
+TASK_ANALYZE_SHOTS = "clipmind.analyze_shots"
+TASK_EXPORT_SHOT_CLIP = "clipmind.export_shot_clip"
 
 # ----- Celery 队列名 -----
 # PR-01 worker 只消费 default + scan；media/ai/export 为后续 PR 预留（不运行）

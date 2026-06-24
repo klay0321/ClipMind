@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from clipmind_shared.models.enums import AssetStatus
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
@@ -16,17 +17,23 @@ from app.schemas.shot import (
     to_analysis_out,
     to_shot_out,
 )
-from app.services import asset_service, scan_dispatch, shot_dispatch, shot_service
+from app.services import asset_service, files, scan_dispatch, shot_dispatch, shot_service
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
 
 def _enrich(
-    out: AssetOut, *, shot_count: int, analysis_status: str | None, cover_shot_id: int | None
+    out: AssetOut,
+    *,
+    shot_count: int,
+    analysis_status: str | None,
+    cover_shot_id: int | None,
+    has_poster: bool,
 ) -> AssetOut:
     out.shot_count = shot_count
     out.analysis_status = analysis_status
     out.cover_shot_id = cover_shot_id
+    out.has_poster = has_poster
     return out
 
 
@@ -58,6 +65,7 @@ async def list_assets(
                 shot_count=counts.get(a.id, 0),
                 analysis_status=statuses.get(a.id),
                 cover_shot_id=covers.get(a.id),
+                has_poster=bool(a.poster_path),
             )
             for a in items
         ],
@@ -80,6 +88,7 @@ async def get_asset(asset_id: int, db: AsyncSession = Depends(get_db)) -> AssetO
         shot_count=counts.get(asset.id, 0),
         analysis_status=statuses.get(asset.id),
         cover_shot_id=covers.get(asset.id),
+        has_poster=bool(asset.poster_path),
     )
 
 
@@ -99,6 +108,41 @@ async def rescan_asset(
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=503, detail=f"无法入队重扫任务: {exc}") from exc
     return RescanAcceptedOut(asset_id=asset.id, celery_task_id=task_id)
+
+
+# ---------------- 素材海报（FFmpeg 抽一帧封面）----------------
+
+
+@router.get("/{asset_id}/poster")
+async def get_asset_poster(
+    asset_id: int, db: AsyncSession = Depends(get_db)
+) -> FileResponse:
+    """素材海报（未分析素材也有）。无海报时 404。"""
+    asset = await asset_service.get_asset(db, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="素材不存在")
+    return files.serve_derived(asset.poster_path, media_type="image/webp")
+
+
+@router.post(
+    "/{asset_id}/poster",
+    response_model=RescanAcceptedOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def regenerate_asset_poster(
+    asset_id: int, db: AsyncSession = Depends(get_db)
+) -> RescanAcceptedOut:
+    """手动（重新）生成素材海报，用于回填或重试。"""
+    asset = await asset_service.get_asset(db, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="素材不存在")
+    try:
+        task_id = await scan_dispatch.request_generate_poster(asset.id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail=f"无法入队海报生成: {exc}") from exc
+    return RescanAcceptedOut(
+        asset_id=asset.id, celery_task_id=task_id, detail="已入队海报生成"
+    )
 
 
 # ---------------- PR-02 镜头分析 ----------------

@@ -41,6 +41,8 @@ class AssetOut(BaseModel):
     analysis_status: str | None = None
     # 封面镜头（首个 ready 镜头）：前端用其关键帧作封面、代理作预览
     cover_shot_id: int | None = None
+    # 素材海报（FFmpeg 抽一帧）：未分析素材也能有真实封面
+    has_poster: bool = False
 
 
 class RescanAcceptedOut(BaseModel):

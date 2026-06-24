@@ -265,6 +265,61 @@ def test_single_short_video_one_shot(session, tmp_path):
     assert len(shots) == 1
 
 
+def _poster_asset(session, src_root: str, relative_path: str, duration=3.0) -> Asset:
+    sd = SourceDirectory(
+        name="d", mount_path=src_root, include_extensions=["mp4"],
+        exclude_patterns=[], recursive=True, read_only=True,
+    )
+    session.add(sd)
+    session.commit()
+    session.refresh(sd)
+    asset = Asset(
+        source_directory_id=sd.id, relative_path=relative_path,
+        normalized_relative_path=relative_path, filename=os.path.basename(relative_path),
+        extension="mp4", file_size=1, duration=duration,
+        status=AssetStatus.INDEXED, first_seen_at=utcnow(), last_seen_at=utcnow(),
+    )
+    session.add(asset)
+    session.commit()
+    session.refresh(asset)
+    return asset
+
+
+@needs_ffmpeg
+def test_generate_asset_poster_writes_poster(session, tmp_path):
+    from clipmind_worker.media.tasks import _generate_poster
+
+    src_root = os.path.realpath(str(tmp_path / "src"))
+    os.makedirs(src_root, exist_ok=True)
+    make_test_video(os.path.join(src_root, "p.mp4"), duration=3, width=160, height=120, fps=10)
+    data_dir = os.path.realpath(str(tmp_path / "data"))
+    settings = _settings(data_dir, allowed_source_roots=src_root)
+    asset = _poster_asset(session, src_root, "p.mp4")
+    sd = session.get(SourceDirectory, asset.source_directory_id)
+
+    res = _generate_poster(session, asset, sd, settings)
+    assert res.get("poster") is True
+    assert asset.poster_path == f"assets/{asset.id}/poster.webp"
+    poster_abs = os.path.join(data_dir, "assets", str(asset.id), "poster.webp")
+    assert os.path.isfile(poster_abs) and os.path.getsize(poster_abs) > 0
+    # 海报在 asset 目录下、不在 active/（重分析不会清掉）
+    assert "active" not in asset.poster_path
+
+
+def test_generate_asset_poster_source_missing(session, tmp_path):
+    from clipmind_worker.media.tasks import _generate_poster
+
+    src_root = os.path.realpath(str(tmp_path / "src"))
+    os.makedirs(src_root, exist_ok=True)
+    settings = _settings(os.path.realpath(str(tmp_path / "data")), allowed_source_roots=src_root)
+    asset = _poster_asset(session, src_root, "missing.mp4")
+    sd = session.get(SourceDirectory, asset.source_directory_id)
+
+    res = _generate_poster(session, asset, sd, settings)
+    assert res.get("skipped") is True
+    assert asset.poster_path is None  # 源缺失不写海报
+
+
 def test_source_missing(session, tmp_path):
     data_dir = os.path.realpath(str(tmp_path / "data"))
     settings = _settings(data_dir)

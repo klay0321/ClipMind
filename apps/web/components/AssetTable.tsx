@@ -1,6 +1,8 @@
 "use client";
 
-import { AssetStatusBadge } from "@/components/StatusBadge";
+import Link from "next/link";
+
+import { AssetStatusBadge, MediaRunStatusBadge } from "@/components/StatusBadge";
 import {
   formatBytes,
   formatCodec,
@@ -11,7 +13,7 @@ import {
 import type { Asset } from "@/lib/types";
 
 function CoverPlaceholder() {
-  // PR-01 无关键帧，使用明确的“待生成封面”占位，不伪造视频截图
+  // 素材列表封面占位（封面为整片维度，单镜头缩略图在镜头库展示）；不伪造截图
   return (
     <div className="flex h-12 w-20 shrink-0 items-center justify-center rounded bg-gray-100 text-[10px] text-gray-400">
       待生成封面
@@ -19,14 +21,95 @@ function CoverPlaceholder() {
   );
 }
 
+function AnalysisCell({ asset }: { asset: Asset }) {
+  const analyzing =
+    asset.status === "processing" ||
+    asset.analysis_status === "queued" ||
+    asset.analysis_status === "running";
+  return (
+    <div className="space-y-1">
+      <div className="text-gray-700">
+        {asset.shot_count > 0 ? `${asset.shot_count} 个镜头` : "未拆镜头"}
+      </div>
+      {asset.analysis_status ? (
+        <MediaRunStatusBadge status={asset.analysis_status} />
+      ) : null}
+      {analyzing ? (
+        <div className="text-xs text-blue-600">处理中…</div>
+      ) : null}
+    </div>
+  );
+}
+
+function AssetActions({
+  asset,
+  analyzing,
+  rescanning,
+  onAnalyze,
+  onRescan,
+}: {
+  asset: Asset;
+  analyzing: boolean;
+  rescanning: boolean;
+  onAnalyze: (id: number, retry: boolean) => void;
+  onRescan: (id: number) => void;
+}) {
+  const isProcessing =
+    asset.status === "processing" ||
+    asset.analysis_status === "queued" ||
+    asset.analysis_status === "running" ||
+    analyzing;
+  const hasShots = asset.shot_count > 0;
+  const failed = asset.analysis_status === "failed";
+  const disabledAnalyze = isProcessing || asset.status === "source_missing";
+
+  let primaryLabel = "开始分析";
+  if (isProcessing) primaryLabel = "分析中…";
+  else if (failed) primaryLabel = "重试分析";
+  else if (hasShots) primaryLabel = "重新分析";
+
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <button
+        type="button"
+        onClick={() => onAnalyze(asset.id, hasShots || failed)}
+        disabled={disabledAnalyze}
+        className="rounded-md bg-brand px-3 py-1 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 hover:bg-brand-dark"
+      >
+        {primaryLabel}
+      </button>
+      {hasShots ? (
+        <Link
+          href={`/shots?asset_id=${asset.id}`}
+          className="rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+        >
+          查看镜头
+        </Link>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => onRescan(asset.id)}
+        disabled={rescanning}
+        className="rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-600 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-gray-50"
+      >
+        {rescanning ? "重扫中…" : "重新扫描"}
+      </button>
+    </div>
+  );
+}
+
 export function AssetTable({
   assets,
   rescanningIds,
+  analyzingIds,
   onRescan,
+  onAnalyze,
 }: {
   assets: Asset[];
   rescanningIds: Set<number>;
+  analyzingIds: Set<number>;
   onRescan: (id: number) => void;
+  onAnalyze: (id: number, retry: boolean) => void;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -38,56 +121,52 @@ export function AssetTable({
             <th className="px-4 py-3 font-medium">大小</th>
             <th className="px-4 py-3 font-medium">时长</th>
             <th className="px-4 py-3 font-medium">分辨率</th>
-            <th className="px-4 py-3 font-medium">帧率</th>
             <th className="px-4 py-3 font-medium">编码(视频/音频)</th>
             <th className="px-4 py-3 font-medium">状态</th>
+            <th className="px-4 py-3 font-medium">镜头分析</th>
             <th className="px-4 py-3 font-medium">最近扫描</th>
             <th className="px-4 py-3 font-medium">操作</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-50">
-          {assets.map((a) => {
-            const rescanning = rescanningIds.has(a.id);
-            return (
-              <tr key={a.id} className="align-top hover:bg-gray-50/60">
-                <td className="px-4 py-3">
-                  <CoverPlaceholder />
-                </td>
-                <td className="px-4 py-3">
-                  <div className="font-medium text-gray-900">{a.filename}</div>
-                  <div className="text-xs text-gray-400">{a.relative_path}</div>
-                  {a.status === "error" && a.error_message ? (
-                    <div className="mt-1 text-xs text-red-600">原因：{a.error_message}</div>
-                  ) : null}
-                </td>
-                <td className="px-4 py-3 text-gray-700">{formatBytes(a.file_size)}</td>
-                <td className="px-4 py-3 text-gray-700">{formatDuration(a.duration)}</td>
-                <td className="px-4 py-3 text-gray-700">
-                  {formatResolution(a.width, a.height, a.orientation)}
-                </td>
-                <td className="px-4 py-3 text-gray-700">
-                  {a.fps != null ? `${Math.round(a.fps)} fps` : "—"}
-                </td>
-                <td className="px-4 py-3 text-gray-700">
-                  {formatCodec(a.video_codec, a.audio_codec)}
-                </td>
-                <td className="px-4 py-3">
-                  <AssetStatusBadge status={a.status} />
-                </td>
-                <td className="px-4 py-3 text-gray-500">{formatDateTime(a.last_seen_at)}</td>
-                <td className="px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() => onRescan(a.id)}
-                    disabled={rescanning}
-                    className="rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 disabled:cursor-not-allowed disabled:opacity-50 hover:bg-gray-50"
-                  >
-                    {rescanning ? "重扫中…" : "重新扫描"}
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
+          {assets.map((a) => (
+            <tr key={a.id} className="align-top hover:bg-gray-50/60">
+              <td className="px-4 py-3">
+                <CoverPlaceholder />
+              </td>
+              <td className="px-4 py-3">
+                <div className="font-medium text-gray-900">{a.filename}</div>
+                <div className="text-xs text-gray-400">{a.relative_path}</div>
+                {a.status === "error" && a.error_message ? (
+                  <div className="mt-1 text-xs text-red-600">原因：{a.error_message}</div>
+                ) : null}
+              </td>
+              <td className="px-4 py-3 text-gray-700">{formatBytes(a.file_size)}</td>
+              <td className="px-4 py-3 text-gray-700">{formatDuration(a.duration)}</td>
+              <td className="px-4 py-3 text-gray-700">
+                {formatResolution(a.width, a.height, a.orientation)}
+              </td>
+              <td className="px-4 py-3 text-gray-700">
+                {formatCodec(a.video_codec, a.audio_codec)}
+              </td>
+              <td className="px-4 py-3">
+                <AssetStatusBadge status={a.status} />
+              </td>
+              <td className="px-4 py-3">
+                <AnalysisCell asset={a} />
+              </td>
+              <td className="px-4 py-3 text-gray-500">{formatDateTime(a.last_seen_at)}</td>
+              <td className="px-4 py-3">
+                <AssetActions
+                  asset={a}
+                  analyzing={analyzingIds.has(a.id)}
+                  rescanning={rescanningIds.has(a.id)}
+                  onAnalyze={onAnalyze}
+                  onRescan={onRescan}
+                />
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>

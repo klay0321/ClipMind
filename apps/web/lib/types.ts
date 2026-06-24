@@ -54,6 +54,96 @@ export interface Asset {
   last_seen_at: string;
   created_at: string;
   updated_at: string;
+  // PR-02 镜头分析概览
+  shot_count: number;
+  analysis_status: MediaRunStatus | null;
+}
+
+// ===== PR-02 拆镜头 / 派生文件 =====
+
+export type ShotStatus = "pending" | "processing" | "ready" | "failed";
+
+export type MediaRunStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type ExportStatus = "queued" | "running" | "completed" | "failed";
+
+export interface Shot {
+  id: number;
+  asset_id: number;
+  sequence_no: number;
+  start_time: number;
+  end_time: number;
+  duration: number;
+  detector_type: string;
+  detector_confidence: number | null;
+  status: ShotStatus;
+  error_message: string | null;
+  has_keyframe: boolean;
+  has_thumbnail: boolean;
+  has_proxy: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ShotDetail extends Shot {
+  asset_filename: string;
+  asset_duration: number | null;
+  asset_width: number | null;
+  asset_height: number | null;
+  asset_video_codec: string | null;
+  asset_audio_codec: string | null;
+}
+
+export interface ShotAnalysis {
+  asset_id: number;
+  has_run: boolean;
+  run_id: number | null;
+  status: MediaRunStatus | null;
+  progress: number;
+  current_step: string | null;
+  total_shots: number;
+  completed_shots: number;
+  error_message: string | null;
+  celery_task_id: string | null;
+  generation: number;
+  queued_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  shot_count: number;
+}
+
+export interface ExportItem {
+  id: number;
+  asset_id: number | null;
+  shot_id: number | null;
+  status: ExportStatus;
+  mode: string;
+  source_asset_id: number;
+  source_shot_id: number;
+  source_generation: number;
+  source_sequence_no: number;
+  source_start_time: number;
+  source_end_time: number;
+  source_filename: string;
+  source_relative_path: string;
+  filename: string | null;
+  error_message: string | null;
+  celery_task_id: string | null;
+  has_file: boolean;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface ShotQuery {
+  asset_id?: number;
+  status?: ShotStatus;
+  page: number;
+  page_size: number;
 }
 
 export interface PageResult<T> {

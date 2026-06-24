@@ -13,6 +13,7 @@ import { ErrorState } from "@/components/states/ErrorState";
 import { Loading } from "@/components/states/Loading";
 import type { ApiError } from "@/lib/api";
 import {
+  useAnalyzeMutation,
   useAssets,
   useCreateSourceDirectory,
   useRescanMutation,
@@ -40,6 +41,7 @@ export function AssetsView() {
   const [status, setStatus] = useState<AssetStatus | "">("");
   const [selectedDirId, setSelectedDirId] = useState<number | null>(null);
   const [rescanningIds, setRescanningIds] = useState<Set<number>>(new Set());
+  const [analyzingIds, setAnalyzingIds] = useState<Set<number>>(new Set());
 
   const dirsQ = useSourceDirectories();
   const dirs = useMemo(() => dirsQ.data ?? [], [dirsQ.data]);
@@ -63,6 +65,7 @@ export function AssetsView() {
   const scanMutation = useScanMutation();
   const rescanMutation = useRescanMutation();
   const createMutation = useCreateSourceDirectory();
+  const analyzeMutation = useAnalyzeMutation();
 
   // 扫描结束后刷新素材与目录
   const scanState = scanStatusQ.data?.scan_status;
@@ -102,6 +105,23 @@ export function AssetsView() {
     });
   };
 
+  const handleAnalyze = (id: number, retry: boolean) => {
+    setAnalyzingIds((prev) => new Set(prev).add(id));
+    analyzeMutation.mutate(
+      { assetId: id, retry },
+      {
+        onSettled: () => {
+          setAnalyzingIds((prev) => {
+            const next = new Set(prev);
+            next.delete(id);
+            return next;
+          });
+          void assetsQ.refetch();
+        },
+      },
+    );
+  };
+
   let body: React.ReactNode;
   if (assetsQ.isLoading) {
     body = <Loading />;
@@ -129,7 +149,9 @@ export function AssetsView() {
         <AssetTable
           assets={assetsQ.data!.items}
           rescanningIds={rescanningIds}
+          analyzingIds={analyzingIds}
           onRescan={handleRescan}
+          onAnalyze={handleAnalyze}
         />
         <Pagination
           page={page}
@@ -143,7 +165,7 @@ export function AssetsView() {
 
   return (
     <div>
-      <TopNav />
+      <TopNav active="assets" />
       <main className="mx-auto max-w-7xl space-y-4 p-4">
         <SourceDirPanel
           dirs={dirs}
@@ -174,7 +196,8 @@ export function AssetsView() {
         </section>
 
         <p className="px-1 text-xs text-gray-400">
-          说明：本页为只读素材索引。镜头拆分、关键帧、AI 标签等将在后续版本提供。
+          说明：可对已索引素材发起镜头分析（拆镜头 + 关键帧 / 缩略图 / 代理）。AI
+          画面描述与标签将在后续版本提供。
         </p>
       </main>
     </div>

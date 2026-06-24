@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.tasks_client import enqueue_rescan_asset, enqueue_scan
+from app.tasks_client import enqueue_generate_poster, enqueue_rescan_asset, enqueue_scan
 
 
 async def get_active_scan_run(db: AsyncSession, sd_id: int) -> ScanRun | None:
@@ -89,3 +89,8 @@ async def request_scan(db: AsyncSession, sd: SourceDirectory) -> ScanRun:
 async def request_rescan_asset(asset_id: int) -> str:
     """入队单素材重扫，返回 celery_task_id。"""
     return enqueue_rescan_asset(asset_id)
+
+
+async def request_generate_poster(asset_id: int) -> str:
+    """入队素材海报生成（media 队列），返回 celery_task_id。"""
+    return enqueue_generate_poster(asset_id)

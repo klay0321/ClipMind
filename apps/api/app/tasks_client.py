@@ -8,6 +8,7 @@ from clipmind_shared.constants import (
     QUEUE_SCAN,
     TASK_ANALYZE_SHOTS,
     TASK_EXPORT_SHOT_CLIP,
+    TASK_GENERATE_ASSET_POSTER,
     TASK_RESCAN_ASSET,
     TASK_SCAN_SOURCE_DIRECTORY,
 )
@@ -46,4 +47,12 @@ def enqueue_analyze_shots(run_id: int) -> str:
 def enqueue_export_clip(export_id: int) -> str:
     """入队片段导出任务（media 队列），返回 celery_task_id。"""
     result = celery_client.send_task(TASK_EXPORT_SHOT_CLIP, args=[export_id], queue=QUEUE_MEDIA)
+    return result.id
+
+
+def enqueue_generate_poster(asset_id: int) -> str:
+    """入队素材海报生成任务（media 队列），返回 celery_task_id。"""
+    result = celery_client.send_task(
+        TASK_GENERATE_ASSET_POSTER, args=[asset_id], queue=QUEUE_MEDIA
+    )
     return result.id

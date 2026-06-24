@@ -17,7 +17,9 @@ from typing import Any
 from clipmind_shared.constants import (
     ERROR_MESSAGE_MAX_LEN,
     METADATA_VERSION,
+    QUEUE_MEDIA,
     SCAN_COMMIT_BATCH,
+    TASK_GENERATE_ASSET_POSTER,
     TASK_RESCAN_ASSET,
     TASK_SCAN_SOURCE_DIRECTORY,
 )
@@ -126,6 +128,8 @@ def _process_file(
         apply_probe_to_asset(asset, probe)
         asset.status = AssetStatus.INDEXED
         asset.error_message = None
+        # 新增/变化的素材失效旧海报，扫描结束统一重生成（内容可能已变）
+        asset.poster_path = None
     else:
         clear_probe_fields(asset)
         asset.status = AssetStatus.ERROR
@@ -163,6 +167,25 @@ def _scan_files(
     run.heartbeat_at = utcnow()
     session.commit()
     return counts
+
+
+def _enqueue_posters(session: Session, sd_id: int, run_id: int) -> int:
+    """为本次扫描已索引但缺海报的素材入队海报生成（media 队列，best-effort）。"""
+    ids = (
+        session.execute(
+            select(Asset.id).where(
+                Asset.source_directory_id == sd_id,
+                Asset.last_seen_scan_id == run_id,
+                Asset.status == AssetStatus.INDEXED,
+                Asset.poster_path.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for aid in ids:
+        celery_app.send_task(TASK_GENERATE_ASSET_POSTER, args=[aid], queue=QUEUE_MEDIA)
+    return len(ids)
 
 
 def _mark_missing(session: Session, sd_id: int, run_id: int) -> int:
@@ -232,6 +255,8 @@ def scan_source_directory(self, scan_run_id: int) -> dict[str, Any]:  # noqa: AN
                 sd.last_scanned_at = utcnow()
                 session.commit()
 
+                posters = _enqueue_posters(session, sd_id, run.id)
+
                 return {
                     "scan_run_id": run.id,
                     "discovered": counts["discovered"],
@@ -239,6 +264,7 @@ def scan_source_directory(self, scan_run_id: int) -> dict[str, Any]:  # noqa: AN
                     "modified": counts["modified"],
                     "errored": counts["errored"],
                     "missing": missing,
+                    "posters_queued": posters,
                 }
             except Exception as exc:  # noqa: BLE001 - 记录失败并向上抛交给 Celery
                 session.rollback()
@@ -294,10 +320,17 @@ def rescan_asset(self, asset_id: int) -> dict[str, Any]:  # noqa: ANN001
             apply_probe_to_asset(asset, probe)
             asset.status = AssetStatus.INDEXED
             asset.error_message = None
+            asset.poster_path = None  # 重扫强制重生成海报
         except ProbeError as exc:
             clear_probe_fields(asset)
             asset.status = AssetStatus.ERROR
             asset.error_message = _truncate(f"{exc.reason}: {exc.detail}".strip())
         asset.last_seen_at = utcnow()
+        indexed = asset.status == AssetStatus.INDEXED
+        asset_id_val = asset.id
         session.commit()
+        if indexed:
+            celery_app.send_task(
+                TASK_GENERATE_ASSET_POSTER, args=[asset_id_val], queue=QUEUE_MEDIA
+            )
         return {"status": asset.status.value, "asset_id": asset.id}

@@ -93,13 +93,13 @@ AI 描述与标签（外部 AI 理解：画面描述 + 标签）
 - A5 素材列表（分页 + 文件名搜索 + 状态筛选）与素材详情。
 - A6 提取视频信息（时长 / 分辨率 / 编码 / 帧率 / 朝向 / 音轨等）。
 
-### B. 拆镜头与派生文件
+### B. 拆镜头与派生文件（**已实现，PR-02**）
 
-- B1 场景切分拆镜头（PySceneDetect）。
+- B1 场景切分拆镜头（PySceneDetect ContentDetector 主 + 固定时长切分兜底 + 纯函数后处理）。
 - B2 关键帧提取（FFmpeg）。
 - B3 缩略图生成（FFmpeg）。
-- B4 代理视频生成（FFmpeg 转码低码率预览）。
-- B5 片段裁剪与下载（FFmpeg 按镜头时间区间裁剪源片段）。
+- B4 代理视频生成（FFmpeg 转码低码率预览，H.264 + yuv420p + faststart + ≤720P，浏览器可播）。
+- B5 片段裁剪与下载（FFmpeg 按镜头时间区间裁剪源片段，默认 reencode 精确边界，可选 stream copy）。
 
 ### C. AI 理解与人工审核
 
@@ -129,24 +129,24 @@ AI 描述与标签（外部 AI 理解：画面描述 + 标签）
 
 | PR | 分支 | 范围 | 对应功能分组 |
 | --- | --- | --- | --- |
-| **PR-01** | `feat/mvp-foundation` | 基础架构 + 只读素材索引（**当前**） | A（索引 / 目录管理）+ AI 接口骨架（仅文档与接口，不真实调用） |
-| **PR-02** | `feat/shot-processing` | 拆镜头 + 派生文件（关键帧 / 缩略图 / 代理 / 片段裁剪下载，PySceneDetect） | B |
+| **PR-01** | `feat/mvp-foundation` | 基础架构 + 只读素材索引（**已合并**） | A（索引 / 目录管理）+ AI 接口骨架（仅文档与接口，不真实调用） |
+| **PR-02** | `feat/shot-processing` | 拆镜头 + 派生文件（关键帧 / 缩略图 / 代理 / 片段裁剪下载，PySceneDetect）（**当前**） | B |
 | **PR-03** | `feat/ai-shot-analysis` | AI 理解 + 人工审核（小米 MiMo，AIProvider 抽象，先能力探测） | C |
 | **PR-04** | `feat/shot-search` | 搜索 + 画面描述匹配（pgvector 在此 PR 用独立迁移启用） | D |
 | **PR-05** | `feat/script-shot-matching` | 脚本匹配 + 剪辑清单 CSV 导出 | E |
 
 ---
 
-## 6. PR-01 本轮范围与不做项
+## 6. PR-01 基线范围与不做项
 
-**PR-01 = `feat/mvp-foundation`：基础架构 + 只读素材索引。** 这是当前正在交付的一轮。
+**PR-01 = `feat/mvp-foundation`：基础架构 + 只读素材索引。** PR-01 已合并，是后续所有 PR 的地基；当前正在交付的一轮是 PR-02（拆镜头 + 派生文件，见上表 B 组）。本节保留 PR-01 的基线范围与其当轮不做项，供追溯地基约束。
 
 ### 6.1 PR-01 本轮要做（范围内）
 
 **基础架构**
 
 - monorepo 目录结构落地：根 `compose.yml`、`apps/web`、`apps/api`、`services/worker`（包名 `clipmind_worker`）、`packages/shared`（包名 `clipmind_shared`）、`infra/`（api / worker / web 三个 Dockerfile）、`docs/`、`scripts/`、`sample_media/`（只读源目录，禁止提交视频）。
-- Docker Compose 6 个服务：
+- Docker Compose 6 个服务（PR-01 基线；PR-02 在此基础上新增 `media-worker`，共 7 个）：
   - `postgres`（`pgvector/pgvector:pg16`）
   - `redis`（`7-alpine`）
   - `migrate`（一次性 `alembic upgrade head`）
@@ -219,7 +219,8 @@ AI 描述与标签（外部 AI 理解：画面描述 + 标签）
 对应拆镜头与打标的界面形态。其中：
 
 - 索引 / 镜头列表的基础框架属 PR-01；
-- 真正的拆镜头与镜头派生文件（关键帧 / 缩略图等）属 PR-02。
+- 拆镜头与镜头派生文件（关键帧 / 缩略图 / 代理 / 片段裁剪下载）属 PR-02，**已实现**；
+- 「打标」中的 AI 画面描述 / 标签属 PR-03，**尚未实现**；PR-02 镜头详情中以占位文案（如「AI 内容分析将在 PR-03 提供」）说明，不显示伪造 AI 状态。
 
 ### 图三 → PR-05「脚本匹配」
 

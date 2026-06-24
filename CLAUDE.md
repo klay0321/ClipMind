@@ -2,6 +2,13 @@
 
 本文件供 Claude Code 在本仓库工作时遵循。**最高事实来源是 `docs/PRODUCT_REQUIREMENTS.md`**，本文件是其工程化约定。
 
+## 0. 协作与文档约定
+
+- **默认全程使用中文汇报**（过程说明、计划、状态、总结都用中文；代码与英文专有名词保留英文）。
+- **UI 参考图位置**：`docs/ui-reference/`（`01-shot-splitting-and-tagging.jpg` 拆镜头打标、`02-asset-management.jpg` 素材管理、`03-script-matching.jpg` 脚本匹配、`04-description-matching.jpg` 画面匹配），仅作产品/交互设计参考，**不作为运行时前端资源**。
+- 不实现的功能在前端不显示假状态、不伪造 AI 结果。
+- 不把本机绝对路径、个人环境或真实凭据写入文档与代码。
+
 ## 1. 产品定位
 
 ClipMind 是面向公司 NAS 部署的 **AI 视频素材管理与智能匹配系统**：只读索引视频素材、FFmpeg 拆镜头与派生文件、外部 AI 理解打标、自然语言检索、画面/脚本匹配、剪辑清单导出。它把 NAS 中无法理解、难检索的原始视频，转换为结构化、可搜索、可匹配、可审核、可下载的镜头资产。
@@ -18,9 +25,9 @@ ClipMind **不做**任何生成式视频能力：
 - 前端：Next.js + React + TypeScript + Tailwind CSS + TanStack Query
 - 后端：FastAPI + Pydantic + SQLAlchemy(async) + Alembic
 - 数据库：PostgreSQL（pgvector 为语义检索预留，PR-04 启用；禁止用 SQLite 代替）
-- 异步任务：Redis + **Celery**（broker/result backend 用 Redis）
-- 视频处理：FFmpeg / FFprobe（PySceneDetect 等场景检测在 PR-02 引入）
-- 部署：Docker + Docker Compose，后续部署到公司 NAS
+- 异步任务：Redis + **Celery**（broker/result backend 用 Redis）。worker 消费 `default,scan`；media-worker 消费 `media`（PR-02 拆镜头/派生/导出）
+- 视频处理：FFmpeg / FFprobe；PySceneDetect（`opencv-python-headless` 后端）场景检测，PR-02 引入
+- 部署：Docker + Docker Compose（PR-02 起 7 服务），后续部署到公司 NAS
 
 ## 4. 目录结构
 
@@ -41,7 +48,7 @@ sample_media/        本地只读源目录（模拟 NAS，禁止提交视频）
 ```bash
 # 启动全栈（项目根目录执行）
 docker compose up -d
-docker compose ps           # 查看 6 个服务健康状态
+docker compose ps           # 查看 7 个服务健康状态（含 media-worker）
 docker compose logs -f api  # 查看日志
 docker compose down         # 停止
 
@@ -59,9 +66,9 @@ npm test                    # 前端测试
 
 ## 6. 测试命令
 
-- 后端：`pytest`（apps/api、services/worker）
-- 前端：`npm run lint && npm run typecheck && npm test`
-- 集成：`docker compose config` 校验；`docker compose up` 后端到端扫描合成夹具
+- 后端：`pytest`（仓库根运行；DB/ffmpeg 测试需 `TEST_DATABASE_URL`（指向 pgvector/pg16）+ 本机 ffmpeg，否则自动跳过）
+- 前端：`cd apps/web && npm run lint && npm run typecheck && npm test && npm run build`
+- 集成：`docker compose config` 校验；`docker compose up` 后端到端拆镜头合成夹具（不提交真实视频）
 
 ## 7. Git 分支规则
 
@@ -92,28 +99,30 @@ npm test                    # 前端测试
 
 ## 11. PR 路线（完整 MVP v0.1 = PR-01..PR-05）
 
-- PR-01 `feat/mvp-foundation`：基础架构 + 只读素材索引（**当前阶段**）
-- PR-02 `feat/shot-processing`：拆镜头 + 派生文件
+- PR-01 `feat/mvp-foundation`：基础架构 + 只读素材索引（已合并）
+- PR-02 `feat/shot-processing`：拆镜头 + 派生文件（**当前阶段**）
 - PR-03 `feat/ai-shot-analysis`：AI 理解 + 人工审核
 - PR-04 `feat/shot-search`：搜索 + 画面描述匹配
 - PR-05 `feat/script-shot-matching`：脚本匹配 + 剪辑清单
 
 详见 `docs/PR_ROADMAP.md`。
 
-## 12. 当前阶段范围（PR-01）
+## 12. 当前阶段范围（PR-02）
 
-实现：Monorepo 骨架、Docker Compose（6 服务）、PostgreSQL、Redis、Celery worker（仅扫描）、只读源目录挂载、目录递归扫描、FFprobe 基础信息、分层变化检测/幂等/缺失检测、素材数据库、素材统一管理页面、CI、测试、文档。
+**实现**：可替换 `ShotDetector`（PySceneDetect 主 + 固定切分兜底）拆镜头；FFmpeg 派生关键帧/缩略图/代理视频；按时间码导出可下载片段（默认 reencode）；`Shot`/`MediaProcessingRun`/`Export` 三表与 `0002_shot_processing` 迁移；media-worker（专用 media 队列，默认并发 1）；镜头分析/镜头/导出 API 与安全文件服务（含 HTTP Range）；镜头库前端（网格 + 详情 + 代理播放 + 导出下载）；测试、CI、文档。详见 `docs/SHOT_PROCESSING.md`。
 
-不实现（仅预留接缝）：拆镜头、关键帧、缩略图、代理视频、AI 标签、搜索、画面/脚本匹配、剪辑清单、鉴权、pgvector 向量、scheduler/额外 worker。
+**不实现（仅预留/留待后续 PR）**：任何 AI 调用与打标、画面描述、产品/场景/动作识别、风险判断、人工审核、自然语言搜索、画面/脚本匹配、剪辑清单、鉴权、pgvector 向量、scheduler/ai/export worker。UI 不得伪造"AI 已打标/产品已识别/匹配度"等状态。
+
+镜头分析以 PostgreSQL 为事实来源；重新分析用**原子代次替换**（旧镜头在新分析完整成功前持续可用）；同一素材同一时刻至多一个活动分析运行（部分唯一索引 + 素材级 advisory lock）。
 
 ## 13. 每次开发后的检查项
 
 - [ ] 当前在正确分支（非 main）
-- [ ] 未提交视频、密钥、NAS 凭据
-- [ ] 数据库变更走 Alembic 迁移
-- [ ] 源目录访问只读、经白名单校验
-- [ ] 后端 `pytest` 通过、`ruff` 干净
-- [ ] 前端 `lint` + `typecheck` + 测试通过
-- [ ] `docker compose config` 有效
-- [ ] 未实现功能在前端不显示假状态
+- [ ] 未提交视频、密钥、NAS 凭据、运行时数据（`data/`、`.env`）
+- [ ] 数据库变更走 Alembic 新迁移（不改历史迁移、不删库重建）
+- [ ] 源目录访问只读、经白名单校验；派生文件只写 `/app/data` 且经路径包含校验
+- [ ] 后端 `pytest` 通过（设 `TEST_DATABASE_URL` + ffmpeg）、`ruff` 干净
+- [ ] 前端 `lint` + `typecheck` + 测试 + `build` 通过
+- [ ] `docker compose config` 有效（新增 env 必须进 `.env.example`）
+- [ ] 未实现功能在前端不显示假状态、不伪造 AI 结果
 - [ ] 给出验证命令与结果，不只说"已完成"

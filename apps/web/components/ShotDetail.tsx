@@ -1,11 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { ShotStatusBadge } from "@/components/StatusBadge";
 import { ErrorState } from "@/components/states/ErrorState";
 import { Loading } from "@/components/states/Loading";
-import { exportDownloadUrl, shotKeyframeUrl, shotPreviewUrl } from "@/lib/api";
+import {
+  exportDownloadUrl,
+  shotKeyframeAtUrl,
+  shotKeyframeUrl,
+  shotPreviewUrl,
+} from "@/lib/api";
 import { formatCodec, formatDuration, formatResolution } from "@/lib/format";
 import { useExportMutation, useExportStatus, useShot } from "@/lib/hooks";
 
@@ -15,9 +20,16 @@ function timecode(s: number): string {
 
 export function ShotDetail({ shotId }: { shotId: number | null }) {
   const [exportId, setExportId] = useState<number | null>(null);
+  // 关键帧条选中帧：null = 主关键帧；数字 = 条上第 N 帧
+  const [activeFrame, setActiveFrame] = useState<number | null>(null);
   const shotQ = useShot(shotId);
   const exportMut = useExportMutation();
   const exportStatusQ = useExportStatus(exportId);
+
+  // 切换镜头时重置选中帧
+  useEffect(() => {
+    setActiveFrame(null);
+  }, [shotId]);
 
   if (shotId == null) {
     return (
@@ -72,14 +84,53 @@ export function ShotDetail({ shotId }: { shotId: number | null }) {
         </div>
       )}
 
-      {/* 主关键帧 */}
+      {/* 关键帧（主帧 / 关键帧条选中帧） */}
       {s.has_keyframe ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={shotKeyframeUrl(s.id)}
+          src={activeFrame == null ? shotKeyframeUrl(s.id) : shotKeyframeAtUrl(s.id, activeFrame)}
           alt={`镜头 ${s.sequence_no} 关键帧`}
           className="w-full rounded border border-gray-100"
         />
+      ) : null}
+
+      {/* 关键帧条：沿镜头均匀采样的多帧（点击放大到上方） */}
+      {s.keyframe_count > 0 ? (
+        <div className="space-y-1" data-testid="keyframe-strip">
+          <div className="text-[11px] text-gray-400">关键帧条（{s.keyframe_count} 帧 · 沿镜头采样）</div>
+          <div className="flex gap-1 overflow-x-auto pb-1">
+            <button
+              type="button"
+              onClick={() => setActiveFrame(null)}
+              className={`shrink-0 overflow-hidden rounded border ${
+                activeFrame == null ? "border-brand ring-1 ring-brand" : "border-gray-200"
+              }`}
+              title="主关键帧"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={shotKeyframeUrl(s.id)} alt="主关键帧" className="h-12 w-20 object-cover" />
+            </button>
+            {Array.from({ length: s.keyframe_count }).map((_, i) => (
+              <button
+                key={i}
+                type="button"
+                onClick={() => setActiveFrame(i)}
+                className={`shrink-0 overflow-hidden rounded border ${
+                  activeFrame === i ? "border-brand ring-1 ring-brand" : "border-gray-200"
+                }`}
+                title={`第 ${i + 1} 帧`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={shotKeyframeAtUrl(s.id, i)}
+                  alt={`关键帧 ${i + 1}`}
+                  className="h-12 w-20 object-cover"
+                  loading="lazy"
+                />
+              </button>
+            ))}
+          </div>
+        </div>
       ) : null}
 
       <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">

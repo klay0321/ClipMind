@@ -17,7 +17,8 @@ class WorkerSettings(BaseSettings):
     celery_result_backend: str = "redis://redis:6379/2"
 
     source_mount_path: str = "/app/source"
-    allowed_source_roots: str = "/app/source"
+    # 白名单根：只读 NAS 源 + 网页上传可写区
+    allowed_source_roots: str = "/app/source,/app/uploads"
     # 派生文件可写数据根（PR-02：拆镜头/关键帧/缩略图/代理/导出写入此处）
     data_dir: str = "/app/data"
 
@@ -44,7 +45,8 @@ class WorkerSettings(BaseSettings):
     proxy_audio_bitrate: str = "96k"
     keyframe_max_width: int = 640
     thumbnail_max_width: int = 320
-    aux_keyframes: int = 0  # 主关键帧之外的辅助关键帧数量（默认 0）
+    # 关键帧条：沿镜头均匀采样的帧数（用于详情多帧预览）。0 表示仅主关键帧。
+    aux_keyframes: int = 4
 
     log_level: str = "INFO"
 

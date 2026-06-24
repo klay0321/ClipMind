@@ -68,6 +68,8 @@ function buildShotQuery(query: ShotQuery): string {
 // 资源直链（用于 <img>/<video> src 与下载，浏览器走同源代理，不经 fetch）
 export const shotThumbnailUrl = (id: number) => `/api/shots/${id}/thumbnail`;
 export const shotKeyframeUrl = (id: number) => `/api/shots/${id}/keyframe`;
+export const shotKeyframeAtUrl = (id: number, index: number) =>
+  `/api/shots/${id}/keyframe/${index}`;
 export const shotPreviewUrl = (id: number) => `/api/shots/${id}/preview`;
 export const exportDownloadUrl = (id: number) => `/api/exports/${id}/download`;
 
@@ -126,5 +128,24 @@ export const api = {
   },
   getExport(id: number): Promise<ExportItem> {
     return http<ExportItem>(`/exports/${id}`);
+  },
+  async uploadAsset(
+    file: File,
+  ): Promise<{ filename: string; bytes: number; source_directory_id: number; scan_run_id: number }> {
+    const fd = new FormData();
+    fd.append("file", file);
+    // 不手动设 Content-Type，浏览器自动带 multipart boundary
+    const res = await fetch(`${BASE}/uploads`, { method: "POST", body: fd });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const body = await res.json();
+        detail = body?.detail ?? detail;
+      } catch {
+        // 忽略
+      }
+      throw new ApiError(res.status, typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
+    return res.json();
   },
 };

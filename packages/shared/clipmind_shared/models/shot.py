@@ -24,6 +24,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from clipmind_shared.db.base import Base, pg_enum, utcnow
@@ -59,6 +60,8 @@ class Shot(Base):
     keyframe_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     thumbnail_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     proxy_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    # 关键帧条：沿镜头时间均匀采样的多帧相对路径（有序）；空/None 表示仅主关键帧
+    keyframe_paths: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(

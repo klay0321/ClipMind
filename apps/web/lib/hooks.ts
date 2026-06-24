@@ -85,6 +85,17 @@ export function useCreateSourceDirectory() {
   });
 }
 
+export function useUploadMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => api.uploadAsset(file),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["assets"] });
+      qc.invalidateQueries({ queryKey: ["source-directories"] });
+    },
+  });
+}
+
 // ===== PR-02 镜头分析 / 镜头 / 导出 =====
 
 export function useShotAnalysis(assetId: number | null) {

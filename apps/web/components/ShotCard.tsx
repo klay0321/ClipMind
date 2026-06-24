@@ -9,21 +9,28 @@ export function ShotCard({
   shot,
   selected,
   onSelect,
+  onDownload,
+  downloading = false,
 }: {
   shot: Shot;
   selected: boolean;
   onSelect: (id: number) => void;
+  onDownload?: (id: number) => void;
+  downloading?: boolean;
 }) {
   return (
-    <button
-      type="button"
+    <div
       data-testid="shot-card"
-      onClick={() => onSelect(shot.id)}
-      className={`flex flex-col overflow-hidden rounded-lg border text-left transition ${
+      className={`flex flex-col overflow-hidden rounded-lg border transition ${
         selected ? "border-brand ring-1 ring-brand" : "border-gray-200 hover:border-gray-300"
       }`}
     >
-      <div className="relative aspect-video w-full bg-gray-100">
+      <button
+        type="button"
+        onClick={() => onSelect(shot.id)}
+        className="relative block aspect-video w-full bg-gray-100 text-left"
+        title="查看镜头详情"
+      >
         {shot.has_thumbnail ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -40,16 +47,42 @@ export function ShotCard({
         <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
           #{shot.sequence_no}
         </span>
-      </div>
+        <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white">
+          {shot.duration.toFixed(1)}s
+        </span>
+      </button>
       <div className="space-y-1 p-2">
-        <div className="text-xs text-gray-700">
-          {formatDuration(shot.start_time)} – {formatDuration(shot.end_time)}
-        </div>
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-gray-400">{shot.duration.toFixed(1)}s</span>
+          <span className="text-xs text-gray-700">
+            {formatDuration(shot.start_time)} – {formatDuration(shot.end_time)}
+          </span>
           <ShotStatusBadge status={shot.status} />
         </div>
+        {shot.asset_filename ? (
+          <div className="truncate text-[11px] text-gray-400" title={shot.asset_filename}>
+            来源：{shot.asset_filename}
+          </div>
+        ) : null}
+        <div className="flex items-center gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => onSelect(shot.id)}
+            className="flex-1 rounded border border-gray-300 px-2 py-1 text-[11px] text-gray-700 hover:bg-gray-50"
+          >
+            查看
+          </button>
+          {onDownload ? (
+            <button
+              type="button"
+              onClick={() => onDownload(shot.id)}
+              disabled={downloading || !shot.has_proxy}
+              className="flex-1 rounded bg-brand px-2 py-1 text-[11px] font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 hover:bg-brand-dark"
+            >
+              {downloading ? "导出中…" : "↓ 下载"}
+            </button>
+          ) : null}
+        </div>
       </div>
-    </button>
+    </div>
   );
 }

@@ -33,8 +33,9 @@ async def list_shots(
     items, total = await shot_service.list_shots(
         db, asset_id=asset_id, status=effective_status, page=page, page_size=page_size
     )
+    names = await shot_service.filenames_for_assets(db, [s.asset_id for s in items])
     return Page[ShotOut](
-        items=[to_shot_out(s) for s in items],
+        items=[to_shot_out(s, names.get(s.asset_id)) for s in items],
         total=total,
         page=page,
         page_size=page_size,
@@ -66,6 +67,20 @@ async def get_keyframe(shot_id: int, db: AsyncSession = Depends(get_db)) -> File
     if shot is None:
         raise HTTPException(status_code=404, detail="镜头不存在")
     return files.serve_derived(shot.keyframe_path, media_type="image/webp")
+
+
+@router.get("/{shot_id}/keyframe/{index}")
+async def get_keyframe_at(
+    shot_id: int, index: int, db: AsyncSession = Depends(get_db)
+) -> FileResponse:
+    """关键帧条第 index 帧（0 起）。供镜头详情多帧预览。"""
+    shot = await shot_service.get_shot(db, shot_id)
+    if shot is None:
+        raise HTTPException(status_code=404, detail="镜头不存在")
+    paths = shot.keyframe_paths or []
+    if index < 0 or index >= len(paths):
+        raise HTTPException(status_code=404, detail="关键帧不存在")
+    return files.serve_derived(paths[index], media_type="image/webp")
 
 
 @router.get("/{shot_id}/preview")

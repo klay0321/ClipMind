@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AssetsView } from "@/components/AssetsView";
+import { ApiError } from "@/lib/api";
 import * as hooks from "@/lib/hooks";
 import type { Asset, SourceDirectory } from "@/lib/types";
 
@@ -13,6 +14,7 @@ vi.mock("@/lib/hooks", () => ({
   useRescanMutation: vi.fn(),
   useCreateSourceDirectory: vi.fn(),
   useAnalyzeMutation: vi.fn(),
+  useUploadMutation: vi.fn(),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -79,6 +81,7 @@ function makeAsset(overrides: Partial<Asset> = {}): Asset {
     updated_at: "2026-06-23T00:00:00Z",
     shot_count: 0,
     analysis_status: null,
+    cover_shot_id: null,
     ...overrides,
   };
 }
@@ -88,6 +91,7 @@ beforeEach(() => {
   vi.mocked(hooks.useRescanMutation).mockReturnValue(mutation());
   vi.mocked(hooks.useCreateSourceDirectory).mockReturnValue(mutation());
   vi.mocked(hooks.useAnalyzeMutation).mockReturnValue(mutation());
+  vi.mocked(hooks.useUploadMutation).mockReturnValue(mutation());
   vi.mocked(hooks.useScanStatus).mockReturnValue(query());
   vi.mocked(hooks.useSourceDirectories).mockReturnValue(query({ data: [] }));
   vi.mocked(hooks.useAssets).mockReturnValue(query());
@@ -126,6 +130,28 @@ describe("AssetsView", () => {
     render(<AssetsView />);
     expect(screen.getByText("demo.mp4")).toBeInTheDocument();
     expect(screen.getByText(/共 1 个素材/)).toBeInTheDocument();
+  });
+
+  it("上传中：按钮显示「上传中…」且禁用", () => {
+    vi.mocked(hooks.useUploadMutation).mockReturnValue(mutation({ isPending: true }));
+    vi.mocked(hooks.useAssets).mockReturnValue(
+      query({ data: { items: [makeAsset()], total: 1, page: 1, page_size: 20 } }),
+    );
+    render(<AssetsView />);
+    const btn = screen.getByTestId("upload-btn");
+    expect(btn).toHaveTextContent("上传中…");
+    expect(btn).toBeDisabled();
+  });
+
+  it("上传失败：显示错误横幅", () => {
+    vi.mocked(hooks.useUploadMutation).mockReturnValue(
+      mutation({ isError: true, error: new ApiError(422, "文件超过上限") }),
+    );
+    vi.mocked(hooks.useAssets).mockReturnValue(
+      query({ data: { items: [makeAsset()], total: 1, page: 1, page_size: 20 } }),
+    );
+    render(<AssetsView />);
+    expect(screen.getByText(/上传失败：文件超过上限/)).toBeInTheDocument();
   });
 
   it("扫描中显示横幅且扫描按钮禁用", () => {

@@ -61,6 +61,7 @@ from clipmind_worker.media.derive import (
     THUMBNAIL_NAME,
     MediaConfig,
     derive_shot,
+    strip_frame_name,
 )
 from clipmind_worker.media.detector import ShotConfig, detect_shots
 
@@ -104,6 +105,7 @@ def _media_config(s: WorkerSettings) -> MediaConfig:
         proxy_preset=s.proxy_preset,
         proxy_keep_audio=s.proxy_keep_audio,
         proxy_audio_bitrate=s.proxy_audio_bitrate,
+        aux_keyframes=s.aux_keyframes,
         ffmpeg_timeout=s.ffmpeg_timeout,
         ffprobe_timeout=s.ffprobe_timeout,
     )
@@ -170,11 +172,15 @@ def _finalize(
         new_shots.append((shot, _derived))
     session.flush()  # 取 shot.id
 
-    for shot, _derived in new_shots:
+    for shot, derived in new_shots:
         dst = storage.active_shot_dir(root, asset.id, shot.id)
         shot.keyframe_path = storage.relpath(root, os.path.join(dst, KEYFRAME_NAME))
         shot.thumbnail_path = storage.relpath(root, os.path.join(dst, THUMBNAIL_NAME))
         shot.proxy_path = storage.relpath(root, os.path.join(dst, PROXY_NAME))
+        shot.keyframe_paths = [
+            storage.relpath(root, os.path.join(dst, strip_frame_name(k)))
+            for k in range(len(derived.strip))
+        ] or None
     session.commit()  # T1：新镜头存在但 PROCESSING（隐藏）；旧 READY 仍对外
     _fault_after_insert()  # 故障窗口 A（测试注入）
 
@@ -185,6 +191,8 @@ def _finalize(
         storage.atomic_move(derived.keyframe, os.path.join(dst, KEYFRAME_NAME))
         storage.atomic_move(derived.thumbnail, os.path.join(dst, THUMBNAIL_NAME))
         storage.atomic_move(derived.proxy, os.path.join(dst, PROXY_NAME))
+        for k, strip_src in enumerate(derived.strip):
+            storage.atomic_move(strip_src, os.path.join(dst, strip_frame_name(k)))
 
     _fault_after_move()  # 故障窗口 B（测试注入）
 

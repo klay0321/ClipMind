@@ -37,6 +37,7 @@ function makeAsset(overrides: Partial<Asset> = {}): Asset {
     updated_at: "2026-06-23T00:00:00Z",
     shot_count: 0,
     analysis_status: null,
+    cover_shot_id: null,
     ...overrides,
   };
 }
@@ -52,6 +53,7 @@ describe("AssetTable", () => {
         analyzingIds={new Set()}
         onRescan={noop}
         onAnalyze={noop}
+        onPreview={noop}
       />,
     );
     expect(screen.getByText("demo.mp4")).toBeInTheDocument();
@@ -67,6 +69,7 @@ describe("AssetTable", () => {
         analyzingIds={new Set()}
         onRescan={noop}
         onAnalyze={noop}
+        onPreview={noop}
       />,
     );
     expect(screen.getByText(/ffprobe_failed/)).toBeInTheDocument();
@@ -82,9 +85,10 @@ describe("AssetTable", () => {
         analyzingIds={new Set()}
         onRescan={noop}
         onAnalyze={onAnalyze}
+        onPreview={noop}
       />,
     );
-    await user.click(screen.getByRole("button", { name: "开始分析" }));
+    await user.click(screen.getByRole("button", { name: /开始分析/ }));
     expect(onAnalyze).toHaveBeenCalledWith(7, false);
   });
 
@@ -96,6 +100,7 @@ describe("AssetTable", () => {
         analyzingIds={new Set()}
         onRescan={noop}
         onAnalyze={noop}
+        onPreview={noop}
       />,
     );
     expect(screen.getByText("6 个镜头")).toBeInTheDocument();
@@ -103,7 +108,7 @@ describe("AssetTable", () => {
       "href",
       "/shots?asset_id=9",
     );
-    expect(screen.getByRole("button", { name: "重新分析" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /继续分析/ })).toBeInTheDocument();
   });
 
   it("重扫中按钮禁用", () => {
@@ -114,6 +119,7 @@ describe("AssetTable", () => {
         analyzingIds={new Set()}
         onRescan={noop}
         onAnalyze={noop}
+        onPreview={noop}
       />,
     );
     expect(screen.getByRole("button", { name: "重扫中…" })).toBeDisabled();

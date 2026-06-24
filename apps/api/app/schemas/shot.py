@@ -16,6 +16,7 @@ from pydantic import BaseModel
 class ShotOut(BaseModel):
     id: int
     asset_id: int
+    asset_filename: str | None = None
     sequence_no: int
     start_time: float
     end_time: float
@@ -27,6 +28,7 @@ class ShotOut(BaseModel):
     has_keyframe: bool
     has_thumbnail: bool
     has_proxy: bool
+    keyframe_count: int = 0  # 关键帧条可用帧数（0 表示仅主关键帧）
     created_at: datetime
     updated_at: datetime
 
@@ -69,10 +71,11 @@ class AnalyzeAcceptedOut(BaseModel):
     detail: str = "已入队镜头分析"
 
 
-def to_shot_out(shot: Shot) -> ShotOut:
+def to_shot_out(shot: Shot, asset_filename: str | None = None) -> ShotOut:
     return ShotOut(
         id=shot.id,
         asset_id=shot.asset_id,
+        asset_filename=asset_filename,
         sequence_no=shot.sequence_no,
         start_time=shot.start_time,
         end_time=shot.end_time,
@@ -84,16 +87,16 @@ def to_shot_out(shot: Shot) -> ShotOut:
         has_keyframe=bool(shot.keyframe_path),
         has_thumbnail=bool(shot.thumbnail_path),
         has_proxy=bool(shot.proxy_path),
+        keyframe_count=len(shot.keyframe_paths or []),
         created_at=shot.created_at,
         updated_at=shot.updated_at,
     )
 
 
 def to_shot_detail(shot: Shot, asset: Asset) -> ShotDetailOut:
-    base = to_shot_out(shot).model_dump()
+    base = to_shot_out(shot, asset.filename).model_dump()
     return ShotDetailOut(
         **base,
-        asset_filename=asset.filename,
         asset_duration=asset.duration,
         asset_width=asset.width,
         asset_height=asset.height,

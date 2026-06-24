@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AssetTable } from "@/components/AssetTable";
 import { Pagination } from "@/components/Pagination";
+import { PreviewModal } from "@/components/PreviewModal";
 import { ScanBanner } from "@/components/ScanBanner";
 import { SourceDirPanel } from "@/components/SourceDirPanel";
 import { Toolbar } from "@/components/Toolbar";
@@ -20,6 +21,7 @@ import {
   useScanMutation,
   useScanStatus,
   useSourceDirectories,
+  useUploadMutation,
 } from "@/lib/hooks";
 import type { AssetStatus, SourceDirectoryCreate } from "@/lib/types";
 
@@ -42,6 +44,8 @@ export function AssetsView() {
   const [selectedDirId, setSelectedDirId] = useState<number | null>(null);
   const [rescanningIds, setRescanningIds] = useState<Set<number>>(new Set());
   const [analyzingIds, setAnalyzingIds] = useState<Set<number>>(new Set());
+  const [previewShotId, setPreviewShotId] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const dirsQ = useSourceDirectories();
   const dirs = useMemo(() => dirsQ.data ?? [], [dirsQ.data]);
@@ -66,6 +70,7 @@ export function AssetsView() {
   const rescanMutation = useRescanMutation();
   const createMutation = useCreateSourceDirectory();
   const analyzeMutation = useAnalyzeMutation();
+  const uploadMutation = useUploadMutation();
 
   // 扫描结束后刷新素材与目录
   const scanState = scanStatusQ.data?.scan_status;
@@ -105,6 +110,19 @@ export function AssetsView() {
     });
   };
 
+  const handleUpload = (file: File) => {
+    uploadMutation.mutate(file, {
+      onSuccess: (res) => {
+        // 选中「上传素材」目录：useScanStatus 会轮询它，扫描完成由 scanState effect 自动刷新素材
+        setSelectedDirId(res.source_directory_id);
+      },
+      onSettled: () => {
+        void assetsQ.refetch();
+        void dirsQ.refetch();
+      },
+    });
+  };
+
   const handleAnalyze = (id: number, retry: boolean) => {
     setAnalyzingIds((prev) => new Set(prev).add(id));
     analyzeMutation.mutate(
@@ -138,8 +156,8 @@ export function AssetsView() {
         title={dirs.length === 0 ? "还没有素材目录" : "暂无素材"}
         description={
           dirs.length === 0
-            ? "请先在上方添加素材目录（/app/source）"
-            : "把视频放入只读源目录后，点击“扫描”以建立索引"
+            ? "点「上传新素材」上传视频，或在上方添加只读源目录（/app/source）后扫描"
+            : "点「上传新素材」上传，或把视频放入源目录后点“扫描”以建立索引"
         }
       />
     );
@@ -152,6 +170,7 @@ export function AssetsView() {
           analyzingIds={analyzingIds}
           onRescan={handleRescan}
           onAnalyze={handleAnalyze}
+          onPreview={setPreviewShotId}
         />
         <Pagination
           page={page}
@@ -183,23 +202,51 @@ export function AssetsView() {
         <section className="rounded-lg border border-gray-100 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
             <h2 className="text-base font-semibold">全部原始素材</h2>
-            <Toolbar
-              q={qInput}
-              onQChange={setQInput}
-              status={status}
-              onStatusChange={setStatus}
-              onRefresh={() => void assetsQ.refetch()}
-              refreshing={assetsQ.isFetching}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="video/*,.mp4,.mov,.mkv,.webm,.avi"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleUpload(f);
+                  e.target.value = "";
+                }}
+              />
+              <button
+                type="button"
+                data-testid="upload-btn"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploadMutation.isPending}
+                className="rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 hover:bg-brand-dark"
+              >
+                {uploadMutation.isPending ? "上传中…" : "↑ 上传新素材"}
+              </button>
+              <Toolbar
+                q={qInput}
+                onQChange={setQInput}
+                status={status}
+                onStatusChange={setStatus}
+                onRefresh={() => void assetsQ.refetch()}
+                refreshing={assetsQ.isFetching}
+              />
+            </div>
           </div>
+          {uploadMutation.isError ? (
+            <p className="px-4 pt-2 text-xs text-red-600">
+              上传失败：{(uploadMutation.error as ApiError)?.message ?? "未知错误"}
+            </p>
+          ) : null}
           {body}
         </section>
 
         <p className="px-1 text-xs text-gray-400">
-          说明：可对已索引素材发起镜头分析（拆镜头 + 关键帧 / 缩略图 / 代理）。AI
-          画面描述与标签将在后续版本提供。
+          说明：把视频放入只读源目录后「扫描」，或点「上传新素材」上传到独立上传区，均会建立索引。
+          之后可对素材发起镜头分析（拆镜头 + 关键帧 / 缩略图 / 代理）。AI 画面描述与标签将在后续版本提供。
         </p>
       </main>
+      <PreviewModal shotId={previewShotId} onClose={() => setPreviewShotId(null)} />
     </div>
   );
 }

@@ -21,9 +21,13 @@ class Settings(BaseSettings):
     celery_result_backend: str = "redis://redis:6379/2"
 
     # 路径与安全
-    allowed_source_roots: str = "/app/source"  # 逗号分隔的白名单根
+    allowed_source_roots: str = "/app/source,/app/uploads"  # 逗号分隔的白名单根
     source_mount_path: str = "/app/source"
     data_dir: str = "/app/data"
+
+    # 网页上传：独立可写区（不写只读 NAS 源）
+    upload_dir: str = "/app/uploads"
+    upload_max_mb: int = 4096
 
     # FFprobe
     ffprobe_timeout: float = 30.0

@@ -61,6 +61,10 @@ class MiMoProvider:
         max_images: int = 8,
         supports_images: bool = True,
         context_window: int = 0,
+        # 鉴权头：空/"authorization" → "Authorization: Bearer <key>"；
+        # 其它（如 "api-key"）→ "<header>: <key>"（类 Azure 风格，MiMo token-plan 端点用此）
+        api_key_header: str = "",
+        max_completion_tokens: int = 0,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self._base_url = (base_url or "").rstrip("/")
@@ -70,7 +74,14 @@ class MiMoProvider:
         self._max_images = max_images
         self._supports_images = supports_images
         self._context_window = context_window
+        self._api_key_header = api_key_header or ""
+        self._max_completion_tokens = max_completion_tokens
         self._transport = transport
+
+    def _auth_headers(self) -> dict[str, str]:
+        if self._api_key_header and self._api_key_header.lower() != "authorization":
+            return {self._api_key_header: self._api_key}
+        return {"Authorization": f"Bearer {self._api_key}"}
 
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
@@ -95,7 +106,7 @@ class MiMoProvider:
         return httpx.Client(
             timeout=self._timeout,
             transport=self._transport,
-            headers={"Authorization": f"Bearer {self._api_key}"},
+            headers=self._auth_headers(),
         )
 
     def analyze_frames(
@@ -111,7 +122,7 @@ class MiMoProvider:
         for f in frames[: self._max_images]:
             content.append({"type": "image_url", "image_url": {"url": _data_url(f.path)}})
             used += 1
-        body = {
+        body: dict = {
             "model": self._model,
             "temperature": 0,
             "response_format": {"type": "json_object"},
@@ -120,6 +131,8 @@ class MiMoProvider:
                 {"role": "user", "content": content},
             ],
         }
+        if self._max_completion_tokens > 0:
+            body["max_completion_tokens"] = self._max_completion_tokens
         url = f"{self._base_url}/chat/completions"
         try:
             with self._client() as client:

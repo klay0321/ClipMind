@@ -68,6 +68,8 @@ def build_provider(settings: WorkerSettings) -> VisualAnalysisProvider:
         model=settings.ai_model or None,
         timeout=settings.ai_timeout,
         max_images=settings.ai_max_images,
+        api_key_header=settings.ai_api_key_header,
+        max_completion_tokens=settings.ai_max_completion_tokens,
     )
 
 

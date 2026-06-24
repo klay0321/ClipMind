@@ -49,6 +49,8 @@ def get_provider(
     model: str | None = None,
     timeout: float = 30.0,
     max_images: int = 8,
+    api_key_header: str = "",
+    max_completion_tokens: int = 0,
 ) -> VisualAnalysisProvider:
     """按名装配视觉分析 provider。"""
     key = (name or "").strip().lower()
@@ -64,5 +66,7 @@ def get_provider(
             model=model,
             timeout=timeout,
             max_images=max_images,
+            api_key_header=api_key_header,
+            max_completion_tokens=max_completion_tokens,
         )
     return NotConfiguredVisualProvider()

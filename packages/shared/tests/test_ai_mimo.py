@@ -105,3 +105,23 @@ def test_timeout(tmp_path):
 
     with pytest.raises(ProviderTimeoutError):
         _provider(handler).analyze_frames(_frames(tmp_path), prompt="s", schema=SCHEMA)
+
+
+def test_custom_api_key_header_and_max_tokens(tmp_path):
+    seen = {}
+
+    def handler(req):
+        seen["api_key"] = req.headers.get("api-key")
+        seen["auth"] = req.headers.get("authorization")
+        seen["body"] = json.loads(req.content)
+        return _ok('{"one_line":"x"}')
+
+    p = MiMoProvider(
+        base_url="https://api.test/v1", api_key="sk-test", model="mimo",
+        api_key_header="api-key", max_completion_tokens=1024,
+        transport=httpx.MockTransport(handler),
+    )
+    p.analyze_frames(_frames(tmp_path), prompt="s", schema=SCHEMA)
+    assert seen["api_key"] == "sk-test"
+    assert seen["auth"] is None
+    assert seen["body"]["max_completion_tokens"] == 1024

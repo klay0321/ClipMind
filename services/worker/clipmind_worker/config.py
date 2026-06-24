@@ -58,6 +58,9 @@ class WorkerSettings(BaseSettings):
     ai_timeout: float = 60.0      # 单次 AI 调用超时（秒）
     ai_retries: int = 2           # 失败/坏响应重试次数（指数退避）
     ai_prompt_version: str = "v1"
+    # 鉴权头：空=Authorization Bearer；如 "api-key" 用自定义头（MiMo token-plan 端点）
+    ai_api_key_header: str = ""
+    ai_max_completion_tokens: int = 0  # >0 时随请求发送（0=不设）
     # 计价（每 1K token；MiMo 实价需探测，未知留 0 仅记 tokens 不估成本）
     ai_price_input_per_1k: float = 0.0
     ai_price_output_per_1k: float = 0.0

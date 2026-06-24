@@ -56,11 +56,19 @@ def _load_env() -> dict:
         "provider": os.environ.get("AI_PROVIDER", ""),
         "base_url": os.environ.get("AI_BASE_URL", "").rstrip("/"),
         "api_key": os.environ.get("AI_API_KEY", ""),
+        "api_key_header": os.environ.get("AI_API_KEY_HEADER", ""),
         "model": os.environ.get("AI_MODEL", ""),
         "embed_model": os.environ.get("EMBEDDING_MODEL", ""),
         "timeout": float(os.environ.get("AI_TIMEOUT", "60") or 60),
         "max_images": int(os.environ.get("AI_MAX_IMAGES", "4") or 4),
     }
+
+
+def _auth_headers(cfg: dict) -> dict:
+    header = cfg.get("api_key_header") or ""
+    if header and header.lower() != "authorization":
+        return {header: cfg["api_key"]}
+    return {"Authorization": f"Bearer {cfg['api_key']}"}
 
 
 class Probe:
@@ -69,7 +77,7 @@ class Probe:
         self.results: list[dict] = []
         self.client = httpx.Client(
             timeout=cfg["timeout"],
-            headers={"Authorization": f"Bearer {cfg['api_key']}"},
+            headers=_auth_headers(cfg),
         )
 
     def _record(self, name: str, status: str, detail: str = "") -> None:

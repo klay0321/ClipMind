@@ -57,6 +57,7 @@ export interface Asset {
   // PR-02 镜头分析概览
   shot_count: number;
   analysis_status: MediaRunStatus | null;
+  cover_shot_id: number | null;
 }
 
 // ===== PR-02 拆镜头 / 派生文件 =====
@@ -75,6 +76,7 @@ export type ExportStatus = "queued" | "running" | "completed" | "failed";
 export interface Shot {
   id: number;
   asset_id: number;
+  asset_filename: string | null;
   sequence_no: number;
   start_time: number;
   end_time: number;
@@ -86,6 +88,7 @@ export interface Shot {
   has_keyframe: boolean;
   has_thumbnail: boolean;
   has_proxy: boolean;
+  keyframe_count: number;
   created_at: string;
   updated_at: string;
 }

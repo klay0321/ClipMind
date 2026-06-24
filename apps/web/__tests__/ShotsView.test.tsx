@@ -39,6 +39,7 @@ function makeShot(overrides: Partial<Shot> = {}): Shot {
   return {
     id: 1,
     asset_id: 10,
+    asset_filename: null,
     sequence_no: 1,
     start_time: 0,
     end_time: 2,
@@ -50,6 +51,7 @@ function makeShot(overrides: Partial<Shot> = {}): Shot {
     has_keyframe: true,
     has_thumbnail: true,
     has_proxy: true,
+    keyframe_count: 0,
     created_at: "2026-06-23T00:00:00Z",
     updated_at: "2026-06-23T00:00:00Z",
     ...overrides,
@@ -189,5 +191,20 @@ describe("ShotDetail", () => {
   it("无选中镜头时提示", () => {
     render(<ShotDetail shotId={null} />);
     expect(screen.getByText("选择左侧镜头查看详情")).toBeInTheDocument();
+  });
+
+  it("有关键帧条时渲染多帧（主帧 + N 帧）", () => {
+    vi.mocked(hooks.useShot).mockReturnValue(query({ data: makeDetail({ keyframe_count: 3 }) }));
+    render(<ShotDetail shotId={1} />);
+    const strip = screen.getByTestId("keyframe-strip");
+    expect(strip).toBeInTheDocument();
+    // 主关键帧缩略 + 3 帧 = 4 个按钮
+    expect(strip.querySelectorAll("button")).toHaveLength(4);
+  });
+
+  it("无关键帧条时不渲染条", () => {
+    vi.mocked(hooks.useShot).mockReturnValue(query({ data: makeDetail({ keyframe_count: 0 }) }));
+    render(<ShotDetail shotId={1} />);
+    expect(screen.queryByTestId("keyframe-strip")).not.toBeInTheDocument();
   });
 });

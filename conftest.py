@@ -45,6 +45,11 @@ def _truncate():
 
     engine = create_engine(sync_test_url(), future=True)
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE asset, scan_run, source_directory RESTART IDENTITY CASCADE"))
+        conn.execute(
+            text(
+                "TRUNCATE export, shot, media_processing_run, asset, scan_run, "
+                "source_directory RESTART IDENTITY CASCADE"
+            )
+        )
     engine.dispose()
     yield

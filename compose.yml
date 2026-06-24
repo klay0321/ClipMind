@@ -1,0 +1,109 @@
+name: clipmind
+
+# ClipMind PR-01 —— 6 服务：postgres / redis / migrate / api / worker / web
+# 项目根执行：docker compose up -d
+# 源目录只读挂载到 /app/source；派生数据可读写挂载到 /app/data。
+
+x-app-env: &app-env
+  env_file:
+    - .env
+  environment:
+    # 强制 Python UTF-8，保证非 ASCII（中文）文件名被正确解码/索引
+    PYTHONUTF8: "1"
+    LANG: C.UTF-8
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-clipmind}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clipmind}
+      POSTGRES_DB: ${POSTGRES_DB:-clipmind}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clipmind} -d ${POSTGRES_DB:-clipmind}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # 一次性迁移：先于 api/worker 把数据库迁到最新；完成即退出（禁止删库重建）
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/api.Dockerfile
+    <<: *app-env
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/api.Dockerfile
+    <<: *app-env
+    # 默认仅绑定 127.0.0.1，不对公网开放（PR-01 无鉴权）
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    volumes:
+      - ${HOST_SOURCE_DIR:-./sample_media}:/app/source:ro
+      - clipmind-data:/app/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # healthcheck 用 live（仅进程），避免依赖服务短暂异常导致容器反复重启
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/worker.Dockerfile
+    <<: *app-env
+    command: ["celery", "-A", "clipmind_worker.celery_app", "worker", "-Q", "default,scan", "-c", "2", "-l", "INFO"]
+    volumes:
+      - ${HOST_SOURCE_DIR:-./sample_media}:/app/source:ro
+      - clipmind-data:/app/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/web.Dockerfile
+    environment:
+      # 仅服务端使用，用于 /api 同源代理；不会下发到浏览器
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  clipmind-data:

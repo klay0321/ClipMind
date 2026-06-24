@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clipmind-worker"
+version = "0.1.0"
+description = "ClipMind Celery worker（PR-01 仅目录扫描与 FFprobe 索引）"
+requires-python = ">=3.13"
+# 依赖 clipmind-shared，需先安装 packages/shared（见 Dockerfile / CI）。
+dependencies = [
+    "celery>=5.4,<5.5",
+    "SQLAlchemy>=2.0.36,<2.1",
+    "psycopg[binary]>=3.2,<3.3",
+    "redis>=5.2,<6",
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.6,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9",
+    "ruff>=0.7,<0.10",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["clipmind_worker*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S603", "S607"]

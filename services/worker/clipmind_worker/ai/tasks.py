@@ -1,0 +1,108 @@
+"""PR-03A AI 分析 Celery 任务（ai 队列）。
+
+与镜头分析任务一致的可靠性约定：
+- 互斥：素材级 advisory lock（命名空间 0x4149 "AI"，与扫描 0x4C4D / media 0x4D44 区分）
+  + ai_analysis_run 部分唯一索引；
+- acks_late 断点恢复；失败标 run FAILED 并恢复 asset 状态；
+- 真正的编排在 runner.run_asset_analysis（纯逻辑，可单测）。
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from clipmind_shared.constants import (
+    ERROR_MESSAGE_MAX_LEN,
+    TASK_ANALYZE_ASSET_AI,
+    TASK_ANALYZE_SHOT_AI,
+)
+from clipmind_shared.db.base import utcnow
+from clipmind_shared.models import AIAnalysisRun, Asset, Shot
+from clipmind_shared.models.enums import AIRunStatus, AssetStatus, ShotStatus
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from clipmind_worker.ai.runner import run_asset_analysis
+from clipmind_worker.celery_app import celery_app
+from clipmind_worker.config import get_settings
+from clipmind_worker.db import SessionLocal, engine
+
+ADVISORY_LOCK_NAMESPACE = 0x4149  # "AI"
+
+
+def _truncate(text: str) -> str:
+    return text[:ERROR_MESSAGE_MAX_LEN]
+
+
+def _fail_run(run_id: int, asset_id: int, exc: Exception) -> None:
+    with SessionLocal() as session:
+        run = session.get(AIAnalysisRun, run_id)
+        if run is not None:
+            run.status = AIRunStatus.FAILED
+            run.error_message = _truncate(str(exc))
+            run.finished_at = utcnow()
+        asset = session.get(Asset, asset_id)
+        if asset is not None:
+            has_ready = session.execute(
+                select(func.count())
+                .select_from(Shot)
+                .where(Shot.asset_id == asset_id, Shot.status == ShotStatus.READY)
+            ).scalar()
+            asset.status = AssetStatus.SHOT_SPLIT if has_ready else AssetStatus.INDEXED
+        session.commit()
+
+
+def _run(run_id: int, *, only_shot_id: int | None, worker_name: str) -> dict[str, Any]:
+    settings = get_settings()
+    with engine.connect() as conn:
+        session = Session(bind=conn)
+        try:
+            run = session.get(AIAnalysisRun, run_id)
+            if run is None:
+                return {"error": "ai_run_not_found", "run_id": run_id}
+            if run.status != AIRunStatus.QUEUED:
+                return {"skipped": True, "reason": f"status={run.status.value}"}
+            asset = session.get(Asset, run.asset_id)
+            if asset is None:
+                run.status = AIRunStatus.FAILED
+                run.error_message = "asset_not_found"
+                run.finished_at = utcnow()
+                session.commit()
+                return {"error": "asset_not_found"}
+
+            asset_id = asset.id
+            run.worker_name = worker_name
+            session.commit()
+
+            locked = conn.exec_driver_sql(
+                "SELECT pg_try_advisory_lock(%s, %s)",
+                (ADVISORY_LOCK_NAMESPACE, asset_id),
+            ).scalar()
+            if not locked:
+                return {"skipped": True, "reason": "locked"}
+
+            try:
+                return run_asset_analysis(
+                    session, run, asset, settings, only_shot_id=only_shot_id
+                )
+            except Exception as exc:  # noqa: BLE001 - 记录失败并向上抛交给 Celery
+                session.rollback()
+                _fail_run(run_id, asset_id, exc)
+                raise
+            finally:
+                conn.exec_driver_sql(
+                    "SELECT pg_advisory_unlock(%s, %s)",
+                    (ADVISORY_LOCK_NAMESPACE, asset_id),
+                )
+        finally:
+            session.close()
+
+
+@celery_app.task(name=TASK_ANALYZE_ASSET_AI, bind=True, acks_late=True)
+def analyze_asset_ai(self, run_id: int) -> dict[str, Any]:  # noqa: ANN001
+    return _run(run_id, only_shot_id=None, worker_name=self.request.hostname or "")
+
+
+@celery_app.task(name=TASK_ANALYZE_SHOT_AI, bind=True, acks_late=True)
+def analyze_shot_ai(self, run_id: int, shot_id: int) -> dict[str, Any]:  # noqa: ANN001
+    return _run(run_id, only_shot_id=shot_id, worker_name=self.request.hostname or "")

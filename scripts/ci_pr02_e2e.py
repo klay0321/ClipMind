@@ -35,9 +35,10 @@ def _req(method: str, path: str, body=None, headers=None):
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
             raw = resp.read()
-            return resp.status, dict(resp.headers), raw
+            # 响应头键统一小写（服务端发送小写，避免大小写敏感查找漏掉）
+            return resp.status, {k.lower(): v for k, v in resp.headers.items()}, raw
     except urllib.error.HTTPError as e:
-        return e.code, dict(e.headers), e.read()
+        return e.code, {k.lower(): v for k, v in e.headers.items()}, e.read()
 
 
 def jreq(method: str, path: str, body=None, expect=(200, 201, 202)):
@@ -111,21 +112,21 @@ def full() -> None:
     # 6) 关键帧 / 缩略图
     for kind in ("keyframe", "thumbnail"):
         s, h, _ = _req("GET", f"/api/shots/{sid}/{kind}")
-        if s != 200 or "image/webp" not in h.get("Content-Type", ""):
-            fail(f"{kind} 异常 status={s} ct={h.get('Content-Type')}")
+        if s != 200 or "image/webp" not in h.get("content-type", ""):
+            fail(f"{kind} 异常 status={s} ct={h.get('content-type')}")
     print("[6] 关键帧/缩略图 OK (image/webp)")
 
     # 7) 代理普通响应
     s, h, _ = _req("GET", f"/api/shots/{sid}/preview")
-    if s != 200 or "video/mp4" not in h.get("Content-Type", ""):
+    if s != 200 or "video/mp4" not in h.get("content-type", ""):
         fail(f"代理普通响应异常 status={s}")
-    print(f"[7] 代理普通响应 OK accept-ranges={h.get('Accept-Ranges')}")
+    print(f"[7] 代理普通响应 OK accept-ranges={h.get('accept-ranges')}")
 
     # 8) 代理 Range -> 206 + Content-Range
     s, h, body = _req("GET", f"/api/shots/{sid}/preview", headers={"Range": "bytes=0-1"})
-    if s != 206 or not h.get("Content-Range", "").startswith("bytes 0-1/"):
-        fail(f"Range 未返回 206/Content-Range：status={s} cr={h.get('Content-Range')}")
-    print(f"[8] 代理 Range OK 206 Content-Range={h.get('Content-Range')}")
+    if s != 206 or not h.get("content-range", "").startswith("bytes 0-1/"):
+        fail(f"Range 未返回 206/Content-Range：status={s} cr={h.get('content-range')}")
+    print(f"[8] 代理 Range OK 206 Content-Range={h.get('content-range')}")
 
     # 9) 导出片段并下载
     eid = jreq("POST", f"/api/shots/{sid}/export", {"mode": "reencode"}, expect=(202,))["export_id"]

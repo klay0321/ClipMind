@@ -265,6 +265,71 @@ def test_single_short_video_one_shot(session, tmp_path):
     assert len(shots) == 1
 
 
+@needs_ffmpeg
+def test_generate_asset_poster_writes_poster(session, tmp_path, monkeypatch):
+    from clipmind_worker.media.tasks import generate_asset_poster
+
+    src_root = os.path.realpath(str(tmp_path / "src"))
+    os.makedirs(src_root, exist_ok=True)
+    make_test_video(os.path.join(src_root, "p.mp4"), duration=3, width=160, height=120, fps=10)
+    data_dir = os.path.realpath(str(tmp_path / "data"))
+    settings = _settings(data_dir, allowed_source_roots=src_root)
+    monkeypatch.setattr("clipmind_worker.media.tasks.get_settings", lambda: settings)
+
+    sd = SourceDirectory(
+        name="d", mount_path=src_root, include_extensions=["mp4"],
+        exclude_patterns=[], recursive=True, read_only=True,
+    )
+    session.add(sd)
+    session.commit()
+    session.refresh(sd)
+    asset = Asset(
+        source_directory_id=sd.id, relative_path="p.mp4", normalized_relative_path="p.mp4",
+        filename="p.mp4", extension="mp4", file_size=1, duration=3.0,
+        status=AssetStatus.INDEXED, first_seen_at=utcnow(), last_seen_at=utcnow(),
+    )
+    session.add(asset)
+    session.commit()
+    session.refresh(asset)
+
+    res = generate_asset_poster.apply(args=[asset.id]).get()
+    assert res.get("poster") is True
+    session.refresh(asset)
+    assert asset.poster_path == f"assets/{asset.id}/poster.webp"
+    poster_abs = os.path.join(data_dir, "assets", str(asset.id), "poster.webp")
+    assert os.path.isfile(poster_abs) and os.path.getsize(poster_abs) > 0
+    # 海报在 asset 目录下、不在 active/（重分析不会清掉）
+    assert "active" not in asset.poster_path
+
+
+def test_generate_asset_poster_source_missing(session, tmp_path, monkeypatch):
+    from clipmind_worker.media.tasks import generate_asset_poster
+
+    src_root = os.path.realpath(str(tmp_path / "src"))
+    os.makedirs(src_root, exist_ok=True)
+    settings = _settings(os.path.realpath(str(tmp_path / "data")), allowed_source_roots=src_root)
+    monkeypatch.setattr("clipmind_worker.media.tasks.get_settings", lambda: settings)
+    sd = SourceDirectory(
+        name="d", mount_path=src_root, include_extensions=["mp4"],
+        exclude_patterns=[], recursive=True, read_only=True,
+    )
+    session.add(sd)
+    session.commit()
+    session.refresh(sd)
+    asset = Asset(
+        source_directory_id=sd.id, relative_path="missing.mp4",
+        normalized_relative_path="missing.mp4", filename="missing.mp4", extension="mp4",
+        file_size=1, status=AssetStatus.INDEXED, first_seen_at=utcnow(), last_seen_at=utcnow(),
+    )
+    session.add(asset)
+    session.commit()
+    session.refresh(asset)
+    res = generate_asset_poster.apply(args=[asset.id]).get()
+    assert res.get("skipped") is True
+    session.refresh(asset)
+    assert asset.poster_path is None  # 源缺失不写海报
+
+
 def test_source_missing(session, tmp_path):
     data_dir = os.path.realpath(str(tmp_path / "data"))
     settings = _settings(data_dir)

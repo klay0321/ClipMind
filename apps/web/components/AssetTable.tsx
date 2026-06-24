@@ -3,7 +3,7 @@
 import Link from "next/link";
 
 import { AssetStatusBadge, MediaRunStatusBadge } from "@/components/StatusBadge";
-import { shotThumbnailUrl } from "@/lib/api";
+import { assetPosterUrl, shotThumbnailUrl } from "@/lib/api";
 import {
   formatBytes,
   formatCodec,
@@ -14,34 +14,54 @@ import {
 import type { Asset } from "@/lib/types";
 
 function Cover({ asset, onPreview }: { asset: Asset; onPreview: (shotId: number) => void }) {
-  if (asset.cover_shot_id == null) {
+  // 已分析：用首镜头关键帧（可点 ▶ 预览代理）
+  if (asset.cover_shot_id != null) {
     return (
-      <div className="flex h-12 w-20 shrink-0 items-center justify-center rounded bg-gray-100 text-[10px] text-gray-400">
-        待生成封面
+      <button
+        type="button"
+        data-testid="asset-cover"
+        onClick={() => onPreview(asset.cover_shot_id as number)}
+        className="group relative h-12 w-20 shrink-0 overflow-hidden rounded bg-gray-900"
+        title="预览"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={shotThumbnailUrl(asset.cover_shot_id)}
+          alt={`${asset.filename} 封面`}
+          className="h-full w-full object-cover opacity-90 group-hover:opacity-100"
+          loading="lazy"
+        />
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white">
+            ▶
+          </span>
+        </span>
+      </button>
+    );
+  }
+  // 未分析但有海报：用 FFmpeg 抽帧的素材海报（静态，无代理可播）
+  if (asset.has_poster) {
+    return (
+      <div
+        data-testid="asset-cover-poster"
+        className="h-12 w-20 shrink-0 overflow-hidden rounded bg-gray-100"
+        title="素材海报（分析后可逐镜头预览）"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={assetPosterUrl(asset.id)}
+          alt={`${asset.filename} 海报`}
+          className="h-full w-full object-cover"
+          loading="lazy"
+        />
       </div>
     );
   }
+  // 都没有：占位
   return (
-    <button
-      type="button"
-      data-testid="asset-cover"
-      onClick={() => onPreview(asset.cover_shot_id as number)}
-      className="group relative h-12 w-20 shrink-0 overflow-hidden rounded bg-gray-900"
-      title="预览"
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={shotThumbnailUrl(asset.cover_shot_id)}
-        alt={`${asset.filename} 封面`}
-        className="h-full w-full object-cover opacity-90 group-hover:opacity-100"
-        loading="lazy"
-      />
-      <span className="absolute inset-0 flex items-center justify-center">
-        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white">
-          ▶
-        </span>
-      </span>
-    </button>
+    <div className="flex h-12 w-20 shrink-0 items-center justify-center rounded bg-gray-100 text-[10px] text-gray-400">
+      待生成封面
+    </div>
   );
 }
 

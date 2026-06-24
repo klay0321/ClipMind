@@ -23,6 +23,7 @@ from clipmind_shared.constants import (
     ERROR_MESSAGE_MAX_LEN,
     TASK_ANALYZE_SHOTS,
     TASK_EXPORT_SHOT_CLIP,
+    TASK_GENERATE_ASSET_POSTER,
 )
 from clipmind_shared.db.base import utcnow
 from clipmind_shared.ffprobe import ProbeError, probe_video
@@ -68,6 +69,11 @@ from clipmind_worker.media.detector import ShotConfig, detect_shots
 logger = logging.getLogger(__name__)
 
 ADVISORY_LOCK_NAMESPACE = 0x4D44  # "MD" media（与扫描 0x4C4D 区分）
+
+# 素材海报（asset 级派生封面，未分析素材也有；存 assets/{id}/poster.webp，不在 active 下）
+POSTER_NAME = "poster.webp"
+POSTER_MAX_WIDTH = 480
+POSTER_FRACTION = 0.1  # 取片长 10% 处，避开纯黑开头，封面更具代表性
 
 
 def _truncate(text: str) -> str:
@@ -407,6 +413,52 @@ def analyze_shots(self, run_id: int) -> dict[str, Any]:  # noqa: ANN001
                 )
         finally:
             session.close()
+
+
+def _generate_poster(
+    session: Session, asset: Asset, sd: SourceDirectory, settings: WorkerSettings
+) -> dict[str, Any]:
+    """海报生成核心（无 SessionLocal/锁；可被测试直接传 session 调用）。"""
+    try:
+        src_root = resolve_and_validate_root(sd.mount_path, settings.allowed_roots_list)
+        src_abs = safe_join_within_root(src_root, asset.relative_path)
+    except PathSecurityError as exc:
+        return {"skipped": True, "reason": f"path_security: {exc}"}
+    if not os.path.isfile(src_abs):
+        return {"skipped": True, "reason": "source_missing"}
+    try:
+        root = storage.data_root(settings.data_dir)
+        storage.check_disk_space(root, settings.disk_min_free_mb)
+        adir = storage.ensure_dir(storage.asset_dir(root, asset.id))
+        poster_abs = os.path.join(adir, POSTER_NAME)
+        duration = asset.duration or 0.0
+        ts = min(1.0, duration * POSTER_FRACTION) if duration > 0 else 0.0
+        ffmpeg.extract_keyframe(
+            src_abs, ts, poster_abs,
+            max_width=POSTER_MAX_WIDTH, timeout=settings.ffmpeg_timeout,
+        )
+        if not os.path.isfile(poster_abs) or os.path.getsize(poster_abs) == 0:
+            return {"skipped": True, "reason": "poster_empty"}
+        asset.poster_path = storage.relpath(root, poster_abs)
+        session.commit()
+        return {"asset_id": asset.id, "poster": True}
+    except Exception as exc:  # noqa: BLE001 - 海报为锦上添花，失败不影响主流程
+        session.rollback()
+        return {"skipped": True, "reason": _truncate(str(exc))}
+
+
+@celery_app.task(name=TASK_GENERATE_ASSET_POSTER, bind=True, acks_late=True)
+def generate_asset_poster(self, asset_id: int) -> dict[str, Any]:  # noqa: ANN001
+    """从源视频抽一帧生成素材海报（best-effort）：失败仅跳过，绝不写源目录。"""
+    settings = get_settings()
+    with SessionLocal() as session:
+        asset = session.get(Asset, asset_id)
+        if asset is None:
+            return {"error": "asset_not_found", "asset_id": asset_id}
+        sd = session.get(SourceDirectory, asset.source_directory_id)
+        if sd is None:
+            return {"error": "source_directory_not_found"}
+        return _generate_poster(session, asset, sd, settings)
 
 
 def _export_display_name(source_filename: str, start: float, end: float) -> str:

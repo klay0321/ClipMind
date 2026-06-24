@@ -11,6 +11,8 @@ TASK_RESCAN_ASSET = "clipmind.rescan_asset"
 # PR-02 拆镜头 / 派生文件
 TASK_ANALYZE_SHOTS = "clipmind.analyze_shots"
 TASK_EXPORT_SHOT_CLIP = "clipmind.export_shot_clip"
+# 素材海报（FFmpeg 抽一帧，未分析素材也能有真实封面）
+TASK_GENERATE_ASSET_POSTER = "clipmind.generate_asset_poster"
 
 # ----- Celery 队列名 -----
 # PR-01 worker 只消费 default + scan；media/ai/export 为后续 PR 预留（不运行）

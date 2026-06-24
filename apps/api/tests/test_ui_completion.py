@@ -275,3 +275,48 @@ async def test_keyframe_strip_absent_is_zero(client, session, tmp_path, monkeypa
     assert item["keyframe_count"] == 0
     # 无关键帧条 → 任意索引 404
     assert (await client.get(f"/api/shots/{shot.id}/keyframe/0")).status_code == 404
+
+
+# ---------------- 素材海报 ----------------
+
+
+async def test_asset_has_poster_flag_and_serving(client, session, tmp_path, monkeypatch):
+    asset = await _seed_asset(session, filename="海报.mp4")
+    root = os.path.realpath(str(tmp_path / "data"))
+    rel = f"assets/{asset.id}/poster.webp"
+    abs_dir = os.path.join(root, "assets", str(asset.id))
+    os.makedirs(abs_dir, exist_ok=True)
+    with open(os.path.join(abs_dir, "poster.webp"), "wb") as f:
+        f.write(b"POSTER")
+    asset.poster_path = rel
+    await session.commit()
+    _patch_data_dir(monkeypatch, root)
+
+    # 列表 has_poster=True
+    lst = await client.get("/api/assets")
+    item = next(a for a in lst.json()["items"] if a["id"] == asset.id)
+    assert item["has_poster"] is True
+    assert item["cover_shot_id"] is None  # 未分析仍无封面镜头
+
+    # 海报可服务
+    r = await client.get(f"/api/assets/{asset.id}/poster")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/webp"
+    assert r.content == b"POSTER"
+
+
+async def test_asset_without_poster_404_and_flag_false(client, session):
+    asset = await _seed_asset(session, filename="无海报.mp4")
+    lst = await client.get("/api/assets")
+    item = next(a for a in lst.json()["items"] if a["id"] == asset.id)
+    assert item["has_poster"] is False
+    assert (await client.get(f"/api/assets/{asset.id}/poster")).status_code == 404
+
+
+async def test_regenerate_poster_enqueues(client, session):
+    asset = await _seed_asset(session, filename="重生成.mp4")
+    resp = await client.post(f"/api/assets/{asset.id}/poster")
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["asset_id"] == asset.id
+    assert body["celery_task_id"] == f"ptask-{asset.id}"

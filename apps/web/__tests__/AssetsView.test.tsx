@@ -82,6 +82,7 @@ function makeAsset(overrides: Partial<Asset> = {}): Asset {
     shot_count: 0,
     analysis_status: null,
     cover_shot_id: null,
+    has_poster: false,
     ...overrides,
   };
 }

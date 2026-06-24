@@ -13,6 +13,23 @@ import {
 } from "@/lib/format";
 import type { Asset } from "@/lib/types";
 
+const AI_LABEL: Record<string, string> = {
+  queued: "AI 排队",
+  running: "AI 分析中",
+  completed: "AI 已分析",
+  partial: "部分完成",
+  failed: "AI 失败",
+  cancelled: "已取消",
+};
+const AI_CHIP: Record<string, string> = {
+  queued: "bg-indigo-50 text-indigo-700",
+  running: "bg-indigo-50 text-indigo-700",
+  completed: "bg-emerald-50 text-emerald-700",
+  partial: "bg-amber-50 text-amber-700",
+  failed: "bg-red-50 text-red-700",
+  cancelled: "bg-gray-100 text-gray-500",
+};
+
 function Cover({ asset, onPreview }: { asset: Asset; onPreview: (shotId: number) => void }) {
   // 已分析：用首镜头关键帧（可点 ▶ 预览代理）
   if (asset.cover_shot_id != null) {
@@ -70,6 +87,7 @@ function AnalysisCell({ asset }: { asset: Asset }) {
     asset.status === "processing" ||
     asset.analysis_status === "queued" ||
     asset.analysis_status === "running";
+  const aiStatus = asset.ai_analysis_status ?? null;
   return (
     <div className="space-y-1">
       <div className="text-gray-700">
@@ -79,6 +97,16 @@ function AnalysisCell({ asset }: { asset: Asset }) {
         <MediaRunStatusBadge status={asset.analysis_status} />
       ) : null}
       {analyzing ? <div className="text-xs text-blue-600">处理中…</div> : null}
+      {aiStatus ? (
+        <div className="flex items-center gap-1 text-[11px]" data-testid="asset-ai-status">
+          <span className={`rounded px-1.5 py-0.5 ${AI_CHIP[aiStatus] ?? "bg-gray-100 text-gray-500"}`}>
+            {AI_LABEL[aiStatus] ?? aiStatus}
+          </span>
+          {(asset.ai_analyzed_total ?? 0) > 0 ? (
+            <span className="text-gray-400">{asset.ai_analyzed_total} 镜头</span>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -88,6 +116,7 @@ function AssetActions({
   analyzing,
   rescanning,
   onAnalyze,
+  onAnalyzeAi,
   onRescan,
   onPreview,
 }: {
@@ -95,6 +124,7 @@ function AssetActions({
   analyzing: boolean;
   rescanning: boolean;
   onAnalyze: (id: number, retry: boolean) => void;
+  onAnalyzeAi?: (id: number, retry: boolean) => void;
   onRescan: (id: number) => void;
   onPreview: (shotId: number) => void;
 }) {
@@ -106,6 +136,12 @@ function AssetActions({
   const hasShots = asset.shot_count > 0;
   const failed = asset.analysis_status === "failed";
   const disabledAnalyze = isProcessing || asset.status === "source_missing";
+
+  const aiStatus = asset.ai_analysis_status ?? null;
+  const aiActive = aiStatus === "queued" || aiStatus === "running";
+  const aiAnalyzed = (asset.ai_analyzed_total ?? 0) > 0;
+  // AI 分析需要先有镜头；源缺失或正在分析时禁用
+  const disabledAi = aiActive || !hasShots || asset.status === "source_missing";
 
   let primaryLabel = "开始分析";
   if (isProcessing) primaryLabel = "分析中…";
@@ -125,6 +161,17 @@ function AssetActions({
       >
         ✂ {primaryLabel}
       </button>
+      {onAnalyzeAi && hasShots ? (
+        <button
+          type="button"
+          data-testid="asset-ai-btn"
+          onClick={() => onAnalyzeAi(asset.id, aiAnalyzed)}
+          disabled={disabledAi}
+          className={`${btn} border border-indigo-300 bg-white text-indigo-700 hover:bg-indigo-50`}
+        >
+          🧠 {aiActive ? "AI 分析中…" : aiAnalyzed ? "继续 AI 分析" : "AI 分析"}
+        </button>
+      ) : null}
       {asset.cover_shot_id != null ? (
         <button
           type="button"
@@ -160,6 +207,7 @@ export function AssetTable({
   analyzingIds,
   onRescan,
   onAnalyze,
+  onAnalyzeAi,
   onPreview,
 }: {
   assets: Asset[];
@@ -167,6 +215,7 @@ export function AssetTable({
   analyzingIds: Set<number>;
   onRescan: (id: number) => void;
   onAnalyze: (id: number, retry: boolean) => void;
+  onAnalyzeAi?: (id: number, retry: boolean) => void;
   onPreview: (shotId: number) => void;
 }) {
   return (
@@ -222,6 +271,7 @@ export function AssetTable({
                   analyzing={analyzingIds.has(a.id)}
                   rescanning={rescanningIds.has(a.id)}
                   onAnalyze={onAnalyze}
+                  onAnalyzeAi={onAnalyzeAi}
                   onRescan={onRescan}
                   onPreview={onPreview}
                 />

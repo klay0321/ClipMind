@@ -14,6 +14,7 @@ vi.mock("@/lib/hooks", () => ({
   useRescanMutation: vi.fn(),
   useCreateSourceDirectory: vi.fn(),
   useAnalyzeMutation: vi.fn(),
+  useAnalyzeAiMutation: vi.fn(),
   useUploadMutation: vi.fn(),
 }));
 
@@ -92,6 +93,7 @@ beforeEach(() => {
   vi.mocked(hooks.useRescanMutation).mockReturnValue(mutation());
   vi.mocked(hooks.useCreateSourceDirectory).mockReturnValue(mutation());
   vi.mocked(hooks.useAnalyzeMutation).mockReturnValue(mutation());
+  vi.mocked(hooks.useAnalyzeAiMutation).mockReturnValue(mutation());
   vi.mocked(hooks.useUploadMutation).mockReturnValue(mutation());
   vi.mocked(hooks.useScanStatus).mockReturnValue(query());
   vi.mocked(hooks.useSourceDirectories).mockReturnValue(query({ data: [] }));

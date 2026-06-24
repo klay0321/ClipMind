@@ -247,3 +247,14 @@ PR-01 **不做**：不调用真实 API、不放任何密钥、不连接外部服
 - 配合人工审核流程（结构化失败 / 视觉降级 → 人工队列）。
 
 > 在 PR-03 真实跑通能力探测之前，不得宣称任何 AI 能力可用，也不得宣称真实 NAS 部署完成。
+
+---
+
+## 9. PR-03A 实现状态（feat/ai-analysis-foundation）
+
+> 本节记录 PR-03A 已落地内容；细节见 `docs/SHOT_AI_ANALYSIS.md`。PR-03A 拆自原 PR-03，仅交付
+> AI 分析**基础引擎**；标签拆解、产品库与人工审核归 **PR-03B**（feat/ai-review-product-library）。
+
+- **已实现**：`VisualAnalysisProvider` 抽象 + 工厂；`FakeProvider`（确定性，测试/CI）+ `MiMoProvider`（OpenAI 兼容）；结构化 Schema（`ShotAnalysisResult`）与校验；输入指纹 + 缓存去重（不重复计费）；`ai-worker`（队列 `ai`）与单镜头/素材批量分析；调用状态机、超时/限流/重试、无图降级（不伪造）；`ai_analysis_run/ai_shot_analysis/ai_call_log` 三表与脱敏成本台账；素材/镜头页真实 AI 状态 UI；`scripts/probe_ai_provider.py` 能力探测（脱敏）。
+- **环境键**：消费本文档第 6 节 `AI_*`，新增 `AI_PROMPT_VERSION/AI_WORKER_CONCURRENCY/AI_PRICE_INPUT_PER_1K/AI_PRICE_OUTPUT_PER_1K`（`.env.example` 占位，密钥仅本地）。
+- **能力探测先行**：真实接入 MiMo 前先跑 `scripts/probe_ai_provider.py`，据探测回填 `ProviderCapabilities`；若不支持图片则视觉镜头降级为待人工确认、绝不伪造视觉成功；若不支持 Embedding 不影响 PR-03A（PR-04 用独立 `EMBEDDING_*`）。

@@ -17,7 +17,14 @@ from app.schemas.shot import (
     to_analysis_out,
     to_shot_out,
 )
-from app.services import asset_service, files, scan_dispatch, shot_dispatch, shot_service
+from app.services import (
+    ai_dispatch,
+    asset_service,
+    files,
+    scan_dispatch,
+    shot_dispatch,
+    shot_service,
+)
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -29,11 +36,15 @@ def _enrich(
     analysis_status: str | None,
     cover_shot_id: int | None,
     has_poster: bool,
+    ai_analysis_status: str | None = None,
+    ai_analyzed_total: int = 0,
 ) -> AssetOut:
     out.shot_count = shot_count
     out.analysis_status = analysis_status
     out.cover_shot_id = cover_shot_id
     out.has_poster = has_poster
+    out.ai_analysis_status = ai_analysis_status
+    out.ai_analyzed_total = ai_analyzed_total
     return out
 
 
@@ -58,6 +69,8 @@ async def list_assets(
     counts = await shot_service.ready_counts_for_assets(db, ids)
     statuses = await shot_service.latest_run_status_for_assets(db, ids)
     covers = await shot_service.cover_shots_for_assets(db, ids)
+    ai_statuses = await ai_dispatch.latest_ai_run_status_for_assets(db, ids)
+    ai_counts = await ai_dispatch.completed_counts_for_assets(db, ids)
     return Page[AssetOut](
         items=[
             _enrich(
@@ -66,6 +79,8 @@ async def list_assets(
                 analysis_status=statuses.get(a.id),
                 cover_shot_id=covers.get(a.id),
                 has_poster=bool(a.poster_path),
+                ai_analysis_status=ai_statuses.get(a.id),
+                ai_analyzed_total=ai_counts.get(a.id, 0),
             )
             for a in items
         ],
@@ -83,12 +98,16 @@ async def get_asset(asset_id: int, db: AsyncSession = Depends(get_db)) -> AssetO
     counts = await shot_service.ready_counts_for_assets(db, [asset.id])
     statuses = await shot_service.latest_run_status_for_assets(db, [asset.id])
     covers = await shot_service.cover_shots_for_assets(db, [asset.id])
+    ai_statuses = await ai_dispatch.latest_ai_run_status_for_assets(db, [asset.id])
+    ai_counts = await ai_dispatch.completed_counts_for_assets(db, [asset.id])
     return _enrich(
         AssetOut.model_validate(asset),
         shot_count=counts.get(asset.id, 0),
         analysis_status=statuses.get(asset.id),
         cover_shot_id=covers.get(asset.id),
         has_poster=bool(asset.poster_path),
+        ai_analysis_status=ai_statuses.get(asset.id),
+        ai_analyzed_total=ai_counts.get(asset.id, 0),
     )
 
 

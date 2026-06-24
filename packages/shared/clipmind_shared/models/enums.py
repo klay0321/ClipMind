@@ -105,3 +105,47 @@ STEP_PROBING = "probing"
 STEP_DETECTING = "detecting"
 STEP_DERIVING = "deriving"
 STEP_FINALIZING = "finalizing"
+
+
+# ============================================================
+# PR-03A AI 分析相关枚举
+# ============================================================
+
+
+class AIRunStatus(StrEnum):
+    """AIAnalysisRun.status —— 素材级 AI 分析运行的状态。"""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    PARTIAL = "partial"      # 运行完成，但部分镜头失败/降级
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class AIShotAnalysisStatus(StrEnum):
+    """AIShotAnalysis.status —— 单镜头 AI 分析当前结果的状态。"""
+
+    PENDING = "pending"
+    COMPLETED = "completed"
+    DEGRADED = "degraded"    # 能力不足（如无图）降级，未做完整视觉分析
+    FAILED = "failed"
+    SKIPPED = "skipped"      # 输入指纹命中缓存，跳过（不重复计费）
+
+
+class AICallStatus(StrEnum):
+    """AICallLog.status —— 单次外部 provider 调用的结果。"""
+
+    SUCCESS = "success"
+    RETRY = "retry"
+    FAILED = "failed"
+    TIMEOUT = "timeout"
+    RATE_LIMITED = "rate_limited"
+    DEGRADED = "degraded"
+
+
+# 视为"活动中"的 AI 分析运行状态（用于部分唯一索引与并发判断）
+ACTIVE_AI_RUN_STATUSES: tuple[AIRunStatus, ...] = (
+    AIRunStatus.QUEUED,
+    AIRunStatus.RUNNING,
+)

@@ -12,23 +12,126 @@ import {
   shotPreviewUrl,
 } from "@/lib/api";
 import { formatCodec, formatDuration, formatResolution } from "@/lib/format";
-import { useExportMutation, useExportStatus, useShot } from "@/lib/hooks";
+import {
+  useAnalyzeShotAiMutation,
+  useExportMutation,
+  useExportStatus,
+  useShot,
+  useShotAi,
+} from "@/lib/hooks";
+import type { ShotAI } from "@/lib/types";
 
 function timecode(s: number): string {
   return formatDuration(s);
+}
+
+const AI_LABEL: Record<string, string> = {
+  completed: "AI 已分析",
+  degraded: "已降级",
+  failed: "分析失败",
+  pending: "待分析",
+  skipped: "已复用缓存",
+};
+const AI_COLOR: Record<string, string> = {
+  completed: "bg-emerald-50 text-emerald-700",
+  degraded: "bg-amber-50 text-amber-700",
+  failed: "bg-red-50 text-red-700",
+  pending: "bg-gray-100 text-gray-500",
+  skipped: "bg-gray-100 text-gray-500",
+};
+
+// AI 画面理解面板：展示**真实** AI 状态与原始结果（待人工审核），不伪造、不显示假标签。
+function AiPanel({
+  ai,
+  loading,
+  analyzing,
+  onAnalyze,
+}: {
+  ai: ShotAI | undefined;
+  loading: boolean;
+  analyzing: boolean;
+  onAnalyze: () => void;
+}) {
+  const status = ai?.status ?? null;
+  const result = ai?.result ?? null;
+  const analyzed = !!ai?.has_analysis;
+  return (
+    <div className="space-y-2 rounded border border-gray-100 bg-gray-50/60 p-3" data-testid="ai-panel">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold text-gray-700">AI 画面理解</span>
+        {status ? (
+          <span className={`rounded px-1.5 py-0.5 text-[11px] ${AI_COLOR[status] ?? "bg-gray-100 text-gray-500"}`}>
+            {AI_LABEL[status] ?? status}
+          </span>
+        ) : (
+          <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-500">尚未分析</span>
+        )}
+      </div>
+
+      {loading ? <div className="text-[11px] text-gray-400">加载中…</div> : null}
+
+      {status === "degraded" ? (
+        <p className="rounded bg-amber-50 p-2 text-[11px] text-amber-700">
+          未做视觉分析（{ai?.degraded_reason ?? "provider 能力不足"}）—— 已标记待人工确认，绝不伪造结果。
+        </p>
+      ) : null}
+      {status === "failed" ? (
+        <p className="rounded bg-red-50 p-2 text-[11px] text-red-700">AI 分析失败，可重试或转人工。</p>
+      ) : null}
+
+      {analyzed && result ? (
+        <div className="space-y-1.5">
+          <span className="inline-block rounded bg-gray-200 px-1.5 py-0.5 text-[10px] text-gray-600">
+            AI 原始结果 · 待人工审核
+          </span>
+          {result.one_line ? (
+            <p className="text-xs text-gray-800">{result.one_line}</p>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+            {typeof ai?.confidence === "number" ? (
+              <span className="text-gray-500">置信度 {Math.round((ai.confidence ?? 0) * 100)}%</span>
+            ) : null}
+            {ai?.needs_human_review ? (
+              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-800">待人工确认</span>
+            ) : null}
+            {(result.risk_flags ?? []).map((r) => (
+              <span key={r} className="rounded bg-red-100 px-1.5 py-0.5 text-red-700">
+                风险：{r}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        data-testid="ai-analyze-btn"
+        onClick={onAnalyze}
+        disabled={analyzing}
+        className="w-full rounded-md border border-brand px-3 py-1.5 text-xs font-medium text-brand hover:bg-brand-light disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {analyzing ? "已入队…" : analyzed ? "重新 AI 分析" : "AI 分析此镜头"}
+      </button>
+      <p className="text-[10px] text-gray-400">标签拆解、产品库与人工审核将在 PR-03B 提供。</p>
+    </div>
+  );
 }
 
 export function ShotDetail({ shotId }: { shotId: number | null }) {
   const [exportId, setExportId] = useState<number | null>(null);
   // 关键帧条选中帧：null = 主关键帧；数字 = 条上第 N 帧
   const [activeFrame, setActiveFrame] = useState<number | null>(null);
+  const [aiPoll, setAiPoll] = useState(false);
   const shotQ = useShot(shotId);
   const exportMut = useExportMutation();
   const exportStatusQ = useExportStatus(exportId);
+  const aiQ = useShotAi(shotId, aiPoll);
+  const analyzeAiMut = useAnalyzeShotAiMutation();
 
-  // 切换镜头时重置选中帧
+  // 切换镜头时重置选中帧与 AI 轮询
   useEffect(() => {
     setActiveFrame(null);
+    setAiPoll(false);
   }, [shotId]);
 
   if (shotId == null) {
@@ -180,9 +283,15 @@ export function ShotDetail({ shotId }: { shotId: number | null }) {
         ) : null}
       </div>
 
-      <p className="rounded bg-gray-50 p-2 text-xs text-gray-400">
-        AI 画面描述、标签与匹配将在后续版本（PR-03 起）提供。
-      </p>
+      <AiPanel
+        ai={aiQ.data}
+        loading={aiQ.isLoading}
+        analyzing={analyzeAiMut.isPending}
+        onAnalyze={() => {
+          setAiPoll(true);
+          analyzeAiMut.mutate(s.id);
+        }}
+      />
     </div>
   );
 }

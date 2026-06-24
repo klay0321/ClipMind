@@ -43,6 +43,9 @@ class AssetOut(BaseModel):
     cover_shot_id: int | None = None
     # 素材海报（FFmpeg 抽一帧）：未分析素材也能有真实封面
     has_poster: bool = False
+    # PR-03A：AI 分析概览（最近运行状态 + 已有 AI 结果的镜头数）
+    ai_analysis_status: str | None = None
+    ai_analyzed_total: int = 0
 
 
 class RescanAcceptedOut(BaseModel):

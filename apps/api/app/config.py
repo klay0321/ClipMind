@@ -36,6 +36,13 @@ class Settings(BaseSettings):
     web_origin: str = "http://localhost:3000"
     api_internal_url: str = "http://api:8000"
 
+    # PR-03A AI（API 仅入队 + 读结果 + 回显健康；不在 API 进程调用 provider 网络）
+    ai_provider: str = ""
+    ai_base_url: str = ""
+    ai_api_key: str = ""   # 仅判断是否已配置，绝不回显/记录
+    ai_model: str = ""
+    ai_max_images: int = 8
+
     log_level: str = "INFO"
 
     @property

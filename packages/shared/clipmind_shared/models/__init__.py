@@ -5,10 +5,19 @@ Alembic 的 target_metadata 使用 `Base.metadata`，因此所有模型都在此
 """
 
 from clipmind_shared.db.base import Base
+from clipmind_shared.models.ai_analysis import (
+    AIAnalysisRun,
+    AICallLog,
+    AIShotAnalysis,
+)
 from clipmind_shared.models.asset import Asset
 from clipmind_shared.models.enums import (
+    ACTIVE_AI_RUN_STATUSES,
     ACTIVE_MEDIA_RUN_STATUSES,
     ACTIVE_SCAN_RUN_STATUSES,
+    AICallStatus,
+    AIRunStatus,
+    AIShotAnalysisStatus,
     AssetStatus,
     ExportStatus,
     MediaRunStatus,
@@ -30,12 +39,19 @@ __all__ = [
     "Shot",
     "MediaProcessingRun",
     "Export",
+    "AIAnalysisRun",
+    "AIShotAnalysis",
+    "AICallLog",
     "AssetStatus",
     "ScanStatus",
     "ScanRunStatus",
     "ShotStatus",
     "MediaRunStatus",
     "ExportStatus",
+    "AIRunStatus",
+    "AIShotAnalysisStatus",
+    "AICallStatus",
     "ACTIVE_SCAN_RUN_STATUSES",
     "ACTIVE_MEDIA_RUN_STATUSES",
+    "ACTIVE_AI_RUN_STATUSES",
 ]

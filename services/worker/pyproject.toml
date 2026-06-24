@@ -18,6 +18,8 @@ dependencies = [
     # PR-02 拆镜头：PySceneDetect 内容检测 + OpenCV(headless) 解码后端
     "scenedetect>=0.6.4,<0.7",
     "opencv-python-headless>=4.10,<5",
+    # PR-03A AI 理解：OpenAI 兼容 HTTP 客户端（MiMoProvider）
+    "httpx>=0.27,<0.29",
 ]
 
 [project.optional-dependencies]

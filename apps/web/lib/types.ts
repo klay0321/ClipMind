@@ -59,6 +59,9 @@ export interface Asset {
   analysis_status: MediaRunStatus | null;
   cover_shot_id: number | null;
   has_poster: boolean;
+  // PR-03A AI 分析概览（列表接口提供；旧响应可能缺省）
+  ai_analysis_status?: AIRunStatus | null;
+  ai_analyzed_total?: number;
 }
 
 // ===== PR-02 拆镜头 / 派生文件 =====
@@ -119,6 +122,86 @@ export interface ShotAnalysis {
   started_at: string | null;
   finished_at: string | null;
   shot_count: number;
+}
+
+// ===== PR-03A AI 理解分析 =====
+
+export type AIRunStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "partial"
+  | "failed"
+  | "cancelled";
+
+export type AIShotAnalysisStatus =
+  | "pending"
+  | "completed"
+  | "degraded"
+  | "failed"
+  | "skipped";
+
+export interface AIAnalysis {
+  asset_id: number;
+  has_run: boolean;
+  run_id: number | null;
+  status: AIRunStatus | null;
+  progress: number;
+  current_step: string | null;
+  total_shots: number;
+  analyzed_shots: number;
+  failed_shots: number;
+  skipped_cached: number;
+  degraded: boolean;
+  provider: string | null;
+  model: string | null;
+  error_message: string | null;
+  celery_task_id: string | null;
+  queued_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  analyzed_total: number;
+}
+
+export interface ProductInfo {
+  name: string;
+  model: string;
+  color: string;
+  state: string;
+}
+
+// AI 原始结构化结果（PR-03A 不拆解为标签/产品库；待 PR-03B 人工审核）
+export interface ShotAnalysisResult {
+  one_line: string;
+  detailed: string;
+  product: ProductInfo;
+  scene: string;
+  action: string;
+  shot_type: string;
+  subject: string;
+  marketing_use: string[];
+  selling_points: string[];
+  visible_text: string[];
+  logo_brand: string[];
+  quality_issues: string[];
+  risk_flags: string[];
+  confidence: number;
+  needs_human_review: boolean;
+  search_keywords: string[];
+  recommended_scenes: string[];
+}
+
+export interface ShotAI {
+  shot_id: number;
+  has_analysis: boolean;
+  status: AIShotAnalysisStatus | null;
+  provider: string | null;
+  model: string | null;
+  confidence: number | null;
+  needs_human_review: boolean;
+  degraded_reason: string | null;
+  result: Partial<ShotAnalysisResult> | null;
+  updated_at: string | null;
 }
 
 export interface ExportItem {

@@ -20,6 +20,7 @@ celery_app = Celery(
     include=[
         "clipmind_worker.tasks.scan",
         "clipmind_worker.media.tasks",  # PR-02 拆镜头/派生/导出
+        "clipmind_worker.ai.tasks",  # PR-03A AI 理解分析
     ],
 )
 

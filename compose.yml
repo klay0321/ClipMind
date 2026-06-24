@@ -1,10 +1,10 @@
 name: clipmind
 
-# ClipMind —— 7 服务：postgres / redis / migrate / api / worker / media-worker / web
+# ClipMind —— 8 服务：postgres / redis / migrate / api / worker / media-worker / ai-worker / web
 # 项目根执行：docker compose up -d
 # 源目录只读挂载到 /app/source；派生数据可读写挂载到 /app/data。
 # worker 消费 default,scan（扫描）；media-worker 专门消费 media（拆镜头/派生/导出，
-# FFmpeg 重负载，默认并发 1，与扫描隔离）。
+# FFmpeg 重负载，默认并发 1，与扫描隔离）；ai-worker 消费 ai（PR-03A 外部 AI 理解）。
 
 x-app-env: &app-env
   env_file:
@@ -106,6 +106,23 @@ services:
       - ${HOST_SOURCE_DIR:-./sample_media}:/app/source:ro
       - clipmind-data:/app/data
       - clipmind-uploads:/app/uploads:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # PR-03A：AI 理解 worker，仅消费 ai 队列（外部 AI API 调用）。只读 /app/data 关键帧。
+  # AI_PROVIDER 留空=NotConfigured（绝不调用任何 API）；fake 用于测试/CI；mimo 为真实 provider。
+  ai-worker:
+    build:
+      context: .
+      dockerfile: infra/worker.Dockerfile
+    <<: *app-env
+    command: ["celery", "-A", "clipmind_worker.celery_app", "worker", "-Q", "ai", "-c", "${AI_WORKER_CONCURRENCY:-2}", "-l", "INFO"]
+    volumes:
+      - clipmind-data:/app/data
     depends_on:
       migrate:
         condition: service_completed_successfully

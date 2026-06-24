@@ -13,6 +13,9 @@ TASK_ANALYZE_SHOTS = "clipmind.analyze_shots"
 TASK_EXPORT_SHOT_CLIP = "clipmind.export_shot_clip"
 # 素材海报（FFmpeg 抽一帧，未分析素材也能有真实封面）
 TASK_GENERATE_ASSET_POSTER = "clipmind.generate_asset_poster"
+# PR-03A AI 理解分析（ai 队列）
+TASK_ANALYZE_ASSET_AI = "clipmind.analyze_asset_ai"
+TASK_ANALYZE_SHOT_AI = "clipmind.analyze_shot_ai"
 
 # ----- Celery 队列名 -----
 # PR-01 worker 只消费 default + scan；media/ai/export 为后续 PR 预留（不运行）
@@ -32,6 +35,9 @@ ALL_QUEUES: tuple[str, ...] = (
 
 # 扫描/探测逻辑版本：解析逻辑变更时递增，便于后续按版本重算
 METADATA_VERSION = 1
+
+# AI 结构化输出 Schema 版本：Schema 变更时递增（参与输入指纹，便于按版本重算）
+AI_SCHEMA_VERSION = 1
 
 # quick_hash 读取的头尾块大小（字节）
 QUICK_HASH_CHUNK = 64 * 1024

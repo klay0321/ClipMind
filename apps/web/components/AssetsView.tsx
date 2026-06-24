@@ -14,6 +14,7 @@ import { ErrorState } from "@/components/states/ErrorState";
 import { Loading } from "@/components/states/Loading";
 import type { ApiError } from "@/lib/api";
 import {
+  useAnalyzeAiMutation,
   useAnalyzeMutation,
   useAssets,
   useCreateSourceDirectory,
@@ -70,6 +71,7 @@ export function AssetsView() {
   const rescanMutation = useRescanMutation();
   const createMutation = useCreateSourceDirectory();
   const analyzeMutation = useAnalyzeMutation();
+  const analyzeAiMutation = useAnalyzeAiMutation();
   const uploadMutation = useUploadMutation();
 
   // 扫描结束后刷新素材与目录
@@ -140,6 +142,13 @@ export function AssetsView() {
     );
   };
 
+  const handleAnalyzeAi = (id: number, retry: boolean) => {
+    analyzeAiMutation.mutate(
+      { assetId: id, retry },
+      { onSettled: () => void assetsQ.refetch() },
+    );
+  };
+
   let body: React.ReactNode;
   if (assetsQ.isLoading) {
     body = <Loading />;
@@ -170,6 +179,7 @@ export function AssetsView() {
           analyzingIds={analyzingIds}
           onRescan={handleRescan}
           onAnalyze={handleAnalyze}
+          onAnalyzeAi={handleAnalyzeAi}
           onPreview={setPreviewShotId}
         />
         <Pagination
@@ -243,7 +253,8 @@ export function AssetsView() {
 
         <p className="px-1 text-xs text-gray-400">
           说明：把视频放入只读源目录后「扫描」，或点「上传新素材」上传到独立上传区，均会建立索引。
-          之后可对素材发起镜头分析（拆镜头 + 关键帧 / 缩略图 / 代理）。AI 画面描述与标签将在后续版本提供。
+          之后可对素材发起镜头分析（拆镜头 + 关键帧 / 缩略图 / 代理），并可发起 AI 画面理解（真实状态可见）。
+          标签拆解、产品库与人工审核将在 PR-03B 提供。
         </p>
       </main>
       <PreviewModal shotId={previewShotId} onClose={() => setPreviewShotId(null)} />

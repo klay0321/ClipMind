@@ -94,6 +94,8 @@ jobs:
       - name: 准备 .env 并构建镜像
         run: |
           cp .env.example .env
+          # 用确定性 FakeProvider 让 AI 链路在无真实密钥时也能端到端验证
+          echo "AI_PROVIDER=fake" >> .env
           docker compose build
       - name: 启动全栈
         run: docker compose up -d
@@ -109,7 +111,7 @@ jobs:
             sleep 3
           done
           docker compose ps
-          for svc in web worker media-worker; do
+          for svc in web worker media-worker ai-worker; do
             state=$(docker compose ps "$svc" --format '{{.State}}')
             echo "$svc: $state"
             [ "$state" = "running" ] || { echo "$svc 未运行"; exit 1; }

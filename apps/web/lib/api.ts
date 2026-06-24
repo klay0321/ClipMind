@@ -1,6 +1,7 @@
 // 同源 API 客户端：浏览器只访问 /api/*，由 web 服务端代理到内部 api。
 
 import type {
+  AIAnalysis,
   Asset,
   AssetQuery,
   ExportItem,
@@ -8,6 +9,7 @@ import type {
   ScanRun,
   ScanStatusResponse,
   Shot,
+  ShotAI,
   ShotAnalysis,
   ShotDetail,
   ShotQuery,
@@ -129,6 +131,29 @@ export const api = {
   },
   getExport(id: number): Promise<ExportItem> {
     return http<ExportItem>(`/exports/${id}`);
+  },
+
+  // ===== PR-03A AI 理解分析 =====
+  analyzeAssetAi(
+    assetId: number,
+  ): Promise<{ asset_id: number; run_id: number; status: string; celery_task_id: string | null }> {
+    return http(`/assets/${assetId}/analyze`, { method: "POST" });
+  },
+  retryAssetAi(
+    assetId: number,
+  ): Promise<{ asset_id: number; run_id: number; status: string; celery_task_id: string | null }> {
+    return http(`/assets/${assetId}/ai-analysis/retry`, { method: "POST" });
+  },
+  aiAnalysis(assetId: number): Promise<AIAnalysis> {
+    return http<AIAnalysis>(`/assets/${assetId}/ai-analysis`);
+  },
+  analyzeShotAi(
+    shotId: number,
+  ): Promise<{ asset_id: number; run_id: number; status: string }> {
+    return http(`/shots/${shotId}/analyze`, { method: "POST" });
+  },
+  shotAi(shotId: number): Promise<ShotAI> {
+    return http<ShotAI>(`/shots/${shotId}/ai`);
   },
   async uploadAsset(
     file: File,

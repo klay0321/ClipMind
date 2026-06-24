@@ -38,6 +38,7 @@ function makeAsset(overrides: Partial<Asset> = {}): Asset {
     shot_count: 0,
     analysis_status: null,
     cover_shot_id: null,
+    has_poster: false,
     ...overrides,
   };
 }
@@ -123,6 +124,36 @@ describe("AssetTable", () => {
       />,
     );
     expect(screen.getByRole("button", { name: "重扫中…" })).toBeDisabled();
+  });
+
+  it("未分析但有海报：显示素材海报封面", () => {
+    render(
+      <AssetTable
+        assets={[makeAsset({ cover_shot_id: null, has_poster: true })]}
+        rescanningIds={new Set()}
+        analyzingIds={new Set()}
+        onRescan={noop}
+        onAnalyze={noop}
+        onPreview={noop}
+      />,
+    );
+    expect(screen.getByTestId("asset-cover-poster")).toBeInTheDocument();
+    expect(screen.queryByText("待生成封面")).not.toBeInTheDocument();
+  });
+
+  it("未分析且无海报：显示占位封面", () => {
+    render(
+      <AssetTable
+        assets={[makeAsset({ cover_shot_id: null, has_poster: false })]}
+        rescanningIds={new Set()}
+        analyzingIds={new Set()}
+        onRescan={noop}
+        onAnalyze={noop}
+        onPreview={noop}
+      />,
+    );
+    expect(screen.getByText("待生成封面")).toBeInTheDocument();
+    expect(screen.queryByTestId("asset-cover-poster")).not.toBeInTheDocument();
   });
 });
 

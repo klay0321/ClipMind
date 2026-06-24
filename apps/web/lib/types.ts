@@ -58,6 +58,7 @@ export interface Asset {
   shot_count: number;
   analysis_status: MediaRunStatus | null;
   cover_shot_id: number | null;
+  has_poster: boolean;
 }
 
 // ===== PR-02 拆镜头 / 派生文件 =====

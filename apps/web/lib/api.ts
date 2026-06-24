@@ -66,6 +66,7 @@ function buildShotQuery(query: ShotQuery): string {
 }
 
 // 资源直链（用于 <img>/<video> src 与下载，浏览器走同源代理，不经 fetch）
+export const assetPosterUrl = (id: number) => `/api/assets/${id}/poster`;
 export const shotThumbnailUrl = (id: number) => `/api/shots/${id}/thumbnail`;
 export const shotKeyframeUrl = (id: number) => `/api/shots/${id}/keyframe`;
 export const shotKeyframeAtUrl = (id: number, index: number) =>

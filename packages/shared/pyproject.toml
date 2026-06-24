@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clipmind-shared"
+version = "0.1.0"
+description = "ClipMind 共享层：SQLAlchemy 模型、FFprobe 封装、路径安全、AI Provider 接口"
+requires-python = ">=3.13"
+dependencies = [
+    "SQLAlchemy>=2.0.36,<2.1",
+    "pydantic>=2.9,<3",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["clipmind_shared*"]

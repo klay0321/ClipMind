@@ -1,0 +1,26 @@
+# 构建上下文排除，保证镜像可复现、体积小
+.git/
+.github/
+.claude/
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+**/venv/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/node_modules/
+**/.next/
+**/out/
+**/.turbo/
+**/*.tsbuildinfo
+.env
+.env.*
+!.env.example
+data/
+clipmind-data/
+sample_media/
+docs/ui-reference/
+*.log
+.DS_Store
+Thumbs.db

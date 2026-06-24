@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clipmind-api"
+version = "0.1.0"
+description = "ClipMind FastAPI 后端 + Alembic 迁移"
+requires-python = ">=3.13"
+# 注意：依赖 clipmind-shared，需先安装 packages/shared（见 Dockerfile / CI）。
+# 此处不把 clipmind-shared 列为 PyPI 依赖，避免 pip 去公网解析。
+dependencies = [
+    "fastapi>=0.115,<0.116",
+    "uvicorn[standard]>=0.32,<0.40",
+    "SQLAlchemy>=2.0.36,<2.1",
+    "asyncpg>=0.30,<0.31",
+    "psycopg[binary]>=3.2,<3.3",
+    "alembic>=1.14,<1.16",
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.6,<3",
+    "celery>=5.4,<5.5",
+    "redis>=5.2,<6",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.24,<0.25",
+    "httpx>=0.27,<0.29",
+    "ruff>=0.7,<0.10",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+# B008：FastAPI 依赖项惯用 Depends()/Query() 作为默认值
+ignore = ["S101", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S603", "S607"]

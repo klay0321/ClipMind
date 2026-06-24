@@ -41,7 +41,7 @@ class Asset(Base):
     file_size: Mapped[int] = mapped_column(BigInteger)
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     quick_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    full_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)  # PR-02 预留
+    full_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 预留：完整内容哈希（后续 PR 启用）
 
     # FFprobe 视频信息
     duration: Mapped[float | None] = mapped_column(Float, nullable=True)

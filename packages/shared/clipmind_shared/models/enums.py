@@ -55,3 +55,53 @@ ACTIVE_SCAN_RUN_STATUSES: tuple[ScanRunStatus, ...] = (
     ScanRunStatus.QUEUED,
     ScanRunStatus.RUNNING,
 )
+
+
+# ============================================================
+# PR-02 拆镜头 / 派生文件相关枚举
+# ============================================================
+
+
+class ShotStatus(StrEnum):
+    """Shot.status —— 单个镜头的派生状态。
+
+    只有 READY 的镜头才对外可见、可预览/下载；其余为过程态或失败态，
+    由下次分析在启动时回收。
+    """
+
+    PENDING = "pending"        # 已落库，派生文件尚未就绪
+    PROCESSING = "processing"  # 文件生成/搬运中（对外隐藏）
+    READY = "ready"            # 派生文件齐备，可对外
+    FAILED = "failed"          # 该镜头派生失败
+
+
+class MediaRunStatus(StrEnum):
+    """MediaProcessingRun.status —— 单次镜头分析运行的状态。"""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class ExportStatus(StrEnum):
+    """Export.status —— 单次片段导出的状态。"""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+# 视为"活动中"的镜头分析运行状态（用于部分唯一索引与并发判断）
+ACTIVE_MEDIA_RUN_STATUSES: tuple[MediaRunStatus, ...] = (
+    MediaRunStatus.QUEUED,
+    MediaRunStatus.RUNNING,
+)
+
+# MediaProcessingRun.current_step 的取值（仅作进度展示，存为字符串而非枚举类型）
+STEP_PROBING = "probing"
+STEP_DETECTING = "detecting"
+STEP_DERIVING = "deriving"
+STEP_FINALIZING = "finalizing"

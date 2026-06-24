@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.routers import (
+    ai,
     assets,
     exports,
     health,
@@ -47,3 +48,4 @@ app.include_router(assets.router, prefix="/api")
 app.include_router(shots.router, prefix="/api")
 app.include_router(exports.router, prefix="/api")
 app.include_router(uploads.router, prefix="/api")
+app.include_router(ai.router, prefix="/api")

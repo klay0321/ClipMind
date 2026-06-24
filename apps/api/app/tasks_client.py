@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from celery import Celery
 from clipmind_shared.constants import (
+    QUEUE_AI,
     QUEUE_MEDIA,
     QUEUE_SCAN,
+    TASK_ANALYZE_ASSET_AI,
+    TASK_ANALYZE_SHOT_AI,
     TASK_ANALYZE_SHOTS,
     TASK_EXPORT_SHOT_CLIP,
     TASK_GENERATE_ASSET_POSTER,
@@ -54,5 +57,19 @@ def enqueue_generate_poster(asset_id: int) -> str:
     """入队素材海报生成任务（media 队列），返回 celery_task_id。"""
     result = celery_client.send_task(
         TASK_GENERATE_ASSET_POSTER, args=[asset_id], queue=QUEUE_MEDIA
+    )
+    return result.id
+
+
+def enqueue_analyze_asset_ai(run_id: int) -> str:
+    """入队素材级 AI 分析任务（ai 队列），返回 celery_task_id。"""
+    result = celery_client.send_task(TASK_ANALYZE_ASSET_AI, args=[run_id], queue=QUEUE_AI)
+    return result.id
+
+
+def enqueue_analyze_shot_ai(run_id: int, shot_id: int) -> str:
+    """入队单镜头 AI 分析任务（ai 队列），返回 celery_task_id。"""
+    result = celery_client.send_task(
+        TASK_ANALYZE_SHOT_AI, args=[run_id, shot_id], queue=QUEUE_AI
     )
     return result.id

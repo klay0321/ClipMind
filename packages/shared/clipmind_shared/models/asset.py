@@ -53,6 +53,10 @@ class Asset(Base):
     orientation: Mapped[str | None] = mapped_column(String(16), nullable=True)  # landscape/portrait/square
     has_audio: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
+    # 素材海报：用 FFmpeg 从源视频抽一帧的派生封面（相对 data_dir）。
+    # 与镜头无关，未分析素材也有；绝不写源目录。
+    poster_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+
     status: Mapped[AssetStatus] = mapped_column(
         pg_enum(AssetStatus, "asset_status"), default=AssetStatus.DISCOVERED
     )

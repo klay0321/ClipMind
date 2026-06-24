@@ -63,6 +63,21 @@ async def ready_counts_for_assets(
     return {aid: cnt for aid, cnt in (await db.execute(stmt)).all()}
 
 
+async def cover_shots_for_assets(
+    db: AsyncSession, asset_ids: Sequence[int]
+) -> dict[int, int]:
+    """每个素材的封面镜头（首个 ready 镜头，按 sequence_no）。DISTINCT ON。"""
+    if not asset_ids:
+        return {}
+    stmt = (
+        select(Shot.asset_id, Shot.id)
+        .where(Shot.asset_id.in_(list(asset_ids)), Shot.status == ShotStatus.READY)
+        .order_by(Shot.asset_id, Shot.sequence_no.asc())
+        .distinct(Shot.asset_id)
+    )
+    return {aid: sid for aid, sid in (await db.execute(stmt)).all()}
+
+
 async def latest_run_status_for_assets(
     db: AsyncSession, asset_ids: Sequence[int]
 ) -> dict[int, str]:
@@ -76,6 +91,16 @@ async def latest_run_status_for_assets(
         .distinct(MediaProcessingRun.asset_id)
     )
     return {aid: st.value for aid, st in (await db.execute(stmt)).all()}
+
+
+async def filenames_for_assets(
+    db: AsyncSession, asset_ids: Sequence[int]
+) -> dict[int, str]:
+    """asset_id -> filename，供镜头卡片显示来源。"""
+    if not asset_ids:
+        return {}
+    stmt = select(Asset.id, Asset.filename).where(Asset.id.in_(list(set(asset_ids))))
+    return {aid: fn for aid, fn in (await db.execute(stmt)).all()}
 
 
 async def get_asset(db: AsyncSession, asset_id: int) -> Asset | None:

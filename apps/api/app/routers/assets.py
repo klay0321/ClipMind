@@ -21,9 +21,12 @@ from app.services import asset_service, scan_dispatch, shot_dispatch, shot_servi
 router = APIRouter(prefix="/assets", tags=["assets"])
 
 
-def _enrich(out: AssetOut, *, shot_count: int, analysis_status: str | None) -> AssetOut:
+def _enrich(
+    out: AssetOut, *, shot_count: int, analysis_status: str | None, cover_shot_id: int | None
+) -> AssetOut:
     out.shot_count = shot_count
     out.analysis_status = analysis_status
+    out.cover_shot_id = cover_shot_id
     return out
 
 
@@ -47,12 +50,14 @@ async def list_assets(
     ids = [a.id for a in items]
     counts = await shot_service.ready_counts_for_assets(db, ids)
     statuses = await shot_service.latest_run_status_for_assets(db, ids)
+    covers = await shot_service.cover_shots_for_assets(db, ids)
     return Page[AssetOut](
         items=[
             _enrich(
                 AssetOut.model_validate(a),
                 shot_count=counts.get(a.id, 0),
                 analysis_status=statuses.get(a.id),
+                cover_shot_id=covers.get(a.id),
             )
             for a in items
         ],
@@ -69,10 +74,12 @@ async def get_asset(asset_id: int, db: AsyncSession = Depends(get_db)) -> AssetO
         raise HTTPException(status_code=404, detail="素材不存在")
     counts = await shot_service.ready_counts_for_assets(db, [asset.id])
     statuses = await shot_service.latest_run_status_for_assets(db, [asset.id])
+    covers = await shot_service.cover_shots_for_assets(db, [asset.id])
     return _enrich(
         AssetOut.model_validate(asset),
         shot_count=counts.get(asset.id, 0),
         analysis_status=statuses.get(asset.id),
+        cover_shot_id=covers.get(asset.id),
     )
 
 
@@ -164,7 +171,7 @@ async def list_asset_shots(
         db, asset_id=asset_id, page=page, page_size=page_size
     )
     return Page[ShotOut](
-        items=[to_shot_out(s) for s in items],
+        items=[to_shot_out(s, asset.filename) for s in items],
         total=total,
         page=page,
         page_size=page_size,

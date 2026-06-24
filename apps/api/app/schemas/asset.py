@@ -39,6 +39,8 @@ class AssetOut(BaseModel):
     # PR-02：镜头分析概览（列表/详情附加，非 ORM 字段，由路由填充）
     shot_count: int = 0
     analysis_status: str | None = None
+    # 封面镜头（首个 ready 镜头）：前端用其关键帧作封面、代理作预览
+    cover_shot_id: int | None = None
 
 
 class RescanAcceptedOut(BaseModel):

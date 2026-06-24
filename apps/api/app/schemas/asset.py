@@ -36,6 +36,10 @@ class AssetOut(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    # PR-02：镜头分析概览（列表/详情附加，非 ORM 字段，由路由填充）
+    shot_count: int = 0
+    analysis_status: str | None = None
+
 
 class RescanAcceptedOut(BaseModel):
     asset_id: int

@@ -1,5 +1,7 @@
 # ClipMind API 镜像（也用于一次性 migrate 服务）
-FROM python:3.13-slim
+# 固定 bookworm 标签（不用随时间漂移到 trixie 的 -slim），保证系统包名稳定。
+# 项目 requires-python>=3.13，故用 3.13-slim-bookworm（非 3.12）。
+FROM python:3.13-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \

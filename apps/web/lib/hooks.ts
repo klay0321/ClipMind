@@ -8,12 +8,13 @@ import {
 } from "@tanstack/react-query";
 
 import { api } from "./api";
-import type { AssetQuery, MediaRunStatus, ShotQuery } from "./types";
+import type { AIRunStatus, AssetQuery, MediaRunStatus, ShotQuery } from "./types";
 import type { ExportStatus, ScanStatus } from "./types";
 
 const ACTIVE_SCAN: ScanStatus[] = ["queued", "scanning"];
 const ACTIVE_RUN: MediaRunStatus[] = ["queued", "running"];
 const ACTIVE_EXPORT: ExportStatus[] = ["queued", "running"];
+const ACTIVE_AI: AIRunStatus[] = ["queued", "running"];
 
 export function useAssets(query: AssetQuery) {
   return useQuery({
@@ -164,6 +165,53 @@ export function useExportStatus(exportId: number | null) {
     refetchInterval: (q) => {
       const status = q.state.data?.status;
       return status && ACTIVE_EXPORT.includes(status) ? 1500 : false;
+    },
+  });
+}
+
+// ===== PR-03A AI 理解分析 =====
+
+export function useAiAnalysis(assetId: number | null) {
+  return useQuery({
+    queryKey: ["ai-analysis", assetId],
+    queryFn: () => api.aiAnalysis(assetId as number),
+    enabled: assetId != null,
+    refetchInterval: (q) => {
+      const status = q.state.data?.status;
+      return status && ACTIVE_AI.includes(status) ? 2500 : false;
+    },
+  });
+}
+
+export function useShotAi(shotId: number | null, poll = false) {
+  return useQuery({
+    queryKey: ["shot-ai", shotId],
+    queryFn: () => api.shotAi(shotId as number),
+    enabled: shotId != null,
+    // 触发分析后短时轮询，拿到结果即停
+    refetchInterval: (q) => (poll && q.state.data?.has_analysis === false ? 2500 : false),
+  });
+}
+
+export function useAnalyzeAiMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ assetId, retry }: { assetId: number; retry?: boolean }) =>
+      retry ? api.retryAssetAi(assetId) : api.analyzeAssetAi(assetId),
+    onSuccess: (_data, { assetId }) => {
+      qc.invalidateQueries({ queryKey: ["assets"] });
+      qc.invalidateQueries({ queryKey: ["ai-analysis", assetId] });
+    },
+  });
+}
+
+export function useAnalyzeShotAiMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (shotId: number) => api.analyzeShotAi(shotId),
+    onSuccess: (_data, shotId) => {
+      qc.invalidateQueries({ queryKey: ["shot-ai", shotId] });
+      qc.invalidateQueries({ queryKey: ["assets"] });
     },
   });
 }

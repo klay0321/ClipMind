@@ -15,6 +15,8 @@ vi.mock("@/lib/hooks", () => ({
   useShot: vi.fn(),
   useExportMutation: vi.fn(),
   useExportStatus: vi.fn(),
+  useShotAi: vi.fn(),
+  useAnalyzeShotAiMutation: vi.fn(),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -100,6 +102,8 @@ beforeEach(() => {
   vi.mocked(hooks.useShot).mockReturnValue(query({ data: makeDetail() }));
   vi.mocked(hooks.useExportMutation).mockReturnValue(mutation());
   vi.mocked(hooks.useExportStatus).mockReturnValue(query());
+  vi.mocked(hooks.useShotAi).mockReturnValue(query({ data: undefined }));
+  vi.mocked(hooks.useAnalyzeShotAiMutation).mockReturnValue(mutation());
 });
 
 describe("ShotsView", () => {
@@ -206,5 +210,40 @@ describe("ShotDetail", () => {
     vi.mocked(hooks.useShot).mockReturnValue(query({ data: makeDetail({ keyframe_count: 0 }) }));
     render(<ShotDetail shotId={1} />);
     expect(screen.queryByTestId("keyframe-strip")).not.toBeInTheDocument();
+  });
+
+  it("AI 面板显示真实结果并标注待人工审核", () => {
+    vi.mocked(hooks.useShotAi).mockReturnValue(
+      query({
+        data: {
+          shot_id: 1, has_analysis: true, status: "completed", provider: "fake",
+          model: "m", confidence: 0.8, needs_human_review: true, degraded_reason: null,
+          result: { one_line: "产品特写", risk_flags: ["competitor"] }, updated_at: null,
+        },
+      }),
+    );
+    render(<ShotDetail shotId={1} />);
+    expect(screen.getByTestId("ai-panel")).toBeInTheDocument();
+    expect(screen.getByText("产品特写")).toBeInTheDocument();
+    expect(screen.getByText("AI 原始结果 · 待人工审核")).toBeInTheDocument();
+    expect(screen.getByText("待人工确认")).toBeInTheDocument();
+  });
+
+  it("AI 未分析时点击触发单镜头分析", async () => {
+    const mutate = vi.fn();
+    vi.mocked(hooks.useAnalyzeShotAiMutation).mockReturnValue(mutation({ mutate }));
+    vi.mocked(hooks.useShotAi).mockReturnValue(
+      query({
+        data: {
+          shot_id: 1, has_analysis: false, status: null, provider: null, model: null,
+          confidence: null, needs_human_review: false, degraded_reason: null,
+          result: null, updated_at: null,
+        },
+      }),
+    );
+    const user = userEvent.setup();
+    render(<ShotDetail shotId={1} />);
+    await user.click(screen.getByTestId("ai-analyze-btn"));
+    expect(mutate).toHaveBeenCalledWith(1);
   });
 });

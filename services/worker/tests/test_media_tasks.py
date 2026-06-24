@@ -136,8 +136,30 @@ def test_analyze_creates_shots_and_files(session, tmp_path):
         for rel in (s.keyframe_path, s.thumbnail_path, s.proxy_path):
             assert rel is not None
             assert os.path.isfile(_abs(data_dir, rel)), rel
+        # 关键帧条（默认 aux_keyframes=4）落库 + 文件已搬入该镜头 active 目录
+        assert s.keyframe_paths is not None and len(s.keyframe_paths) == 4
+        shot_active = os.path.join(
+            data_dir, "assets", str(asset.id), "active", "shots", str(s.id)
+        )
+        for rel in s.keyframe_paths:
+            abs_p = _abs(data_dir, rel)
+            assert os.path.isfile(abs_p) and os.path.getsize(abs_p) > 0, rel
+            assert os.path.dirname(abs_p) == shot_active  # 位于该镜头 active 目录内
     # staging 已清理
     assert not os.path.isdir(os.path.join(data_dir, "assets", str(asset.id), "runs", run.run_uuid))
+
+
+@needs_ffmpeg
+def test_analyze_aux_keyframes_zero_leaves_strip_none(session, tmp_path):
+    src = make_test_video(str(tmp_path / "z.mp4"), duration=3, width=160, height=120, fps=10)
+    data_dir = os.path.realpath(str(tmp_path / "data"))
+    settings = _settings(data_dir, fallback_segment_duration=5.0, min_shot_duration=0.3,
+                         aux_keyframes=0)
+    asset = _make_asset(session)
+    _analyze(session, _new_run(session, asset), asset, settings,
+             src_abs=src, data_root_real=data_dir, worker_name="t")
+    for s in _ready_shots(session, asset.id):
+        assert s.keyframe_paths is None  # 无辅助帧 → 列存 NULL
 
 
 @needs_ffmpeg
@@ -168,9 +190,16 @@ def test_reanalysis_atomic_replace(session, tmp_path):
     all_shots = session.execute(select(Shot).where(Shot.asset_id == asset.id)).scalars().all()
     assert all(s.generation == 2 for s in all_shots)  # 旧代次已删除
     for d in old_dirs:
-        assert not os.path.isdir(d), f"旧目录应已清理: {d}"
+        assert not os.path.isdir(d), f"旧目录应已清理: {d}"  # 含旧 strip，整目录移除
+    new_shot_ids = {s.id for s in shots2}
     for s in shots2:
         assert os.path.isfile(_abs(data_dir, s.proxy_path))
+        # 新代次关键帧条指向新镜头目录下的真实文件
+        assert s.keyframe_paths and len(s.keyframe_paths) == 4
+        for rel in s.keyframe_paths:
+            assert os.path.isfile(_abs(data_dir, rel)), rel
+            assert f"{os.sep}shots{os.sep}{s.id}{os.sep}" in _abs(data_dir, rel)
+            assert s.id in new_shot_ids
 
 
 @needs_ffmpeg

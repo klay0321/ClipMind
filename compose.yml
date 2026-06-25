@@ -148,3 +148,16 @@ volumes:
   pgdata:
   clipmind-data:
   clipmind-uploads:   # 网页上传可写区（独立于只读 NAS 源）
+
+# 默认网络子网可配置（可移植、不含任何环境专属硬编码）。
+# 背景：当内网 AI Provider（如公司 MiMo）的私网 IP 落入 Docker 自动分配给本项目网络的
+# 子网段时，容器会把该 IP 误判为本桥"直连"，对其在桥上 ARP 而 No route to host（宿主机却可达）。
+# 解法：把本项目网络子网改到不与 Provider 私网地址重叠的段，使该 IP 经默认网关转发到宿主机。
+# 默认 172.28.10.0/24 避开常见的 172.17(docker0) 与 172.19；若你本机该段已被占用或 Provider IP
+# 仍落入其中，用 CLIPMIND_DOCKER_SUBNET 覆盖。检测命令：
+#   python scripts/diagnose_ai_network.py --subnet ${CLIPMIND_DOCKER_SUBNET:-172.28.10.0/24} --show-ip
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${CLIPMIND_DOCKER_SUBNET:-172.28.10.0/24}

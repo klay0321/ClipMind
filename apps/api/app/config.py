@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from clipmind_shared.constants import (
+    DEFAULT_EMBEDDING_DIMENSION,
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_EMBEDDING_MODEL_REVISION,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,6 +47,19 @@ class Settings(BaseSettings):
     ai_api_key: str = ""   # 仅判断是否已配置，绝不回显/记录
     ai_model: str = ""
     ai_max_images: int = 8
+
+    # PR-04 Embedding（MiMo 无 embedding，故走独立 provider）。API 仅在搜索期向量化查询
+    # （Gate B）与读索引状态；嵌入回填在 search-worker。""=未配置 | fake | openai_compatible
+    embedding_provider: str = ""
+    embedding_base_url: str = ""
+    embedding_api_key: str = ""   # 仅判断是否已配置，绝不回显/记录
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL
+    embedding_model_revision: str = DEFAULT_EMBEDDING_MODEL_REVISION  # 默认不可变 commit
+    embedding_dimension: int = DEFAULT_EMBEDDING_DIMENSION
+    embedding_timeout: float = 30.0
+    embedding_api_key_header: str = ""
+    embedding_prefix_scheme: str = "e5"
+    embedding_require_pinned_revision: bool = True
 
     # PR-03B：当前无登录体系，审核者用配置的本地标签（不伪造用户，PR-07 接入后平滑替换）
     review_default_reviewer: str = "local-reviewer"

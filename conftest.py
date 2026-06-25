@@ -25,11 +25,16 @@ def _schema():
     if not TEST_DATABASE_URL:
         yield
         return
-    from sqlalchemy import create_engine
+    from sqlalchemy import create_engine, text
 
     from clipmind_shared.models import Base
 
     engine = create_engine(sync_test_url(), future=True)
+    # PR-04：检索文档表含 vector 列与 pg_trgm GIN 索引；create_all 前必须先建扩展
+    # （测试库镜像须为 pgvector/pgvector:pg16）。
+    with engine.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     engine.dispose()
@@ -47,7 +52,7 @@ def _truncate():
     with engine.begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE review_event, shot_review_state, shot_tag, tag, "
+                "TRUNCATE shot_search_document, review_event, shot_review_state, shot_tag, tag, "
                 "asset_product, product_image, product_alias, product, "
                 "ai_call_log, ai_shot_analysis, ai_analysis_run, "
                 "export, shot, media_processing_run, asset, scan_run, "

@@ -213,3 +213,39 @@ EXCLUDED_FROM_SEARCH_STATUSES: tuple[ReviewStatus, ...] = (
     ReviewStatus.REJECTED,
     ReviewStatus.UNABLE,
 )
+
+
+# ============================================================
+# PR-04 语义检索（检索文档 / 嵌入 / 索引）相关枚举
+# ============================================================
+#
+# 文档状态与嵌入状态**正交**，分两列承载，避免单状态条件混乱：
+# - document_status 决定一条镜头检索文档是否"可被检索"（is_searchable）；
+# - embedding_status 决定它是否"可参与向量召回"。
+# 关键语义（PR-04 Gate A.1）：embedding 不可用/为空/过期/Provider 暂不可用时，文档仍
+# document_status=indexed、is_searchable=true，**继续参与词法/pg_trgm/标签/产品/结构化召回**，
+# 仅 embedding_status=degraded、不参与向量召回。绝不因 Embedding 缺失而让镜头完全无法被搜索。
+
+
+class SearchDocumentStatus(StrEnum):
+    """ShotSearchDocument.document_status —— 检索文档（文本层）状态。"""
+
+    PENDING = "pending"    # 文档待构建
+    INDEXED = "indexed"    # 文档已构建且为当前有效；is_searchable=true，参与非向量召回
+    EXCLUDED = "excluded"  # rejected/unable/非当前代次/业务排除；is_searchable=false，默认不返回
+
+
+class SearchEmbeddingStatus(StrEnum):
+    """ShotSearchDocument.embedding_status —— 嵌入（向量层）状态。"""
+
+    PENDING = "pending"      # 待嵌入
+    EMBEDDING = "embedding"  # 嵌入中
+    COMPLETED = "completed"  # 向量就绪且身份匹配；可参与向量召回
+    DEGRADED = "degraded"    # 嵌入不可用/为空/Provider 暂不可用；不参与向量召回（文本仍可检索）
+    FAILED = "failed"        # 嵌入失败（待重试/sweeper 修复）
+
+
+# 文档可被检索（任一非向量召回路径）的文档状态
+SEARCHABLE_DOCUMENT_STATUS: SearchDocumentStatus = SearchDocumentStatus.INDEXED
+# 可参与向量召回的嵌入状态（还须 embedding 非空且 embedding_version 与当前 Provider 一致）
+VECTOR_READY_EMBEDDING_STATUS: SearchEmbeddingStatus = SearchEmbeddingStatus.COMPLETED

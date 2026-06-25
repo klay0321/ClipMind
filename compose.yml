@@ -1,10 +1,13 @@
 name: clipmind
 
-# ClipMind —— 8 服务：postgres / redis / migrate / api / worker / media-worker / ai-worker / web
+# ClipMind —— 默认 9 服务：postgres / redis / migrate / api / worker / media-worker /
+# ai-worker / search-worker / web（+ 可选 embedder，profile "embedding"）。
 # 项目根执行：docker compose up -d
 # 源目录只读挂载到 /app/source；派生数据可读写挂载到 /app/data。
 # worker 消费 default,scan（扫描）；media-worker 专门消费 media（拆镜头/派生/导出，
-# FFmpeg 重负载，默认并发 1，与扫描隔离）；ai-worker 消费 ai（PR-03A 外部 AI 理解）。
+# FFmpeg 重负载，默认并发 1，与扫描隔离）；ai-worker 消费 ai（PR-03A 外部 AI 理解）；
+# search-worker 消费 search（PR-04 检索文档索引/嵌入；仅 DB+redis+embedder，不挂源目录）。
+# 本地真实语义检索：docker compose --profile embedding up -d embedder（torch+多语模型）。
 
 x-app-env: &app-env
   env_file:
@@ -130,6 +133,50 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # PR-04：检索文档索引 worker，仅消费 search 队列（构建检索文档 + 调 Embedding 写向量）。
+  # 仅访问 DB/redis/embedder，不挂载源目录或派生数据。EMBEDDING_PROVIDER 决定是否调 embedder。
+  search-worker:
+    build:
+      context: .
+      dockerfile: infra/worker.Dockerfile
+    <<: *app-env
+    command: ["celery", "-A", "clipmind_worker.celery_app", "worker", "-Q", "search", "-c", "${SEARCH_WORKER_CONCURRENCY:-2}", "-l", "INFO"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # PR-04（可选）：本地 Embedding 微服务。仅 profile "embedding" 启用，避免默认/CI 下载 torch+模型。
+  # api/search-worker 通过 EMBEDDING_BASE_URL=http://embedder:8100 调用（OpenAI 兼容 /embeddings）。
+  embedder:
+    build:
+      context: .
+      dockerfile: infra/embedder.Dockerfile
+    profiles: ["embedding"]
+    env_file:
+      - .env
+    environment:
+      EMBEDDER_MODEL: ${EMBEDDER_MODEL:-intfloat/multilingual-e5-small}
+      # 默认固定为已验证的不可变 commit（公开模型，非敏感）；与 EMBEDDING_MODEL_REVISION 一致
+      EMBEDDER_MODEL_REVISION: ${EMBEDDER_MODEL_REVISION:-614241f622f53c4eeff9890bdc4f31cfecc418b3}
+      EMBEDDER_DIMENSION: ${EMBEDDER_DIMENSION:-384}
+      EMBEDDER_DEVICE: ${EMBEDDER_DEVICE:-cpu}
+    # 内部服务：容器间以 embedder:8100 互访。仅绑定 127.0.0.1 供本地验收，绝不对公网开放；
+    # NAS 生产部署可移除本 ports（仅留服务名互访）。
+    ports:
+      - "127.0.0.1:${EMBEDDER_PORT:-8100}:8100"
+    volumes:
+      - embedder-models:/models   # 模型缓存独立卷（支持离线缓存启动）
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8100/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
   web:
     build:
       context: .
@@ -148,6 +195,7 @@ volumes:
   pgdata:
   clipmind-data:
   clipmind-uploads:   # 网页上传可写区（独立于只读 NAS 源）
+  embedder-models:    # PR-04 可选 embedder 的模型缓存（profile "embedding"）
 
 # 默认网络子网可配置（可移植、不含任何环境专属硬编码）。
 # 背景：当内网 AI Provider（如公司 MiMo）的私网 IP 落入 Docker 自动分配给本项目网络的

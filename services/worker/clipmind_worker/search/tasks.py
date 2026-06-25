@@ -1,0 +1,90 @@
+"""PR-04 检索文档索引 Celery 任务（search 队列）。
+
+可靠性约定：
+- 上游事务提交后才由 API/AI 任务入队（绝不在 flush 后 commit 前发送任务）；
+- 索引器幂等：相同内容+同模型跳过重嵌；
+- 同一 (shot, generation) 唯一约束下，AI/审核并发触发同镜头重建 → IntegrityError 重试一次
+  （第二次 SELECT 命中既有行走更新路径）；
+- 瞬时 provider 故障 → Celery 退避重试（有上限）；永久错误记 failed，不无限重试；
+- sweeper 兜底扫描漏发/失败的镜头；backfill 脚本可批量修复。
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from clipmind_shared.constants import (
+    TASK_REBUILD_ASSET_SEARCH_DOCS,
+    TASK_REBUILD_SHOT_SEARCH_DOC,
+    TASK_SWEEP_SEARCH_DOCS,
+)
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from clipmind_worker.celery_app import celery_app
+from clipmind_worker.config import get_settings
+from clipmind_worker.db import SessionLocal
+from clipmind_worker.search.indexer import (
+    build_embedding_provider,
+    ready_shot_ids_for_asset,
+    rebuild_shot_document,
+    shots_needing_index,
+)
+
+_MAX_RETRIES = 3
+
+
+def _backoff(retries: int) -> int:
+    return min(2**retries, 60)
+
+
+def _rebuild_commit(session: Session, shot_id: int, provider, *, force: bool) -> str:  # noqa: ANN001
+    """重建并提交单镜头；并发插入冲突时重试一次（改走更新路径）。"""
+    try:
+        status = rebuild_shot_document(session, shot_id, provider, force_reembed=force)
+        session.commit()
+        return status
+    except IntegrityError:
+        session.rollback()
+        status = rebuild_shot_document(session, shot_id, provider, force_reembed=force)
+        session.commit()
+        return status
+
+
+@celery_app.task(
+    name=TASK_REBUILD_SHOT_SEARCH_DOC, bind=True, acks_late=True, max_retries=_MAX_RETRIES
+)
+def rebuild_shot_search_doc(self, shot_id: int, force_reembed: bool = False) -> dict[str, Any]:  # noqa: ANN001
+    provider = build_embedding_provider(get_settings())
+    with SessionLocal() as session:
+        status = _rebuild_commit(session, shot_id, provider, force=force_reembed)
+    if status == "retry":
+        raise self.retry(countdown=_backoff(self.request.retries))
+    return {"shot_id": shot_id, "status": status}
+
+
+@celery_app.task(name=TASK_REBUILD_ASSET_SEARCH_DOCS, bind=True, acks_late=True)
+def rebuild_asset_search_docs(self, asset_id: int, force_reembed: bool = False) -> dict[str, Any]:  # noqa: ANN001
+    provider = build_embedding_provider(get_settings())
+    stats: dict[str, int] = {}
+    with SessionLocal() as session:
+        shot_ids = ready_shot_ids_for_asset(session, asset_id)
+        for sid in shot_ids:
+            status = _rebuild_commit(session, sid, provider, force=force_reembed)
+            stats[status] = stats.get(status, 0) + 1
+    return {"asset_id": asset_id, "total": len(shot_ids), "stats": stats}
+
+
+@celery_app.task(name=TASK_SWEEP_SEARCH_DOCS, bind=True, acks_late=True)
+def sweep_search_docs(self, limit: int = 200, force_reembed: bool = False) -> dict[str, Any]:  # noqa: ANN001
+    provider = build_embedding_provider(get_settings())
+    current_version = provider.identity().embedding_version
+    stats: dict[str, int] = {}
+    with SessionLocal() as session:
+        shot_ids = shots_needing_index(
+            session, current_embedding_version=current_version, limit=limit
+        )
+        for sid in shot_ids:
+            status = _rebuild_commit(session, sid, provider, force=force_reembed)
+            stats[status] = stats.get(status, 0) + 1
+    return {"swept": len(shot_ids), "stats": stats}

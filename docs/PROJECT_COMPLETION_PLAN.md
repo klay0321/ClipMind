@@ -60,8 +60,9 @@ ClipMind 是面向公司 NAS 部署的 **AI 视频素材管理与智能匹配系
 - 范围：产品主数据/参考图/别名/候选识别；场景/动作/镜头类型/营销用途/卖点/可见文字/Logo品牌/质量/风险/置信度标签；待审核/修改/确认/驳回/无法判断状态机；审核日志；**人工结果优先、重新分析不覆盖人工确认结果**（除管理员显式覆盖）；UI 参考图 01/02 真实功能完成。
 - 退出标准：标签/产品/审核闭环可用；人工修改后再分析不被覆盖；UI 无伪造状态；CI 全绿。
 
-### PR-04 — 搜索·画面描述匹配（分支 `feat/semantic-shot-search`，迁移 `0007_pgvector_search`）— 计划中
-- 范围：启用 pgvector；Embedding Provider；文本向量；结构化标签筛选 + 关键词 + 自然语言条件解析；中/英/混合查询；相似镜头；画面描述匹配（候选召回→重排→风险扣分→匹配度 + 匹配理由）；搜索历史；UI 参考图 04 完整。
+### PR-04 — 搜索·画面描述匹配（分支 `feat/semantic-shot-search`，迁移 `0007_semantic_search`）— Gate A 已实现，Gate B/C 进行中
+- 详见 `docs/SEMANTIC_SEARCH.md`。**Gate A（已实现）**：pgvector/pg_trgm 启用、`shot_search_document` 表、`EmbeddingProvider` 抽象 + FakeEmbedding + 本地 embedder 微服务（profile `embedding`，e5-small/384）、检索文档构建器、`search` 队列索引器 + AI/审核触发 + sweeper/回填。
+- **Gate B/C（进行中）**：Query Parser、Hybrid 召回/重排/稳定排序、规则派生匹配理由、`POST /api/search/shots`、`POST /api/match/description`、`GET /api/search/suggestions`、`GET /api/search/index/status`、UI 参考图 04、性能 ≤3s 首屏。
 - 退出标准：向量召回与重排可用、返回匹配度与理由；性能符合 PRD 8.1（局域网首屏 ≤3s）；CI 全绿。
 
 ### PR-05 — 脚本匹配·剪辑清单（分支 `feat/script-shot-matching`，迁移 `0008_script_matching`，新增 `export-worker`/队列 `export`）— 计划中
@@ -96,7 +97,7 @@ ClipMind 是面向公司 NAS 部署的 **AI 视频素材管理与智能匹配系
 | Gate 0.5 | `fix/land-asset-poster-on-main` | `0004_asset_poster` | — | 否 |
 | PR-03A | `feat/ai-analysis-foundation` | `0005_ai_analysis` | **ai-worker(`ai`)** | 否 |
 | PR-03B | `feat/ai-review-product-library` | `0006_ai_review_products` | — | 否 |
-| PR-04 | `feat/semantic-shot-search` | `0007_pgvector_search` | （embedding 流水） | **启用** |
+| PR-04 | `feat/semantic-shot-search` | `0007_semantic_search` | **search-worker(`search`)** + 可选 embedder | **启用** |
 | PR-05 | `feat/script-shot-matching` | `0008_script_matching` | export-worker(`export`) | 已启用 |
 | PR-06 | `feat/projects-collections-exports` | `0009_projects_collections` | — | 已启用 |
 | PR-07 | `feat/auth-admin-audit` | `0010_auth_admin_audit` | — | 已启用 |

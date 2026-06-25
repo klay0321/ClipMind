@@ -262,6 +262,14 @@ ClipMind MVP v0.1（五个 PR 全部合并）
 
 ## 5. PR-04 `feat/shot-search`：搜索 + 画面描述匹配
 
+> ⚠️ **已过时，仅作追溯**。本节写于 PR-03A/03B 重构之前，下述 `Shot.embedding` 列、`0004_pgvector`
+> 迁移、`ivfflat`、`POST /api/search`/`/search/similar`/`/search/history` 均已被新设计取代。
+> **实际实现以 `docs/SEMANTIC_SEARCH.md` 与 `docs/PROJECT_COMPLETION_PLAN.md` 为准**：
+> 分支 `feat/semantic-shot-search`；迁移 `0007_semantic_search`（down_revision `0006_ai_review_products`）；
+> 新表 `shot_search_document`（非在 `Shot` 上加列）；**HNSW**（非 ivfflat）；独立 `EmbeddingProvider`
+> 抽象 + 本地 embedder 微服务（e5-small/384）；API 为 `POST /api/search/shots`、`POST /api/match/description`、
+> `GET /api/search/suggestions`、`GET /api/search/index/status`；SearchHistory 暂缓。
+
 ### 5.1 分支名
 
 `feat/shot-search`（从最新 `main` 开新分支）

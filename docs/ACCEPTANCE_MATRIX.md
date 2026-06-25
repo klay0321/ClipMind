@@ -68,7 +68,7 @@
 
 | 需求 | PR | 验证 | 状态 |
 | --- | --- | --- | --- |
-| pgvector 启用 + embedding 向量列 + 索引（7.10） | 04 | migration + pytest | 后续阶段 |
+| pgvector 启用 + 检索文档 `shot_search_document` + HNSW/pg_trgm 索引（7.10） | 04 | `0007_semantic_search` migration + pytest | **Gate A 已实现**（详见 `docs/SEMANTIC_SEARCH.md`；实现为独立检索文档表而非 Shot 列） |
 | 中/英/混合自然语言查询解析（7.10） | 04 | pytest | 后续阶段 |
 | 候选召回 → 重排（标签/人工/风险扣分/质量/时长）（7.10.4） | 04 | pytest | 后续阶段 |
 | 画面描述匹配（匹配度 + 匹配/不匹配 + 风险）（7.11） | 04 | pytest + manual | 后续阶段 |

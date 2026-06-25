@@ -129,6 +129,22 @@ http://localhost:3000
 
 > 镜头分析由 `media-worker` 消费 `media` 队列执行，派生文件写入命名卷 `clipmind-data:/app/data`，**不写源目录**。镜头详情中的 AI 内容分析为占位（「AI 内容分析将在 PR-03 提供」），PR-02 不调用 AI、不显示伪造状态。
 
+### 2.8 真实 AI Provider 与容器内网络
+
+PR-03 起可用真实 AI Provider（如 MiMo）。仅在本机 `.env` 配置 `AI_PROVIDER=mimo` /
+`AI_BASE_URL` / `AI_API_KEY`（git 忽略，**绝不提交**），`docker compose down && up -d` 重载（勿 `-v`）。
+
+若出现**宿主机能调用、容器内调用失败**（典型 `No route to host`、provider health 失败），
+多为 **Docker 子网与 Provider 内网地址重叠**。诊断与修复详见 **`docs/DOCKER_AI_NETWORKING.md`**：
+
+```bash
+# 容器内 / 宿主机脱敏诊断（in_subnet=True 即重叠）
+python scripts/diagnose_ai_network.py --subnet ${CLIPMIND_DOCKER_SUBNET:-172.28.10.0/24} --show-ip
+# 重叠时在 .env 设不冲突的 CLIPMIND_DOCKER_SUBNET，再 down/up（勿 -v）
+```
+
+CI / 截图演示用 `AI_PROVIDER=fake`（确定性、不联网），不受该网络问题影响。
+
 ---
 
 ## 3. 常用命令

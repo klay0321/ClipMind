@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { AnalysisBanner } from "@/components/AnalysisBanner";
 import { Pagination } from "@/components/Pagination";
+import { ReviewSummaryBar } from "@/components/ReviewSummaryBar";
 import { ShotCard } from "@/components/ShotCard";
 import { ShotDetail } from "@/components/ShotDetail";
 import { TopNav } from "@/components/TopNav";
@@ -19,6 +20,7 @@ import {
   useExportStatus,
   useShotAnalysis,
   useShots,
+  useShotSearch,
 } from "@/lib/hooks";
 import type { Shot } from "@/lib/types";
 
@@ -26,15 +28,37 @@ const PAGE_SIZE = 24;
 
 type SortKey = "seq" | "longest" | "shortest";
 
-// AI 筛选维度（PR-03 引入大模型理解后启用）。当前禁用，不伪造数据。
-const AI_FILTER_GROUPS = ["产品", "场景 / 镜别", "画面标签", "口播 / 字幕"];
+// 智能筛选维度（PR-03B 起：走 /shot-search 投影，有效标签 = 人工优先，rejected/unable 默认排除）
+type Filters = {
+  review_status?: string;
+  has_ai_result?: boolean;
+  stale?: boolean;
+  risk?: string;
+  scene?: string;
+  action?: string;
+  include_excluded?: boolean;
+};
+
+const REVIEW_OPTIONS: { value: string; label: string }[] = [
+  { value: "", label: "全部" },
+  { value: "unreviewed", label: "未审核" },
+  { value: "pending_review", label: "待审核" },
+  { value: "confirmed", label: "已确认" },
+  { value: "modified", label: "已修改" },
+  { value: "rejected", label: "已驳回" },
+  { value: "unable", label: "无法判断" },
+];
 
 function FilterSidebar({
   sort,
   onSort,
+  filters,
+  onFilters,
 }: {
   sort: SortKey;
   onSort: (k: SortKey) => void;
+  filters: Filters;
+  onFilters: (f: Filters) => void;
 }) {
   const sortBtn = (k: SortKey, label: string) => (
     <button
@@ -47,6 +71,29 @@ function FilterSidebar({
       {label}
     </button>
   );
+  const set = (patch: Partial<Filters>) => onFilters({ ...filters, ...patch });
+  const text = (key: "scene" | "action" | "risk", placeholder: string, testid?: string) => (
+    <input
+      data-testid={testid}
+      placeholder={placeholder}
+      value={filters[key] ?? ""}
+      onChange={(e) => set({ [key]: e.target.value || undefined })}
+      className="w-full rounded border border-gray-200 px-1.5 py-1 text-xs"
+    />
+  );
+  const check = (
+    key: "has_ai_result" | "stale" | "include_excluded",
+    label: string,
+  ) => (
+    <label className="flex items-center gap-1.5 text-gray-600">
+      <input
+        type="checkbox"
+        checked={filters[key] === true}
+        onChange={(e) => set({ [key]: e.target.checked ? true : undefined })}
+      />
+      {label}
+    </label>
+  );
   return (
     <aside className="shrink-0 space-y-4 lg:w-52">
       <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
@@ -57,24 +104,35 @@ function FilterSidebar({
           {sortBtn("shortest", "时长短→长")}
         </div>
       </div>
-      <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
+      <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm" data-testid="ai-filters">
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
           智能筛选
         </h3>
-        <div className="space-y-2">
-          {AI_FILTER_GROUPS.map((g) => (
-            <div key={g} className="rounded-md border border-dashed border-gray-200 px-2 py-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-500">{g}</span>
-                <span className="rounded bg-gray-100 px-1 py-0.5 text-[10px] text-gray-400">
-                  待 AI
-                </span>
-              </div>
-            </div>
-          ))}
+        <div className="space-y-2 text-xs">
+          <label className="block">
+            <span className="text-gray-500">审核状态</span>
+            <select
+              data-testid="filter-review-status"
+              value={filters.review_status ?? ""}
+              onChange={(e) => set({ review_status: e.target.value || undefined })}
+              className="mt-0.5 w-full rounded border border-gray-200 px-1.5 py-1 text-xs"
+            >
+              {REVIEW_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {text("scene", "场景")}
+          {text("action", "动作")}
+          {text("risk", "风险标记", "filter-risk")}
+          {check("has_ai_result", "仅已 AI 分析")}
+          {check("stale", "仅过期需复审")}
+          {check("include_excluded", "含已驳回 / 无法判断")}
         </div>
         <p className="mt-2 text-[10px] leading-relaxed text-gray-400">
-          按画面 / 产品 / 标签筛选将在接入 AI 理解后启用，当前不展示占位假数据。
+          按结构化投影筛选（有效标签：人工优先，AI 兜底）；不扫描原始 JSON。
         </p>
       </div>
     </aside>
@@ -86,12 +144,29 @@ export function ShotsView({ assetId }: { assetId: number | null }) {
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [sort, setSort] = useState<SortKey>("seq");
+  const [filters, setFilters] = useState<Filters>({});
+  const filterActive = Object.values(filters).some((v) => v != null && v !== "");
 
   const analysisQ = useShotAnalysis(scoped ? assetId : null);
   const analyzeMut = useAnalyzeMutation();
-  const assetShotsQ = useAssetShots(scoped ? assetId : null, page, PAGE_SIZE);
-  const allShotsQ = useShots({ page, page_size: PAGE_SIZE }, !scoped);
-  const shotsQ = scoped ? assetShotsQ : allShotsQ;
+  const assetShotsQ = useAssetShots(scoped && !filterActive ? assetId : null, page, PAGE_SIZE);
+  const allShotsQ = useShots({ page, page_size: PAGE_SIZE }, !scoped && !filterActive);
+  const searchQ = useShotSearch(
+    {
+      asset_id: scoped ? (assetId as number) : undefined,
+      ...filters,
+      sort: "sequence",
+      page,
+      page_size: PAGE_SIZE,
+    },
+    filterActive,
+  );
+  const shotsQ = filterActive ? searchQ : scoped ? assetShotsQ : allShotsQ;
+
+  // 筛选变化时回到第一页
+  useEffect(() => {
+    setPage(1);
+  }, [filters]);
 
   // 下载：导出该镜头片段，完成后触发浏览器下载
   const exportMut = useExportMutation();
@@ -162,9 +237,13 @@ export function ShotsView({ assetId }: { assetId: number | null }) {
   } else if (items.length === 0) {
     grid = (
       <Empty
-        title={scoped ? "尚未拆镜头" : "还没有任何镜头"}
+        title={filterActive ? "没有符合筛选条件的镜头" : scoped ? "尚未拆镜头" : "还没有任何镜头"}
         description={
-          scoped ? "点击上方“开始分析”对该素材拆镜头" : "请到素材库对素材发起镜头分析"
+          filterActive
+            ? "调整或清空左侧智能筛选条件"
+            : scoped
+              ? "点击上方“开始分析”对该素材拆镜头"
+              : "请到素材库对素材发起镜头分析"
         }
       />
     );
@@ -226,6 +305,7 @@ export function ShotsView({ assetId }: { assetId: number | null }) {
           ) : null}
         </div>
 
+        {scoped ? <ReviewSummaryBar assetId={assetId} /> : null}
         {scoped ? <AnalysisBanner analysis={analysis} pending={analyzeMut.isPending} /> : null}
         {exportMut.isError ? (
           <p className="text-xs text-red-600">
@@ -234,7 +314,7 @@ export function ShotsView({ assetId }: { assetId: number | null }) {
         ) : null}
 
         <div className="flex flex-col gap-4 lg:flex-row">
-          <FilterSidebar sort={sort} onSort={setSort} />
+          <FilterSidebar sort={sort} onSort={setSort} filters={filters} onFilters={setFilters} />
           <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-3">
             <section className="space-y-3 lg:col-span-2">{grid}</section>
             <aside className="rounded-lg border border-gray-100 bg-white shadow-sm lg:sticky lg:top-4 lg:self-start">

@@ -1,7 +1,7 @@
 import Link from "next/link";
 
-export function TopNav({ active }: { active?: "assets" | "shots" }) {
-  const linkCls = (key: "assets" | "shots") =>
+export function TopNav({ active }: { active?: "assets" | "shots" | "products" }) {
+  const linkCls = (key: "assets" | "shots" | "products") =>
     active === key
       ? "text-brand font-medium"
       : "text-gray-500 hover:text-gray-800";
@@ -17,6 +17,9 @@ export function TopNav({ active }: { active?: "assets" | "shots" }) {
           </Link>
           <Link href="/shots" className={linkCls("shots")}>
             镜头库
+          </Link>
+          <Link href="/products" className={linkCls("products")}>
+            产品库
           </Link>
         </nav>
         <span className="ml-auto hidden text-xs text-gray-400 sm:inline">

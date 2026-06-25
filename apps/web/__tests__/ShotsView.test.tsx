@@ -12,11 +12,18 @@ vi.mock("@/lib/hooks", () => ({
   useAnalyzeMutation: vi.fn(),
   useAssetShots: vi.fn(),
   useShots: vi.fn(),
+  useShotSearch: vi.fn(),
+  useReviewSummary: vi.fn(),
   useShot: vi.fn(),
   useExportMutation: vi.fn(),
   useExportStatus: vi.fn(),
   useShotAi: vi.fn(),
   useAnalyzeShotAiMutation: vi.fn(),
+  useEffectiveResult: vi.fn(),
+  useReviewState: vi.fn(),
+  useReviewEvents: vi.fn(),
+  useProductCandidates: vi.fn(),
+  useReviewActionMutation: vi.fn(),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -99,11 +106,18 @@ beforeEach(() => {
   vi.mocked(hooks.useAnalyzeMutation).mockReturnValue(mutation());
   vi.mocked(hooks.useAssetShots).mockReturnValue(query());
   vi.mocked(hooks.useShots).mockReturnValue(query());
+  vi.mocked(hooks.useShotSearch).mockReturnValue(query());
+  vi.mocked(hooks.useReviewSummary).mockReturnValue(query({ data: undefined }));
   vi.mocked(hooks.useShot).mockReturnValue(query({ data: makeDetail() }));
   vi.mocked(hooks.useExportMutation).mockReturnValue(mutation());
   vi.mocked(hooks.useExportStatus).mockReturnValue(query());
   vi.mocked(hooks.useShotAi).mockReturnValue(query({ data: undefined }));
   vi.mocked(hooks.useAnalyzeShotAiMutation).mockReturnValue(mutation());
+  vi.mocked(hooks.useEffectiveResult).mockReturnValue(query({ data: undefined }));
+  vi.mocked(hooks.useReviewState).mockReturnValue(query({ data: undefined }));
+  vi.mocked(hooks.useReviewEvents).mockReturnValue(query({ data: [] }));
+  vi.mocked(hooks.useProductCandidates).mockReturnValue(query({ data: [] }));
+  vi.mocked(hooks.useReviewActionMutation).mockReturnValue(mutation());
 });
 
 describe("ShotsView", () => {
@@ -162,6 +176,38 @@ describe("ShotsView", () => {
     await user.click(screen.getByRole("button", { name: "开始分析" }));
     expect(mutate).toHaveBeenCalledWith({ assetId: 10, retry: false });
   });
+
+  it("选择审核状态切换为 /shot-search 投影筛选", async () => {
+    vi.mocked(hooks.useShotSearch).mockReturnValue(
+      query({ data: { items: [makeShot({ id: 77 })], total: 1, page: 1, page_size: 24 } }),
+    );
+    const user = userEvent.setup();
+    render(<ShotsView assetId={null} />);
+    await user.selectOptions(screen.getByTestId("filter-review-status"), "confirmed");
+    expect(hooks.useShotSearch).toHaveBeenLastCalledWith(
+      expect.objectContaining({ review_status: "confirmed" }),
+      true,
+    );
+    expect(screen.getAllByTestId("shot-card")).toHaveLength(1);
+  });
+
+  it("scoped 顶部显示素材 AI 审核汇总（含风险计数）", () => {
+    vi.mocked(hooks.useReviewSummary).mockReturnValue(
+      query({
+        data: {
+          asset_id: 10, total_shots: 5, ai_unanalyzed_count: 0, ai_running_count: 0,
+          ai_failed_count: 0, pending_review_count: 2, unreviewed_count: 1, confirmed_count: 1,
+          modified_count: 0, rejected_count: 0, unable_count: 0, stale_review_count: 0,
+          risk_shot_count: 1, primary_product: null, related_products: [],
+          ai_overall_status: "pending_review",
+        },
+      }),
+    );
+    render(<ShotsView assetId={10} />);
+    const bar = screen.getByTestId("review-summary");
+    expect(bar).toBeInTheDocument();
+    expect(bar).toHaveTextContent("风险");
+  });
 });
 
 describe("ShotDetail", () => {
@@ -212,38 +258,69 @@ describe("ShotDetail", () => {
     expect(screen.queryByTestId("keyframe-strip")).not.toBeInTheDocument();
   });
 
-  it("AI 面板显示真实结果并标注待人工审核", () => {
-    vi.mocked(hooks.useShotAi).mockReturnValue(
+  it("审核面板显示有效结果与来源（AI 未确认）及风险", () => {
+    vi.mocked(hooks.useEffectiveResult).mockReturnValue(
       query({
         data: {
-          shot_id: 1, has_analysis: true, status: "completed", provider: "fake",
-          model: "m", confidence: 0.8, needs_human_review: true, degraded_reason: null,
-          result: { one_line: "产品特写", risk_flags: ["competitor"] }, updated_at: null,
+          shot_id: 1, review_status: "unreviewed", source: "ai", confirmed: false,
+          searchable: true, ai_status: "completed", has_newer_ai_result: false,
+          review_is_stale: false, stale_reason: null,
+          result: { one_line: "产品特写", risk_flags: ["competitor"] },
         },
       }),
     );
+    vi.mocked(hooks.useReviewState).mockReturnValue(
+      query({ data: { review_status: "unreviewed", lock_version: 0 } }),
+    );
     render(<ShotDetail shotId={1} />);
-    expect(screen.getByTestId("ai-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("review-panel")).toBeInTheDocument();
     expect(screen.getByText("产品特写")).toBeInTheDocument();
-    expect(screen.getByText("AI 原始结果 · 待人工审核")).toBeInTheDocument();
-    expect(screen.getByText("待人工确认")).toBeInTheDocument();
+    expect(screen.getByText("AI 结果（未确认）")).toBeInTheDocument();
+    expect(screen.getByText("competitor")).toBeInTheDocument();
   });
 
-  it("AI 未分析时点击触发单镜头分析", async () => {
+  it("点击确认按当前 lock_version 触发审核 mutation", async () => {
     const mutate = vi.fn();
-    vi.mocked(hooks.useAnalyzeShotAiMutation).mockReturnValue(mutation({ mutate }));
-    vi.mocked(hooks.useShotAi).mockReturnValue(
+    vi.mocked(hooks.useReviewActionMutation).mockReturnValue(mutation({ mutate }));
+    vi.mocked(hooks.useReviewState).mockReturnValue(
+      query({ data: { review_status: "unreviewed", lock_version: 3 } }),
+    );
+    vi.mocked(hooks.useEffectiveResult).mockReturnValue(
       query({
         data: {
-          shot_id: 1, has_analysis: false, status: null, provider: null, model: null,
-          confidence: null, needs_human_review: false, degraded_reason: null,
-          result: null, updated_at: null,
+          shot_id: 1, review_status: "unreviewed", source: "ai", confirmed: false,
+          searchable: true, ai_status: "completed", has_newer_ai_result: false,
+          review_is_stale: false, stale_reason: null, result: { one_line: "产品特写" },
         },
       }),
     );
     const user = userEvent.setup();
     render(<ShotDetail shotId={1} />);
-    await user.click(screen.getByTestId("ai-analyze-btn"));
-    expect(mutate).toHaveBeenCalledWith(1);
+    await user.click(screen.getByTestId("review-confirm"));
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shotId: 1,
+        action: "confirm",
+        body: expect.objectContaining({ lock_version: 3 }),
+      }),
+    );
+  });
+
+  it("人工确认后展示『人工确认结果』与已确认状态", () => {
+    vi.mocked(hooks.useEffectiveResult).mockReturnValue(
+      query({
+        data: {
+          shot_id: 1, review_status: "confirmed", source: "human", confirmed: true,
+          searchable: true, ai_status: "completed", has_newer_ai_result: false,
+          review_is_stale: false, stale_reason: null, result: { one_line: "人工确认描述" },
+        },
+      }),
+    );
+    vi.mocked(hooks.useReviewState).mockReturnValue(
+      query({ data: { review_status: "confirmed", lock_version: 1 } }),
+    );
+    render(<ShotDetail shotId={1} />);
+    expect(screen.getByText("人工确认结果")).toBeInTheDocument();
+    expect(screen.getByText("已确认")).toBeInTheDocument();
   });
 });

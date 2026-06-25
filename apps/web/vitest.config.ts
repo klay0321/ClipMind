@@ -9,6 +9,8 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
+    // forks 池更稳定，避免 Windows 上 tinypool 线程 worker 偶发崩溃
+    pool: "forks",
   },
   resolve: {
     alias: { "@": path.resolve(__dirname, ".") },

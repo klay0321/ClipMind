@@ -4,8 +4,16 @@ import type {
   AIAnalysis,
   Asset,
   AssetQuery,
+  AssetReviewSummary,
+  EffectiveResult,
   ExportItem,
   PageResult,
+  Product,
+  ProductCandidate,
+  ReviewActionInput,
+  ReviewActionKind,
+  ReviewEvent,
+  ReviewState,
   ScanRun,
   ScanStatusResponse,
   Shot,
@@ -15,7 +23,26 @@ import type {
   ShotQuery,
   SourceDirectory,
   SourceDirectoryCreate,
+  TagDict,
 } from "./types";
+
+export interface ShotSearchQuery {
+  asset_id?: number;
+  review_status?: string;
+  has_ai_result?: boolean;
+  stale?: boolean;
+  product_id?: number;
+  scene?: string;
+  action?: string;
+  shot_type?: string;
+  marketing_use?: string;
+  quality?: string;
+  risk?: string;
+  include_excluded?: boolean;
+  sort?: string;
+  page: number;
+  page_size: number;
+}
 
 export class ApiError extends Error {
   status: number;
@@ -154,6 +181,57 @@ export const api = {
   },
   shotAi(shotId: number): Promise<ShotAI> {
     return http<ShotAI>(`/shots/${shotId}/ai`);
+  },
+
+  // ===== PR-03B 审核 / 产品 / 标签 / 汇总 / 筛选 =====
+  effectiveResult(shotId: number): Promise<EffectiveResult> {
+    return http<EffectiveResult>(`/shots/${shotId}/effective-result`);
+  },
+  reviewState(shotId: number): Promise<ReviewState> {
+    return http<ReviewState>(`/shots/${shotId}/review`);
+  },
+  reviewEvents(shotId: number): Promise<ReviewEvent[]> {
+    return http<ReviewEvent[]>(`/shots/${shotId}/review-events`);
+  },
+  reviewAction(
+    shotId: number,
+    action: ReviewActionKind,
+    body: ReviewActionInput,
+  ): Promise<ReviewState> {
+    return http<ReviewState>(`/shots/${shotId}/review/${action}`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+  productCandidates(shotId: number): Promise<ProductCandidate[]> {
+    return http<ProductCandidate[]>(`/shots/${shotId}/product-candidates`);
+  },
+  reviewSummary(assetId: number): Promise<AssetReviewSummary> {
+    return http<AssetReviewSummary>(`/assets/${assetId}/review-summary`);
+  },
+  shotSearch(query: ShotSearchQuery): Promise<PageResult<Shot>> {
+    const p = new URLSearchParams();
+    p.set("page", String(query.page));
+    p.set("page_size", String(query.page_size));
+    for (const k of [
+      "asset_id", "review_status", "has_ai_result", "stale", "product_id",
+      "scene", "action", "shot_type", "marketing_use", "quality", "risk",
+      "include_excluded", "sort",
+    ] as const) {
+      const v = query[k];
+      if (v != null && v !== "") p.set(k, String(v));
+    }
+    return http<PageResult<Shot>>(`/shot-search?${p.toString()}`);
+  },
+  listProducts(q?: string): Promise<Product[]> {
+    const p = new URLSearchParams();
+    if (q) p.set("q", q);
+    return http<Product[]>(`/products?${p.toString()}`);
+  },
+  listTags(tagType?: string): Promise<TagDict[]> {
+    const p = new URLSearchParams();
+    if (tagType) p.set("tag_type", tagType);
+    return http<TagDict[]>(`/tags?${p.toString()}`);
   },
   async uploadAsset(
     file: File,

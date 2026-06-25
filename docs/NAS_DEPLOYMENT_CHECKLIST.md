@@ -54,6 +54,7 @@
   - 本项目 api / web **默认仅绑定 `127.0.0.1`**，无鉴权、不对公网开放。
   - 若需在内网其他机器访问，需要**显式**评估并调整访问方式（例如经由内网反向代理 + 鉴权），不可直接对公网暴露。
 - [ ] **是否需要外网访问能力**：PR-03 起的 AI 理解会调用外部 AI API，需确认 NAS 能访问对应外部地址（出站）。**当前 PR-01 / PR-02 不需要外网，也不调用任何 AI**（拆镜头与派生处理全部在本机 FFmpeg 完成）。
+- [ ] **Docker 子网与 AI Provider 内网地址不重叠**（PR-03 起，内网 Provider 部署时必查）：若 AI Provider 域名解析出**私有地址**且与本项目 Compose 子网重叠，容器会把它误判为本网直连而 `No route to host`（NAS 宿主却可达）。用 `python scripts/diagnose_ai_network.py --subnet <compose 子网> --show-ip` 核对（`in_subnet=True` 即重叠），重叠时在 `.env` 设不冲突的 `CLIPMIND_DOCKER_SUBNET`。详见 `docs/DOCKER_AI_NETWORKING.md`。
 
 ### 1.5 数据与目录
 

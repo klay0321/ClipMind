@@ -47,7 +47,9 @@ def _truncate():
     with engine.begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE ai_call_log, ai_shot_analysis, ai_analysis_run, "
+                "TRUNCATE review_event, shot_review_state, shot_tag, tag, "
+                "asset_product, product_image, product_alias, product, "
+                "ai_call_log, ai_shot_analysis, ai_analysis_run, "
                 "export, shot, media_processing_run, asset, scan_run, "
                 "source_directory RESTART IDENTITY CASCADE"
             )

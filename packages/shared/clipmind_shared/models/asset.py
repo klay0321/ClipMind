@@ -57,6 +57,12 @@ class Asset(Base):
     # 与镜头无关，未分析素材也有；绝不写源目录。
     poster_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 
+    # PR-03B：主/默认产品（仅"素材默认产品"语义，不代表所有镜头都只含该产品；
+    # 镜头级产品以人工确认或 AI 候选为准，素材↔产品多对多见 asset_product）。
+    primary_product_id: Mapped[int | None] = mapped_column(
+        ForeignKey("product.id", ondelete="SET NULL"), nullable=True
+    )
+
     status: Mapped[AssetStatus] = mapped_column(
         pg_enum(AssetStatus, "asset_status"), default=AssetStatus.DISCOVERED
     )

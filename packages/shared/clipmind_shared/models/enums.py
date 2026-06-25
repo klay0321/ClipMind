@@ -149,3 +149,67 @@ ACTIVE_AI_RUN_STATUSES: tuple[AIRunStatus, ...] = (
     AIRunStatus.QUEUED,
     AIRunStatus.RUNNING,
 )
+
+
+# ============================================================
+# PR-03B 标签体系 / 产品库 / 人工审核相关枚举
+# ============================================================
+
+
+class ReviewStatus(StrEnum):
+    """ShotReviewState.review_status —— 镜头人工审核当前状态。"""
+
+    UNREVIEWED = "unreviewed"          # 未审核（用 AI 结果作临时有效结果）
+    PENDING_REVIEW = "pending_review"  # 待审核（AI 标记需人工确认）
+    CONFIRMED = "confirmed"            # 已确认（采用 AI 结果）
+    MODIFIED = "modified"              # 已修改并确认（采用人工编辑结果）
+    REJECTED = "rejected"             # 已驳回（AI 结果仅留审计，不进搜索/推荐）
+    UNABLE = "unable"                 # 无法判断（不计高置信，不进推荐）
+
+
+class TagType(StrEnum):
+    """Tag.tag_type —— 标签维度（PRD 7.7）。"""
+
+    PRODUCT = "product"
+    SCENE = "scene"
+    ACTION = "action"
+    SHOT_TYPE = "shot_type"
+    MARKETING = "marketing"
+    QUALITY = "quality"
+    RISK = "risk"
+
+
+class TagSource(StrEnum):
+    """ShotTag.source / AssetProduct.source —— 标签/关联来源。"""
+
+    AI = "ai"
+    HUMAN = "human"
+
+
+class ReviewAction(StrEnum):
+    """ReviewEvent.action —— 审核动作（append-only 审计）。"""
+
+    CONFIRM = "confirm"
+    MODIFY = "modify"
+    REJECT = "reject"
+    UNABLE = "unable"
+    REOPEN = "reopen"
+
+
+class ProductStatus(StrEnum):
+    """Product.status。"""
+
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+
+
+# 视为"已人工确认有效结果"的审核状态（有效结果优先采用人工）
+HUMAN_EFFECTIVE_STATUSES: tuple[ReviewStatus, ...] = (
+    ReviewStatus.CONFIRMED,
+    ReviewStatus.MODIFIED,
+)
+# 默认不进入搜索/推荐的审核状态
+EXCLUDED_FROM_SEARCH_STATUSES: tuple[ReviewStatus, ...] = (
+    ReviewStatus.REJECTED,
+    ReviewStatus.UNABLE,
+)

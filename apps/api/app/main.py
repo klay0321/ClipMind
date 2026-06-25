@@ -15,9 +15,12 @@ from app.routers import (
     assets,
     exports,
     health,
+    products,
+    review,
     shots,
     source_directories,
     system,
+    tags,
     uploads,
 )
 
@@ -49,3 +52,6 @@ app.include_router(shots.router, prefix="/api")
 app.include_router(exports.router, prefix="/api")
 app.include_router(uploads.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
+app.include_router(review.router, prefix="/api")
+app.include_router(products.router, prefix="/api")
+app.include_router(tags.router, prefix="/api")

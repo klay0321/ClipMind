@@ -7,9 +7,9 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 
-import { api } from "./api";
+import { api, type ShotSearchQuery } from "./api";
 import type { AIRunStatus, AssetQuery, MediaRunStatus, ShotQuery } from "./types";
-import type { ExportStatus, ScanStatus } from "./types";
+import type { ExportStatus, ReviewActionInput, ReviewActionKind, ScanStatus } from "./types";
 
 const ACTIVE_SCAN: ScanStatus[] = ["queued", "scanning"];
 const ACTIVE_RUN: MediaRunStatus[] = ["queued", "running"];
@@ -212,6 +212,87 @@ export function useAnalyzeShotAiMutation() {
     onSuccess: (_data, shotId) => {
       qc.invalidateQueries({ queryKey: ["shot-ai", shotId] });
       qc.invalidateQueries({ queryKey: ["assets"] });
+    },
+  });
+}
+
+// ===== PR-03B 审核 / 产品 / 汇总 / 筛选 =====
+
+export function useEffectiveResult(shotId: number | null) {
+  return useQuery({
+    queryKey: ["effective-result", shotId],
+    queryFn: () => api.effectiveResult(shotId as number),
+    enabled: shotId != null,
+  });
+}
+
+export function useReviewState(shotId: number | null) {
+  return useQuery({
+    queryKey: ["review-state", shotId],
+    queryFn: () => api.reviewState(shotId as number),
+    enabled: shotId != null,
+  });
+}
+
+export function useReviewEvents(shotId: number | null) {
+  return useQuery({
+    queryKey: ["review-events", shotId],
+    queryFn: () => api.reviewEvents(shotId as number),
+    enabled: shotId != null,
+  });
+}
+
+export function useProductCandidates(shotId: number | null) {
+  return useQuery({
+    queryKey: ["product-candidates", shotId],
+    queryFn: () => api.productCandidates(shotId as number),
+    enabled: shotId != null,
+  });
+}
+
+export function useReviewSummary(assetId: number | null) {
+  return useQuery({
+    queryKey: ["review-summary", assetId],
+    queryFn: () => api.reviewSummary(assetId as number),
+    enabled: assetId != null,
+  });
+}
+
+export function useShotSearch(query: ShotSearchQuery, enabled = true) {
+  return useQuery({
+    queryKey: ["shot-search", query],
+    queryFn: () => api.shotSearch(query),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useProducts(q?: string) {
+  return useQuery({
+    queryKey: ["products", q ?? ""],
+    queryFn: () => api.listProducts(q),
+  });
+}
+
+export function useReviewActionMutation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      shotId,
+      action,
+      body,
+    }: {
+      shotId: number;
+      action: ReviewActionKind;
+      body: ReviewActionInput;
+    }) => api.reviewAction(shotId, action, body),
+    onSuccess: (_data, { shotId }) => {
+      qc.invalidateQueries({ queryKey: ["effective-result", shotId] });
+      qc.invalidateQueries({ queryKey: ["review-state", shotId] });
+      qc.invalidateQueries({ queryKey: ["review-events", shotId] });
+      qc.invalidateQueries({ queryKey: ["shot-ai", shotId] });
+      qc.invalidateQueries({ queryKey: ["shot-search"] });
+      qc.invalidateQueries({ queryKey: ["review-summary"] });
     },
   });
 }

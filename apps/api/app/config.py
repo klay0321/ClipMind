@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     ai_model: str = ""
     ai_max_images: int = 8
 
+    # PR-03B：当前无登录体系，审核者用配置的本地标签（不伪造用户，PR-07 接入后平滑替换）
+    review_default_reviewer: str = "local-reviewer"
+    # 产品参考图上传约束
+    product_image_max_mb: int = 10
+    product_image_max_count: int = 20
+
     log_level: str = "INFO"
 
     @property

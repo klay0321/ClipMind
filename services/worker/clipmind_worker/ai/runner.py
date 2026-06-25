@@ -52,6 +52,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from clipmind_worker.ai.projection import project_ai_tags
 from clipmind_worker.config import WorkerSettings
 from clipmind_worker.media import storage
 
@@ -315,7 +316,7 @@ def analyze_shot(
         est_cost=est_cost, duration_ms=duration_ms, http_status=outcome.http_status,
     )
     parsed = outcome.parsed or {}
-    _upsert_shot_analysis(
+    ai_row = _upsert_shot_analysis(
         session, shot, run,
         status=AIShotAnalysisStatus.COMPLETED,
         provider_name=provider_name, model=outcome.model,
@@ -324,6 +325,17 @@ def analyze_shot(
         confidence=parsed.get("confidence"), input_summary=input_summary,
         degraded_reason=None, duration_ms=duration_ms,
     )
+    session.flush()
+    # 标签投影（projection-first 筛选的事实来源之一）；失败不静默、不丢 AI 结果，可由回填修复
+    try:
+        project_ai_tags(
+            session, shot_id=shot.id, parsed=parsed,
+            ai_analysis_id=ai_row.id, confidence=parsed.get("confidence"),
+        )
+        ai_row.projection_status = "ok"
+    except Exception as exc:  # noqa: BLE001
+        logger.error("AI 标签投影失败 shot=%s: %s", shot.id, exc)
+        ai_row.projection_status = "error"
     run.analyzed_shots += 1
     return "completed"
 

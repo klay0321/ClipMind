@@ -204,6 +204,129 @@ export interface ShotAI {
   updated_at: string | null;
 }
 
+// ===== PR-03B 标签 / 产品库 / 人工审核 =====
+
+export type ReviewStatus =
+  | "unreviewed"
+  | "pending_review"
+  | "confirmed"
+  | "modified"
+  | "rejected"
+  | "unable";
+
+export type ReviewActionKind = "confirm" | "modify" | "reject" | "unable" | "reopen";
+
+export type TagType =
+  | "product"
+  | "scene"
+  | "action"
+  | "shot_type"
+  | "marketing"
+  | "quality"
+  | "risk";
+
+export interface ReviewState {
+  shot_id: number;
+  shot_generation: number;
+  review_status: ReviewStatus;
+  confirmed_result: Partial<ShotAnalysisResult> | null;
+  confirmed_product_id: number | null;
+  reviewer_label: string | null;
+  review_comment: string | null;
+  reviewed_at: string | null;
+  stale_at: string | null;
+  stale_reason: string | null;
+  lock_version: number;
+  updated_at: string | null;
+}
+
+export interface EffectiveResult {
+  shot_id: number;
+  review_status: string;
+  source: "human" | "ai" | "rejected" | "unable" | "none";
+  confirmed: boolean;
+  searchable: boolean;
+  result: Partial<ShotAnalysisResult> | null;
+  ai_status: string | null;
+  has_newer_ai_result: boolean;
+  review_is_stale: boolean;
+  stale_reason: string | null;
+}
+
+export interface ReviewEvent {
+  id: number;
+  action: ReviewActionKind;
+  reviewer_label: string | null;
+  shot_generation_snapshot: number | null;
+  source_ai_analysis_id: number | null;
+  comment: string | null;
+  created_at: string;
+  reviewer_id: number | null;
+  // 审计前后快照（append-only 审计层；当前 UI 暂不展示 diff）
+  before_data?: Record<string, unknown> | null;
+  after_data?: Record<string, unknown> | null;
+}
+
+export interface ProductCandidate {
+  product_id: number;
+  product_name: string;
+  brand: string | null;
+  model: string | null;
+  sku: string | null;
+  match_type: string;
+  match_score: number;
+  match_reason: string;
+}
+
+export interface Product {
+  id: number;
+  brand: string | null;
+  name: string;
+  model: string | null;
+  sku: string | null;
+  selling_points: string[] | null;
+  status: "active" | "archived";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TagDict {
+  id: number;
+  tag_type: TagType;
+  tag_name: string;
+  normalized_name: string;
+  status: "active" | "archived";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssetReviewSummary {
+  asset_id: number;
+  total_shots: number;
+  ai_unanalyzed_count: number;
+  ai_running_count: number;
+  ai_failed_count: number;
+  pending_review_count: number;
+  unreviewed_count: number;
+  confirmed_count: number;
+  modified_count: number;
+  rejected_count: number;
+  unable_count: number;
+  stale_review_count: number;
+  risk_shot_count: number;
+  primary_product: { id: number; name: string; brand: string | null } | null;
+  related_products: { id: number; name: string }[];
+  ai_overall_status: string;
+}
+
+export interface ReviewActionInput {
+  lock_version: number;
+  reviewer_label?: string;
+  comment?: string;
+  confirmed_result?: Partial<ShotAnalysisResult>;
+  confirmed_product_id?: number | null;
+}
+
 export interface ExportItem {
   id: number;
   asset_id: number | null;

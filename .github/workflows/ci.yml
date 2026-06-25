@@ -133,17 +133,38 @@ jobs:
         env:
           API_BASE: http://localhost:8000
         run: python scripts/ci_pr02_e2e.py --mode full
-      - name: 重启服务并校验记录持久化
+      - name: AI 全链路端到端（AI 分析→投影→审核→汇总→筛选；AI_PROVIDER=fake）
         env:
           API_BASE: http://localhost:8000
         run: |
-          docker compose restart api worker media-worker
+          # 必须确认 ai-worker 在运行并消费 ai 队列，再走真实 AI 链路
+          state=$(docker compose ps ai-worker --format '{{.State}}')
+          [ "$state" = "running" ] || { echo "ai-worker 未运行: $state"; exit 1; }
+          python scripts/ci_ai_e2e.py --mode full
+      - name: AI 链路 DB 级持久化断言（不以 Celery task 自报成功为准）
+        run: |
+          q() { docker compose exec -T postgres psql -U clipmind -d clipmind -tAc "$1"; }
+          runs=$(q "select count(*) from ai_analysis_run where status='completed'")
+          shots=$(q "select count(*) from ai_shot_analysis where status='completed'")
+          tags=$(q "select count(*) from shot_tag where active")
+          revs=$(q "select count(*) from shot_review_state where review_status in ('confirmed','modified')")
+          echo "completed_runs=$runs ai_shot=$shots active_shot_tag=$tags reviewed=$revs"
+          [ "${runs:-0}" -ge 1 ] || { echo "ai_analysis_run 未持久化为 completed"; exit 1; }
+          [ "${shots:-0}" -ge 1 ] || { echo "ai_shot_analysis 未持久化"; exit 1; }
+          [ "${tags:-0}" -ge 1 ] || { echo "shot_tag 投影未持久化"; exit 1; }
+          [ "${revs:-0}" -ge 1 ] || { echo "shot_review_state 未持久化"; exit 1; }
+      - name: 重启服务并校验记录持久化（含 AI 链路）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          docker compose restart api worker media-worker ai-worker
           for i in $(seq 1 40); do
             [ "$(docker compose ps api --format '{{.Health}}')" = "healthy" ] && break
             sleep 3
           done
           python scripts/ci_pr02_e2e.py --mode check-persist
-      - name: 失败时收集日志
+          python scripts/ci_ai_e2e.py --mode check-persist
+      - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |
           echo "===== compose ps ====="; docker compose ps
@@ -151,6 +172,10 @@ jobs:
           echo "===== api logs ====="; docker compose logs api || true
           echo "===== worker logs ====="; docker compose logs worker || true
           echo "===== media-worker logs ====="; docker compose logs media-worker || true
+          echo "===== ai-worker logs ====="; docker compose logs ai-worker || true
+          echo "===== postgres logs ====="; docker compose logs postgres || true
+          echo "===== AI 链路计数 ====="
+          docker compose exec -T postgres psql -U clipmind -d clipmind -tAc "select 'run:'||status, count(*) from ai_analysis_run group by status; select 'ai_shot', count(*) from ai_shot_analysis; select 'shot_tag_active', count(*) from shot_tag where active; select 'review:'||review_status, count(*) from shot_review_state group by review_status;" || true
       - name: 清理
         if: always()
         run: docker compose down -v

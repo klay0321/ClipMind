@@ -130,6 +130,8 @@ class AIShotAnalysis(Base):
     )
     degraded_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # PR-03B.1：标签投影状态（ok / error / None=未投影）。投影失败不静默，可由回填修复。
+    projection_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(

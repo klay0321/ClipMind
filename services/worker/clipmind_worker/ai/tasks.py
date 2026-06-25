@@ -72,8 +72,11 @@ def _run(run_id: int, *, only_shot_id: int | None, worker_name: str) -> dict[str
 
             asset_id = asset.id
             run.worker_name = worker_name
-            session.commit()
-
+            # 不在取锁前 commit：保持 session 持续持有连接事务，使取锁(exec_driver_sql)
+            # 加入同一事务、后续 run_asset_analysis 内的 session.commit() 为真实提交。
+            # 若此处 commit，会关闭 session 事务，advisory lock 另起连接级事务，session 改以
+            # savepoint 加入，导致取锁后所有 commit 仅释放 savepoint、最终随连接关闭被整体回滚
+            # （worker_name 已落库但 status/结果丢失）。对齐 media analyze_shots 的写法。
             locked = conn.exec_driver_sql(
                 "SELECT pg_try_advisory_lock(%s, %s)",
                 (ADVISORY_LOCK_NAMESPACE, asset_id),

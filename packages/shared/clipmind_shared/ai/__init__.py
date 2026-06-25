@@ -1,7 +1,22 @@
-"""AI 能力层：高层接口骨架（PR-01）+ PR-03A 视觉分析实现与契约。"""
+"""AI 能力层：高层接口骨架（PR-01）+ PR-03A 视觉分析 + PR-04 Embedding 抽象。"""
 
+from clipmind_shared.ai.embedding import (
+    EmbeddingCapabilities,
+    EmbeddingDimensionMismatch,
+    EmbeddingHealth,
+    EmbeddingIdentity,
+    EmbeddingProvider,
+    apply_e5_prefix,
+    l2_normalize,
+    make_embedding_version,
+)
+from clipmind_shared.ai.embedding_factory import (
+    NotConfiguredEmbeddingProvider,
+    get_embedding_provider,
+)
 from clipmind_shared.ai.factory import NotConfiguredVisualProvider, get_provider
 from clipmind_shared.ai.fingerprint import compute_fingerprint, hash_bytes, hash_file
+from clipmind_shared.ai.providers.fake_embedding import FakeEmbeddingProvider
 from clipmind_shared.ai.prompt import PROMPT_VERSION, build_analysis_prompt
 from clipmind_shared.ai.provider import (
     AIProvider,
@@ -64,4 +79,16 @@ __all__ = [
     "hash_file",
     "PROMPT_VERSION",
     "build_analysis_prompt",
+    # PR-04 Embedding 抽象
+    "EmbeddingProvider",
+    "EmbeddingCapabilities",
+    "EmbeddingHealth",
+    "EmbeddingIdentity",
+    "EmbeddingDimensionMismatch",
+    "FakeEmbeddingProvider",
+    "NotConfiguredEmbeddingProvider",
+    "get_embedding_provider",
+    "make_embedding_version",
+    "l2_normalize",
+    "apply_e5_prefix",
 ]

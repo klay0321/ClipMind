@@ -60,6 +60,10 @@ async def client(engine, monkeypatch):
         "app.services.ai_dispatch.enqueue_analyze_shot_ai",
         lambda rid, sid: f"aishot-{rid}-{sid}",
     )
+    # PR-04：审核动作会入队检索文档重建（search 队列）；测试不连真实 broker
+    monkeypatch.setattr(
+        "app.routers.review.enqueue_rebuild_shot_search_doc", lambda sid: f"searchtask-{sid}"
+    )
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:

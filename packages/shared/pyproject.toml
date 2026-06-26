@@ -10,6 +10,8 @@ requires-python = ">=3.13"
 dependencies = [
     "SQLAlchemy>=2.0.36,<2.1",
     "pydantic>=2.9,<3",
+    # PR-04 语义检索：pgvector 的 SQLAlchemy 'vector' 列类型（文本绑定，无需连接级注册）
+    "pgvector>=0.3,<0.4",
 ]
 
 [tool.setuptools.packages.find]

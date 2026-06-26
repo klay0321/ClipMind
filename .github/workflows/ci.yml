@@ -40,7 +40,7 @@ jobs:
           pip install -e "./apps/api[dev]"
           pip install -e "./services/worker[dev]"
       - name: Ruff 静态检查
-        run: ruff check packages/shared apps/api services/worker
+        run: ruff check packages/shared apps/api services/worker services/embedder
       - name: Pytest
         run: pytest
 
@@ -96,6 +96,8 @@ jobs:
           cp .env.example .env
           # 用确定性 FakeProvider 让 AI 链路在无真实密钥时也能端到端验证
           echo "AI_PROVIDER=fake" >> .env
+          # PR-04：用确定性 FakeEmbedding 让检索文档索引链路水密验证（不下载 torch/模型）
+          echo "EMBEDDING_PROVIDER=fake" >> .env
           docker compose build
       - name: 启动全栈
         run: docker compose up -d
@@ -111,7 +113,7 @@ jobs:
             sleep 3
           done
           docker compose ps
-          for svc in web worker media-worker ai-worker; do
+          for svc in web worker media-worker ai-worker search-worker; do
             state=$(docker compose ps "$svc" --format '{{.State}}')
             echo "$svc: $state"
             [ "$state" = "running" ] || { echo "$svc 未运行"; exit 1; }
@@ -141,6 +143,13 @@ jobs:
           state=$(docker compose ps ai-worker --format '{{.State}}')
           [ "$state" = "running" ] || { echo "ai-worker 未运行: $state"; exit 1; }
           python scripts/ci_ai_e2e.py --mode full
+      - name: 检索文档索引端到端（AI/审核后自动重建 + FakeEmbedding 向量；EMBEDDING_PROVIDER=fake）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          state=$(docker compose ps search-worker --format '{{.State}}')
+          [ "$state" = "running" ] || { echo "search-worker 未运行: $state"; exit 1; }
+          python scripts/ci_search_e2e.py --mode full
       - name: AI 链路 DB 级持久化断言（不以 Celery task 自报成功为准）
         run: |
           q() { docker compose exec -T postgres psql -U clipmind -d clipmind -tAc "$1"; }
@@ -148,11 +157,13 @@ jobs:
           shots=$(q "select count(*) from ai_shot_analysis where status='completed'")
           tags=$(q "select count(*) from shot_tag where active")
           revs=$(q "select count(*) from shot_review_state where review_status in ('confirmed','modified')")
-          echo "completed_runs=$runs ai_shot=$shots active_shot_tag=$tags reviewed=$revs"
+          docs=$(q "select count(*) from shot_search_document where embedding_status='completed' and embedding is not null")
+          echo "completed_runs=$runs ai_shot=$shots active_shot_tag=$tags reviewed=$revs search_docs=$docs"
           [ "${runs:-0}" -ge 1 ] || { echo "ai_analysis_run 未持久化为 completed"; exit 1; }
           [ "${shots:-0}" -ge 1 ] || { echo "ai_shot_analysis 未持久化"; exit 1; }
           [ "${tags:-0}" -ge 1 ] || { echo "shot_tag 投影未持久化"; exit 1; }
           [ "${revs:-0}" -ge 1 ] || { echo "shot_review_state 未持久化"; exit 1; }
+          [ "${docs:-0}" -ge 1 ] || { echo "shot_search_document 未持久化（含向量）"; exit 1; }
       - name: 重启服务并校验记录持久化（含 AI 链路）
         env:
           API_BASE: http://localhost:8000
@@ -164,6 +175,7 @@ jobs:
           done
           python scripts/ci_pr02_e2e.py --mode check-persist
           python scripts/ci_ai_e2e.py --mode check-persist
+          python scripts/ci_search_e2e.py --mode check-persist
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |
@@ -173,9 +185,10 @@ jobs:
           echo "===== worker logs ====="; docker compose logs worker || true
           echo "===== media-worker logs ====="; docker compose logs media-worker || true
           echo "===== ai-worker logs ====="; docker compose logs ai-worker || true
+          echo "===== search-worker logs ====="; docker compose logs search-worker || true
           echo "===== postgres logs ====="; docker compose logs postgres || true
-          echo "===== AI 链路计数 ====="
-          docker compose exec -T postgres psql -U clipmind -d clipmind -tAc "select 'run:'||status, count(*) from ai_analysis_run group by status; select 'ai_shot', count(*) from ai_shot_analysis; select 'shot_tag_active', count(*) from shot_tag where active; select 'review:'||review_status, count(*) from shot_review_state group by review_status;" || true
+          echo "===== AI / 检索链路计数 ====="
+          docker compose exec -T postgres psql -U clipmind -d clipmind -tAc "select 'run:'||status, count(*) from ai_analysis_run group by status; select 'ai_shot', count(*) from ai_shot_analysis; select 'shot_tag_active', count(*) from shot_tag where active; select 'review:'||review_status, count(*) from shot_review_state group by review_status; select 'searchdoc_emb:'||embedding_status, count(*) from shot_search_document group by embedding_status; select 'searchdoc_doc:'||document_status, count(*) from shot_search_document group by document_status;" || true
       - name: 清理
         if: always()
         run: docker compose down -v

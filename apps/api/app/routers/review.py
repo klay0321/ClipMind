@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from clipmind_shared.models import Asset, Shot
 from clipmind_shared.models.enums import ReviewAction
 from clipmind_shared.models.enums import ReviewStatus as RS
@@ -30,6 +32,9 @@ from app.services.review_service import (
     ReviewPayload,
     ReviewSchemaError,
 )
+from app.tasks_client import enqueue_rebuild_shot_search_doc
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["review"])
 
@@ -100,6 +105,12 @@ async def _do_action(
     except ReviewSchemaError as exc:
         await db.rollback()
         raise HTTPException(status_code=422, detail=f"结构化结果非法: {exc}") from exc
+    # 审核已提交 → 入队检索文档重建（确认/修改→人工文档；驳回/无法→排除；重开→回退 AI）。
+    # 入队失败不影响审核结果（sweeper/backfill 兜底）。
+    try:
+        enqueue_rebuild_shot_search_doc(shot_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("入队检索文档重建失败（将由 sweeper/backfill 兜底）: %s", exc)
     return ReviewStateOut.model_validate(state)
 
 

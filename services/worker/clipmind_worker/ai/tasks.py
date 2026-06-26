@@ -9,12 +9,16 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from clipmind_shared.constants import (
     ERROR_MESSAGE_MAX_LEN,
+    QUEUE_SEARCH,
     TASK_ANALYZE_ASSET_AI,
     TASK_ANALYZE_SHOT_AI,
+    TASK_REBUILD_ASSET_SEARCH_DOCS,
+    TASK_REBUILD_SHOT_SEARCH_DOC,
 )
 from clipmind_shared.db.base import utcnow
 from clipmind_shared.models import AIAnalysisRun, Asset, Shot
@@ -27,7 +31,22 @@ from clipmind_worker.celery_app import celery_app
 from clipmind_worker.config import get_settings
 from clipmind_worker.db import SessionLocal, engine
 
+logger = logging.getLogger(__name__)
+
 ADVISORY_LOCK_NAMESPACE = 0x4149  # "AI"
+
+
+def _enqueue_search_rebuild(*, asset_id: int | None = None, shot_id: int | None = None) -> None:
+    """AI 分析提交后入队检索文档重建。入队失败不影响 AI 任务（sweeper/backfill 兜底）。"""
+    try:
+        if shot_id is not None:
+            celery_app.send_task(TASK_REBUILD_SHOT_SEARCH_DOC, args=[shot_id], queue=QUEUE_SEARCH)
+        elif asset_id is not None:
+            celery_app.send_task(
+                TASK_REBUILD_ASSET_SEARCH_DOCS, args=[asset_id], queue=QUEUE_SEARCH
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("入队检索文档重建失败（将由 sweeper/backfill 兜底）: %s", exc)
 
 
 def _truncate(text: str) -> str:
@@ -103,9 +122,16 @@ def _run(run_id: int, *, only_shot_id: int | None, worker_name: str) -> dict[str
 
 @celery_app.task(name=TASK_ANALYZE_ASSET_AI, bind=True, acks_late=True)
 def analyze_asset_ai(self, run_id: int) -> dict[str, Any]:  # noqa: ANN001
-    return _run(run_id, only_shot_id=None, worker_name=self.request.hostname or "")
+    result = _run(run_id, only_shot_id=None, worker_name=self.request.hostname or "")
+    # 运行已落库（run_asset_analysis 内 commit）后再入队检索文档重建
+    if result.get("asset_id") is not None:
+        _enqueue_search_rebuild(asset_id=result["asset_id"])
+    return result
 
 
 @celery_app.task(name=TASK_ANALYZE_SHOT_AI, bind=True, acks_late=True)
 def analyze_shot_ai(self, run_id: int, shot_id: int) -> dict[str, Any]:  # noqa: ANN001
-    return _run(run_id, only_shot_id=shot_id, worker_name=self.request.hostname or "")
+    result = _run(run_id, only_shot_id=shot_id, worker_name=self.request.hostname or "")
+    if result.get("asset_id") is not None:
+        _enqueue_search_rebuild(shot_id=shot_id)
+    return result

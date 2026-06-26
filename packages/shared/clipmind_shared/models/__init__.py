@@ -17,6 +17,8 @@ from clipmind_shared.models.enums import (
     ACTIVE_SCAN_RUN_STATUSES,
     EXCLUDED_FROM_SEARCH_STATUSES,
     HUMAN_EFFECTIVE_STATUSES,
+    SEARCHABLE_DOCUMENT_STATUS,
+    VECTOR_READY_EMBEDDING_STATUS,
     AICallStatus,
     AIRunStatus,
     AIShotAnalysisStatus,
@@ -28,6 +30,8 @@ from clipmind_shared.models.enums import (
     ReviewStatus,
     ScanRunStatus,
     ScanStatus,
+    SearchDocumentStatus,
+    SearchEmbeddingStatus,
     ShotStatus,
     TagSource,
     TagType,
@@ -47,6 +51,7 @@ from clipmind_shared.models.review import (
     Tag,
 )
 from clipmind_shared.models.scan_run import ScanRun
+from clipmind_shared.models.search import EMBEDDING_DIM, ShotSearchDocument
 from clipmind_shared.models.shot import Shot
 from clipmind_shared.models.source_directory import SourceDirectory
 
@@ -90,4 +95,11 @@ __all__ = [
     "ReviewAction",
     "HUMAN_EFFECTIVE_STATUSES",
     "EXCLUDED_FROM_SEARCH_STATUSES",
+    # PR-04 检索文档
+    "ShotSearchDocument",
+    "SearchDocumentStatus",
+    "SearchEmbeddingStatus",
+    "SEARCHABLE_DOCUMENT_STATUS",
+    "VECTOR_READY_EMBEDDING_STATUS",
+    "EMBEDDING_DIM",
 ]

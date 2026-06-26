@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from clipmind_shared.constants import (
+    DEFAULT_EMBEDDING_DIMENSION,
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_EMBEDDING_MODEL_REVISION,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -64,6 +69,23 @@ class WorkerSettings(BaseSettings):
     # 计价（每 1K token；MiMo 实价需探测，未知留 0 仅记 tokens 不估成本）
     ai_price_input_per_1k: float = 0.0
     ai_price_output_per_1k: float = 0.0
+
+    # ---- PR-04 Embedding（search 队列；MiMo 无 embedding，故走独立 provider）----
+    # ""=未配置（检索文档仅构建文本、不嵌入，标 degraded）| fake（确定性，CI/测试）
+    # | openai_compatible（本地 embedder 微服务或外部 OpenAI 兼容 /embeddings）
+    embedding_provider: str = ""
+    embedding_base_url: str = ""
+    embedding_api_key: str = ""          # 仅本地 .env，绝不入库/日志/前端
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL
+    embedding_model_revision: str = DEFAULT_EMBEDDING_MODEL_REVISION  # 默认不可变 commit
+    # 须与 vector 列维度一致（换维度需迁移 + 全量重嵌）
+    embedding_dimension: int = DEFAULT_EMBEDDING_DIMENSION
+    embedding_timeout: float = 30.0
+    embedding_max_batch: int = 64
+    embedding_api_key_header: str = ""   # 留空=Authorization Bearer；或自定义头
+    embedding_prefix_scheme: str = "e5"  # e5（query:/passage: 前缀）| none
+    # fail-closed：未固定 revision（空/main/latest）时不嵌入（文档仍可词法/标签检索）
+    embedding_require_pinned_revision: bool = True
 
     log_level: str = "INFO"
 

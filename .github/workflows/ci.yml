@@ -150,6 +150,10 @@ jobs:
           state=$(docker compose ps search-worker --format '{{.State}}')
           [ "$state" = "running" ] || { echo "search-worker 未运行: $state"; exit 1; }
           python scripts/ci_search_e2e.py --mode full
+      - name: 混合检索 / 画面描述匹配 端到端（Gate B；FakeProvider + FakeEmbedding）
+        env:
+          API_BASE: http://localhost:8000
+        run: python scripts/ci_hybrid_search_e2e.py --mode full
       - name: AI 链路 DB 级持久化断言（不以 Celery task 自报成功为准）
         run: |
           q() { docker compose exec -T postgres psql -U clipmind -d clipmind -tAc "$1"; }
@@ -168,7 +172,7 @@ jobs:
         env:
           API_BASE: http://localhost:8000
         run: |
-          docker compose restart api worker media-worker ai-worker
+          docker compose restart api worker media-worker ai-worker search-worker
           for i in $(seq 1 40); do
             [ "$(docker compose ps api --format '{{.Health}}')" = "healthy" ] && break
             sleep 3
@@ -176,6 +180,7 @@ jobs:
           python scripts/ci_pr02_e2e.py --mode check-persist
           python scripts/ci_ai_e2e.py --mode check-persist
           python scripts/ci_search_e2e.py --mode check-persist
+          python scripts/ci_hybrid_search_e2e.py --mode check-persist
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |

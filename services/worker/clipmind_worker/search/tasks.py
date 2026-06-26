@@ -14,10 +14,14 @@ from __future__ import annotations
 from typing import Any
 
 from clipmind_shared.constants import (
+    TASK_BACKFILL_SEARCH_DOCS,
     TASK_REBUILD_ASSET_SEARCH_DOCS,
     TASK_REBUILD_SHOT_SEARCH_DOC,
     TASK_SWEEP_SEARCH_DOCS,
 )
+from clipmind_shared.models import Shot, ShotSearchDocument
+from clipmind_shared.models.enums import SearchEmbeddingStatus, ShotStatus
+from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -88,3 +92,54 @@ def sweep_search_docs(self, limit: int = 200, force_reembed: bool = False) -> di
             status = _rebuild_commit(session, sid, provider, force=force_reembed)
             stats[status] = stats.get(status, 0) + 1
     return {"swept": len(shot_ids), "stats": stats}
+
+
+def _backfill_shot_ids(session: Session, *, only_failed: bool, limit: int) -> list[int]:
+    """选出需回填的 READY 镜头 id（only_failed → 仅嵌入 failed 的文档）。"""
+    if only_failed:
+        stmt = (
+            select(Shot.id)
+            .join(
+                ShotSearchDocument,
+                and_(
+                    ShotSearchDocument.shot_id == Shot.id,
+                    ShotSearchDocument.shot_generation == Shot.generation,
+                ),
+            )
+            .where(
+                Shot.status == ShotStatus.READY,
+                ShotSearchDocument.embedding_status == SearchEmbeddingStatus.FAILED,
+            )
+            .order_by(Shot.id)
+            .limit(limit)
+        )
+    else:
+        stmt = (
+            select(Shot.id)
+            .where(Shot.status == ShotStatus.READY)
+            .order_by(Shot.id)
+            .limit(limit)
+        )
+    return [int(r[0]) for r in session.execute(stmt).all()]
+
+
+@celery_app.task(name=TASK_BACKFILL_SEARCH_DOCS, bind=True, acks_late=True)
+def backfill_search_docs(  # noqa: ANN001
+    self, only_failed: bool = False, force_reembed: bool = False, limit: int = 1000
+) -> dict[str, Any]:
+    """全量/失败回填（有界批次）。超大库请用 scripts/backfill_search_documents.py。"""
+    provider = build_embedding_provider(get_settings())
+    stats: dict[str, int] = {}
+    with SessionLocal() as session:
+        shot_ids = _backfill_shot_ids(session, only_failed=only_failed, limit=limit)
+        for sid in shot_ids:
+            status = _rebuild_commit(session, sid, provider, force=force_reembed)
+            stats[status] = stats.get(status, 0) + 1
+    return {
+        "processed": len(shot_ids),
+        "only_failed": only_failed,
+        "force_reembed": force_reembed,
+        "limit": limit,
+        "maybe_more": len(shot_ids) >= limit,
+        "stats": stats,
+    }

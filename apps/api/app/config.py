@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     ai_provider: str = ""
     ai_base_url: str = ""
     ai_api_key: str = ""   # 仅判断是否已配置，绝不回显/记录
+    ai_api_key_header: str = ""  # 鉴权头（空=Authorization: Bearer；mimo token-plan 用 api-key）
     ai_model: str = ""
     ai_max_images: int = 8
 
@@ -60,6 +61,13 @@ class Settings(BaseSettings):
     embedding_api_key_header: str = ""
     embedding_prefix_scheme: str = "e5"
     embedding_require_pinned_revision: bool = True
+
+    # Gate B 查询解析与检索调参
+    # ""/auto=ai(mimo) 已配置则用 mimo，否则规则解析 | fake | rulebased | mimo
+    search_query_parser: str = ""
+    search_parser_model: str = ""          # mimo 文本解析模型（默认 mimo-v2.5-pro）
+    search_parser_timeout: float = 8.0     # 解析超时（秒），超时降级规则解析，不阻断词法
+    search_candidate_pool: int = 200       # 每通道候选池上限（有界融合）
 
     # PR-03B：当前无登录体系，审核者用配置的本地标签（不伪造用户，PR-07 接入后平滑替换）
     review_default_reviewer: str = "local-reviewer"

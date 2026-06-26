@@ -17,6 +17,7 @@ from app.routers import (
     health,
     products,
     review,
+    search,
     shots,
     source_directories,
     system,
@@ -55,3 +56,4 @@ app.include_router(ai.router, prefix="/api")
 app.include_router(review.router, prefix="/api")
 app.include_router(products.router, prefix="/api")
 app.include_router(tags.router, prefix="/api")
+app.include_router(search.router, prefix="/api")

@@ -16,10 +16,11 @@ TASK_GENERATE_ASSET_POSTER = "clipmind.generate_asset_poster"
 # PR-03A AI 理解分析（ai 队列）
 TASK_ANALYZE_ASSET_AI = "clipmind.analyze_asset_ai"
 TASK_ANALYZE_SHOT_AI = "clipmind.analyze_shot_ai"
-# PR-04 检索文档索引（search 队列）：单镜头/单素材重建 + sweeper 兜底
+# PR-04 检索文档索引（search 队列）：单镜头/单素材重建 + sweeper 兜底 + 全量/失败回填
 TASK_REBUILD_SHOT_SEARCH_DOC = "clipmind.rebuild_shot_search_doc"
 TASK_REBUILD_ASSET_SEARCH_DOCS = "clipmind.rebuild_asset_search_docs"
 TASK_SWEEP_SEARCH_DOCS = "clipmind.sweep_search_docs"
+TASK_BACKFILL_SEARCH_DOCS = "clipmind.backfill_search_docs"
 
 # ----- Celery 队列名 -----
 # PR-01 worker 只消费 default + scan；media/ai/export 为后续 PR 预留（不运行）

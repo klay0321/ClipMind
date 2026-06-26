@@ -11,12 +11,14 @@ from clipmind_shared.constants import (
     TASK_ANALYZE_ASSET_AI,
     TASK_ANALYZE_SHOT_AI,
     TASK_ANALYZE_SHOTS,
+    TASK_BACKFILL_SEARCH_DOCS,
     TASK_EXPORT_SHOT_CLIP,
     TASK_GENERATE_ASSET_POSTER,
     TASK_REBUILD_ASSET_SEARCH_DOCS,
     TASK_REBUILD_SHOT_SEARCH_DOC,
     TASK_RESCAN_ASSET,
     TASK_SCAN_SOURCE_DIRECTORY,
+    TASK_SWEEP_SEARCH_DOCS,
 )
 
 from app.config import get_settings
@@ -78,17 +80,35 @@ def enqueue_analyze_shot_ai(run_id: int, shot_id: int) -> str:
     return result.id
 
 
-def enqueue_rebuild_shot_search_doc(shot_id: int) -> str:
+def enqueue_rebuild_shot_search_doc(shot_id: int, force_reembed: bool = False) -> str:
     """入队单镜头检索文档重建（search 队列），返回 celery_task_id。"""
     result = celery_client.send_task(
-        TASK_REBUILD_SHOT_SEARCH_DOC, args=[shot_id], queue=QUEUE_SEARCH
+        TASK_REBUILD_SHOT_SEARCH_DOC, args=[shot_id, force_reembed], queue=QUEUE_SEARCH
     )
     return result.id
 
 
-def enqueue_rebuild_asset_search_docs(asset_id: int) -> str:
+def enqueue_rebuild_asset_search_docs(asset_id: int, force_reembed: bool = False) -> str:
     """入队单素材检索文档重建（search 队列），返回 celery_task_id。"""
     result = celery_client.send_task(
-        TASK_REBUILD_ASSET_SEARCH_DOCS, args=[asset_id], queue=QUEUE_SEARCH
+        TASK_REBUILD_ASSET_SEARCH_DOCS, args=[asset_id, force_reembed], queue=QUEUE_SEARCH
+    )
+    return result.id
+
+
+def enqueue_sweep_search_docs(limit: int = 500, force_reembed: bool = False) -> str:
+    """入队检索文档兜底扫描（search 队列），返回 celery_task_id。"""
+    result = celery_client.send_task(
+        TASK_SWEEP_SEARCH_DOCS, args=[limit, force_reembed], queue=QUEUE_SEARCH
+    )
+    return result.id
+
+
+def enqueue_backfill_search_docs(
+    only_failed: bool = False, force_reembed: bool = False, limit: int = 1000
+) -> str:
+    """入队全量/失败回填（search 队列），返回 celery_task_id。危险操作需显式参数。"""
+    result = celery_client.send_task(
+        TASK_BACKFILL_SEARCH_DOCS, args=[only_failed, force_reembed, limit], queue=QUEUE_SEARCH
     )
     return result.id

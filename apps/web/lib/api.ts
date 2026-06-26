@@ -5,24 +5,31 @@ import type {
   Asset,
   AssetQuery,
   AssetReviewSummary,
+  DescriptionMatchRequest,
+  DescriptionMatchResponse,
   EffectiveResult,
   ExportItem,
   PageResult,
   Product,
   ProductCandidate,
+  RebuildAcceptedResponse,
   ReviewActionInput,
   ReviewActionKind,
   ReviewEvent,
   ReviewState,
   ScanRun,
   ScanStatusResponse,
+  SearchIndexStatus,
   Shot,
   ShotAI,
   ShotAnalysis,
   ShotDetail,
   ShotQuery,
+  ShotSearchRequest,
+  ShotSearchResponse,
   SourceDirectory,
   SourceDirectoryCreate,
+  SuggestionsResponse,
   TagDict,
 } from "./types";
 
@@ -232,6 +239,48 @@ export const api = {
     const p = new URLSearchParams();
     if (tagType) p.set("tag_type", tagType);
     return http<TagDict[]>(`/tags?${p.toString()}`);
+  },
+
+  // ===== PR-04 Gate B 语义搜索 / 画面描述匹配（POST JSON）=====
+  searchShots(req: ShotSearchRequest, signal?: AbortSignal): Promise<ShotSearchResponse> {
+    return http<ShotSearchResponse>(`/search/shots`, {
+      method: "POST",
+      body: JSON.stringify(req),
+      signal,
+    });
+  },
+  matchDescription(
+    req: DescriptionMatchRequest,
+    signal?: AbortSignal,
+  ): Promise<DescriptionMatchResponse> {
+    return http<DescriptionMatchResponse>(`/match/description`, {
+      method: "POST",
+      body: JSON.stringify(req),
+      signal,
+    });
+  },
+  searchSuggestions(q?: string, limit = 10): Promise<SuggestionsResponse> {
+    const p = new URLSearchParams();
+    if (q && q.trim()) p.set("q", q.trim());
+    p.set("limit", String(limit));
+    return http<SuggestionsResponse>(`/search/suggestions?${p.toString()}`);
+  },
+  searchIndexStatus(): Promise<SearchIndexStatus> {
+    return http<SearchIndexStatus>(`/search/index/status`);
+  },
+  // 管理操作（不进普通用户主流程）：单镜头/单素材重建检索文档
+  rebuildSearchShot(shotId: number, forceReembed = false): Promise<RebuildAcceptedResponse> {
+    const p = new URLSearchParams();
+    if (forceReembed) p.set("force_reembed", "true");
+    return http<RebuildAcceptedResponse>(`/search/index/rebuild/shot/${shotId}?${p.toString()}`, {
+      method: "POST",
+    });
+  },
+  sweepSearchIndex(limit = 500, forceReembed = false): Promise<RebuildAcceptedResponse> {
+    const p = new URLSearchParams();
+    p.set("limit", String(limit));
+    if (forceReembed) p.set("force_reembed", "true");
+    return http<RebuildAcceptedResponse>(`/search/index/sweep?${p.toString()}`, { method: "POST" });
   },
   async uploadAsset(
     file: File,

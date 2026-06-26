@@ -1,0 +1,14 @@
+{
+  "name": "clipmind-e2e",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ClipMind Gate C 真实页面 UI E2E（Playwright，驱动真实 web + 真实 API）",
+  "scripts": {
+    "test": "playwright test",
+    "test:persist": "playwright test --grep @persist",
+    "test:main": "playwright test --grep-invert @persist"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1"
+  }
+}

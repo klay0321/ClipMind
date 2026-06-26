@@ -197,3 +197,111 @@ jobs:
       - name: 清理
         if: always()
         run: docker compose down -v
+
+  # PR-04 Gate C：FakeProvider + FakeEmbedding 下的**真实页面** UI E2E（Playwright Chromium）。
+  # 仅运行 e2e/search-ui.spec.ts（provider 无关）；e2e/real-provider.spec.ts 受 RUN_REAL_PROVIDER_E2E
+  # 门禁，绝不在此运行 → 普通 CI 不接触真实 MiMo Key、不启动真实 embedder、不下载 sentence-transformers 模型。
+  ui-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: 安装 ffmpeg（生成合成测试视频用）
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: 生成合成多场景测试视频（不提交、无公司素材）
+        run: |
+          ffmpeg -y \
+            -f lavfi -i "testsrc=size=360x640:rate=10:duration=2" \
+            -f lavfi -i "smptebars=size=360x640:rate=10:duration=2" \
+            -filter_complex "[0:v][1:v]concat=n=2:v=1[v]" \
+            -map "[v]" -c:v libx264 -pix_fmt yuv420p sample_media/ci_demo.mp4
+      - name: 准备 .env（FakeProvider + FakeEmbedding；无真实 Key、无 embedder、不下载模型）
+        run: |
+          cp .env.example .env
+          echo "AI_PROVIDER=fake" >> .env
+          echo "EMBEDDING_PROVIDER=fake" >> .env
+      - name: 构建并启动全栈
+        run: |
+          docker compose build
+          docker compose up -d
+      - name: 等待核心服务健康 + web 可访问
+        run: |
+          for i in $(seq 1 60); do
+            api=$(docker compose ps api --format '{{.Health}}')
+            pg=$(docker compose ps postgres --format '{{.Health}}')
+            rd=$(docker compose ps redis --format '{{.Health}}')
+            if [ "$api" = "healthy" ] && [ "$pg" = "healthy" ] && [ "$rd" = "healthy" ]; then
+              echo "核心服务健康"; break
+            fi
+            sleep 3
+          done
+          docker compose ps
+          for svc in web search-worker; do
+            state=$(docker compose ps "$svc" --format '{{.State}}')
+            [ "$svc" = "running" ] || [ "$state" = "running" ] || { echo "$svc 未运行: $state"; exit 1; }
+          done
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:3000/assets >/dev/null 2>&1 && { echo "web 可访问"; break; }
+            sleep 2
+          done
+      - name: 播种 Gate C 数据（扫描→拆镜头→AI fake→产品→审核→FakeEmbedding 索引）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          state=$(docker compose ps search-worker --format '{{.State}}')
+          [ "$state" = "running" ] || { echo "search-worker 未运行: $state"; exit 1; }
+          python scripts/gate_c_e2e_seed.py
+          for i in $(seq 1 40); do
+            n=$(curl -s http://localhost:8000/api/search/index/status \
+                 | python -c "import sys,json;print(json.load(sys.stdin)['completed_embeddings'])" 2>/dev/null || echo 0)
+            echo "completed_embeddings=$n"
+            [ "${n:-0}" -ge 1 ] && break
+            sleep 3
+          done
+      - name: 安装 Playwright Chromium（仅 chromium，不装全部浏览器）
+        working-directory: e2e
+        run: |
+          npm install
+          npx playwright install --with-deps chromium
+      - name: Fake UI E2E（真实 /search 页面；仅 search-ui.spec.ts，real-provider 受门禁不运行）
+        working-directory: e2e
+        env:
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          npx playwright test search-ui.spec.ts --grep-invert @persist | tee ui.log
+          grep -q "SEARCH_UI_E2E_OK" ui.log
+          grep -q "DESCRIPTION_MATCH_UI_E2E_OK" ui.log
+      - name: 重启 API/web/search-worker 后持久化（SEARCH_UI_PERSIST_OK）
+        env:
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          docker compose restart api web search-worker
+          for i in $(seq 1 40); do
+            [ "$(docker compose ps api --format '{{.Health}}')" = "healthy" ] && break
+            sleep 3
+          done
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:3000/assets >/dev/null 2>&1 && break
+            sleep 2
+          done
+          ( cd e2e && npx playwright test search-ui.spec.ts --grep @persist | tee persist.log )
+          grep -q "SEARCH_UI_PERSIST_OK" e2e/persist.log
+      - name: 失败时上传脱敏证据（trace/截图/报告；不含 .env/key/endpoint）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-e2e-artifacts
+          path: |
+            e2e/test-results
+            e2e/playwright-report
+          if-no-files-found: ignore
+      - name: 清理
+        if: always()
+        run: docker compose down -v

@@ -21,13 +21,16 @@ dependencies = [
     "pydantic-settings>=2.6,<3",
     "celery>=5.4,<5.5",
     "redis>=5.2,<6",
+    # PR-04 Gate B：查询期语义向量化经 OpenAICompatibleEmbeddingProvider（clipmind_shared）调用
+    # 本地/外部 embedder 的 /embeddings，运行时需 httpx。EMBEDDING_PROVIDER=openai_compatible 时
+    # 走该路径（FakeEmbedding 不导入 httpx，故 CI 未暴露此缺失）。与 services/worker 保持一致。
+    "httpx>=0.27,<0.29",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3,<9",
     "pytest-asyncio>=0.24,<0.25",
-    "httpx>=0.27,<0.29",
     "ruff>=0.7,<0.10",
 ]
 

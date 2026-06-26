@@ -419,3 +419,241 @@ export interface AssetQuery {
   status?: AssetStatus | "";
   source_directory_id?: number;
 }
+
+// ===== PR-04 Gate B 语义搜索 / 画面描述匹配（与后端 schemas/search.py 对应）=====
+//
+// 命名说明：本仓库已有 `ShotSearchQuery`（api.ts，打 /shot-search，PR-03B 结构化筛选）。
+// 下列为 Gate B 语义搜索（/search/shots、/match/description）的**独立**契约，互不混用。
+
+export type SearchMode = "hybrid" | "semantic" | "lexical" | "structured";
+// 固定方向：relevance/quality/latest 降序、duration 升序（后端 _reorder）。
+export type SearchSort = "relevance" | "latest" | "duration" | "quality";
+// 受控画幅白名单（AspectRatio StrEnum）。
+export type AspectRatioValue = "16:9" | "9:16" | "1:1" | "4:3" | "3:4" | "21:9";
+export const ASPECT_RATIO_VALUES: AspectRatioValue[] = [
+  "16:9",
+  "9:16",
+  "1:1",
+  "4:3",
+  "3:4",
+  "21:9",
+];
+export type ParserStatus = "ok" | "degraded";
+export type EmbeddingStatus = "ok" | "degraded" | "unavailable";
+export type RecommendationLevel = "high" | "medium" | "low" | "not_recommended";
+export type SuggestionType =
+  | "product"
+  | "brand"
+  | "scene"
+  | "action"
+  | "marketing"
+  | "shot_type"
+  | "tag";
+
+// 搜索请求（page_size ≤ 100；空字段后端按缺省处理）
+export interface ShotSearchRequest {
+  query?: string;
+  product_ids?: number[];
+  brands?: string[];
+  models?: string[];
+  skus?: string[];
+  scenes?: string[];
+  actions?: string[];
+  shot_types?: string[];
+  marketing_uses?: string[];
+  quality_levels?: string[];
+  include_risks?: string[];
+  exclude_risks?: string[];
+  duration_min?: number | null;
+  duration_max?: number | null;
+  aspect_ratios?: AspectRatioValue[];
+  review_statuses?: ReviewStatus[];
+  confirmed_only?: boolean;
+  include_excluded?: boolean;
+  stale?: boolean | null;
+  source_directory_id?: number | null;
+  created_from?: string | null;
+  created_to?: string | null;
+  search_mode?: SearchMode;
+  sort?: SearchSort;
+  page: number;
+  page_size: number;
+}
+
+export interface AssetBrief {
+  id: number;
+  filename: string;
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+  orientation: string | null;
+  source_directory_id: number | null;
+}
+
+export interface ProductBrief {
+  id: number;
+  name: string;
+  brand: string | null;
+  model: string | null;
+  sku: string | null;
+  match_kind: string | null; // sku | model | brand | name | alias | associated
+}
+
+// 综合分与分项分（[0,1]；缺失通道为 null，前端绝不当作 0 渲染）
+export interface SearchResultItem {
+  shot_id: number;
+  asset_id: number;
+  sequence_no: number;
+  start_time: number;
+  end_time: number;
+  duration: number;
+  status: string;
+  asset: AssetBrief;
+  preview_url: string | null;
+  thumbnail_url: string | null;
+  keyframe_url: string | null;
+  download_url: string | null;
+  product: ProductBrief | null;
+  score: number;
+  match_percent: number;
+  semantic_score: number | null;
+  lexical_score: number | null;
+  tag_score: number | null;
+  product_score: number | null;
+  quality_score: number;
+  review_bonus: number;
+  risk_penalty: number;
+  matched_reasons: string[];
+  unmatched_requirements: string[];
+  risk_warnings: string[];
+  review_status: string | null;
+  review_is_stale: boolean;
+  embedding_degraded: boolean;
+}
+
+// 自然语言查询解析结果（用于「查询理解」展示与诚实降级）
+export interface ParsedSearchQuery {
+  original_query: string;
+  normalized_query: string;
+  positive_terms: string[];
+  negative_terms: string[];
+  products: string[];
+  brands: string[];
+  models: string[];
+  skus: string[];
+  scenes: string[];
+  actions: string[];
+  shot_types: string[];
+  marketing_uses: string[];
+  people: string[];
+  objects: string[];
+  quality_requirements: string[];
+  required_risks: string[];
+  excluded_risks: string[];
+  min_duration: number | null;
+  max_duration: number | null;
+  aspect_ratios: AspectRatioValue[];
+  review_statuses: ReviewStatus[];
+  confirmed_only: boolean;
+  include_excluded: boolean;
+  allow_similar_scene: boolean;
+  allow_similar_action: boolean;
+  semantic_text: string;
+  parser_provider: string;
+  parser_model: string;
+  parser_status: ParserStatus;
+  parser_warnings: string[];
+}
+
+export interface ShotSearchResponse {
+  items: SearchResultItem[];
+  // total = 进入融合排序、可分页的候选数；truncated=false 时即精确匹配数。
+  total: number;
+  // filtered_total = 满足硬结构化过滤的精确总数（"可检索宇宙"）。
+  filtered_total: number;
+  truncated: boolean;
+  page: number;
+  page_size: number;
+  search_mode_used: string;
+  parser_status: string; // ok | degraded
+  parser_provider: string;
+  embedding_status: string; // ok | degraded | unavailable
+  degraded: boolean;
+  degradation_reasons: string[];
+  elapsed_ms: number;
+  query_plan_summary: Record<string, unknown>;
+  parsed_query: ParsedSearchQuery;
+}
+
+export interface DescriptionMatchRequest {
+  target_description: string;
+  product_id?: number | null;
+  limit: number;
+  minimum_score?: number;
+  exclude_risks?: string[];
+  confirmed_only?: boolean;
+  allow_similar_scene?: boolean;
+  allow_similar_action?: boolean;
+  duration_min?: number | null;
+  duration_max?: number | null;
+  aspect_ratios?: AspectRatioValue[];
+}
+
+export interface DescriptionMatchItem extends SearchResultItem {
+  target_requirements: string[];
+  matched_requirements: string[];
+  requires_human_confirmation: boolean;
+  recommendation_level: RecommendationLevel;
+}
+
+export interface DescriptionMatchResponse {
+  items: DescriptionMatchItem[];
+  // total = 满足硬过滤条件的候选总数（不含 minimum_score 过滤）
+  total: number;
+  filtered_total: number;
+  truncated: boolean;
+  minimum_score: number;
+  target_requirements: string[];
+  search_mode_used: string;
+  parser_status: string;
+  embedding_status: string;
+  degraded: boolean;
+  degradation_reasons: string[];
+  elapsed_ms: number;
+}
+
+export interface SearchSuggestion {
+  value: string;
+  type: SuggestionType;
+}
+
+export interface SuggestionsResponse {
+  items: SearchSuggestion[];
+}
+
+export interface SearchIndexStatus {
+  total_shots: number;
+  indexed_documents: number;
+  excluded_documents: number;
+  completed_embeddings: number;
+  degraded_embeddings: number;
+  failed_embeddings: number;
+  pending_embeddings: number;
+  current_embedding_version: string;
+  embedding_version_matched: number;
+  embedding_version_mismatched: number;
+  stale_documents: number;
+  last_indexed_at: string | null;
+  provider_healthy: boolean;
+  provider_detail: string;
+}
+
+export interface RebuildAcceptedResponse {
+  accepted: boolean;
+  scope: string;
+  target_id: number | null;
+  force_reembed: boolean;
+  only_failed: boolean;
+  celery_task_id: string | null;
+  detail: string;
+}

@@ -36,6 +36,7 @@ export function PreviewModal({
           <button
             type="button"
             onClick={onClose}
+            aria-label="关闭预览"
             className="rounded px-2 py-0.5 text-sm text-gray-500 hover:bg-gray-100"
           >
             关闭 ✕

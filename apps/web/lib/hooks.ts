@@ -10,6 +10,7 @@ import {
 import { api, type ShotSearchQuery } from "./api";
 import type { AIRunStatus, AssetQuery, MediaRunStatus, ShotQuery } from "./types";
 import type { ExportStatus, ReviewActionInput, ReviewActionKind, ScanStatus } from "./types";
+import type { DescriptionMatchRequest, ShotSearchRequest } from "./types";
 
 const ACTIVE_SCAN: ScanStatus[] = ["queued", "scanning"];
 const ACTIVE_RUN: MediaRunStatus[] = ["queued", "running"];
@@ -271,6 +272,61 @@ export function useProducts(q?: string) {
   return useQuery({
     queryKey: ["products", q ?? ""],
     queryFn: () => api.listProducts(q),
+  });
+}
+
+// ===== PR-04 Gate B 语义搜索 / 画面描述匹配 =====
+//
+// 注意：与已有 useShotSearch（/shot-search，PR-03B 结构化筛选）不同，这里是 Gate B
+// 语义搜索（/search/shots、/match/description）。req=null 时不发起请求（初始空态）。
+// queryFn 接 TanStack 的 signal → fetch abort，保证旧请求被新请求取消、无竞态覆盖。
+
+export function useSemanticSearch(req: ShotSearchRequest | null, enabled = true) {
+  return useQuery({
+    queryKey: ["semantic-search", req],
+    queryFn: ({ signal }) => api.searchShots(req as ShotSearchRequest, signal),
+    enabled: enabled && req != null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useDescriptionMatch(req: DescriptionMatchRequest | null, enabled = true) {
+  return useQuery({
+    queryKey: ["description-match", req],
+    queryFn: ({ signal }) => api.matchDescription(req as DescriptionMatchRequest, signal),
+    enabled: enabled && req != null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useSearchSuggestions(q: string, enabled = true) {
+  const term = q.trim();
+  return useQuery({
+    queryKey: ["search-suggestions", term],
+    queryFn: () => api.searchSuggestions(term, 12),
+    enabled,
+    // 建议变化频繁但服务端开销小：短缓存避免重复请求，组件侧再做 debounce
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useSearchIndexStatus() {
+  return useQuery({
+    queryKey: ["search-index-status"],
+    queryFn: () => api.searchIndexStatus(),
+    // 默认不频繁刷新；仅在索引建设/降级时轮询，正常态停止，避免重复请求
+    staleTime: 30_000,
+    refetchInterval: (q) => {
+      const d = q.state.data;
+      if (!d) return false;
+      const building =
+        d.pending_embeddings > 0 ||
+        d.failed_embeddings > 0 ||
+        d.embedding_version_mismatched > 0 ||
+        !d.provider_healthy;
+      return building ? 15_000 : false;
+    },
   });
 }
 

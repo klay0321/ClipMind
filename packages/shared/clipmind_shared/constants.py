@@ -49,6 +49,9 @@ AI_SCHEMA_VERSION = 1
 # PR-04 检索文档模板版本：检索文档拼装规则/字段集变更时递增（参与文档哈希，强制重嵌）
 SEARCH_DOCUMENT_TEMPLATE_VERSION = 1
 
+# PR-05 脚本拆段结构化 Schema 版本：段落结构化字段集变更时递增（存于 script_project）
+SCRIPT_PARSE_SCHEMA_VERSION = 1
+
 # PR-04 默认 Embedding 模型与**不可变 revision**（公开模型 commit，非敏感信息）。
 # 单一事实来源：API/worker settings 默认引用此处；embedder 服务（不依赖本包）须保持同值，
 # 由 test_revision_consistency 强制一致。换模型/维度/revision 须全量重嵌。

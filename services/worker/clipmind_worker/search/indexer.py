@@ -214,6 +214,23 @@ def rebuild_shot_document(
         product_terms=_product_terms(session, shot, eff),
         result_schema_version=eff.result_schema_version or 0,
     )
+
+    # 防御（PR-05）：有效结果产出空文档（如人工确认但内容为空且无 AI 结果）→ 标 excluded、
+    # 不可检索、不嵌入。空串向量会对任意查询给出近似恒定相似度，污染混合排序（见历史 shot58）。
+    if not content.text.strip():
+        doc.document_status = SearchDocumentStatus.EXCLUDED
+        doc.embedding_status = SearchEmbeddingStatus.PENDING
+        doc.is_searchable = False
+        doc.search_document = None
+        doc.normalized_document = None
+        doc.search_document_hash = content.document_hash
+        doc.document_template_version = content.template_version
+        doc.result_schema_version = eff.result_schema_version
+        doc.embedding = None
+        doc.error_message = None
+        doc.indexed_at = utcnow()
+        return "excluded"
+
     identity = provider.identity()
 
     # 嵌入层幂等：用文档"更新前"的状态判断是否可跳过重嵌（必须在覆写 hash/身份字段之前计算）。

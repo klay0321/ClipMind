@@ -14,11 +14,15 @@ from app.routers import (
     ai,
     assets,
     collections,
+    dynamic_collections,
+    export_center,
     exports,
+    favorites,
     health,
     products,
     projects,
     review,
+    saved_searches,
     scripts,
     search,
     shots,
@@ -53,6 +57,8 @@ app.include_router(system.router, prefix="/api")
 app.include_router(source_directories.router, prefix="/api")
 app.include_router(assets.router, prefix="/api")
 app.include_router(shots.router, prefix="/api")
+# export_center 须在 exports 之前注册：/exports/bundle/* 字面路由优先于 /exports/{export_id}
+app.include_router(export_center.router, prefix="/api")
 app.include_router(exports.router, prefix="/api")
 app.include_router(uploads.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
@@ -63,3 +69,6 @@ app.include_router(search.router, prefix="/api")
 app.include_router(scripts.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
 app.include_router(collections.router, prefix="/api")
+app.include_router(dynamic_collections.router, prefix="/api")
+app.include_router(saved_searches.router, prefix="/api")
+app.include_router(favorites.router, prefix="/api")

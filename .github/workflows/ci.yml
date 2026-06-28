@@ -154,6 +154,13 @@ jobs:
         env:
           API_BASE: http://localhost:8000
         run: python scripts/ci_hybrid_search_e2e.py --mode full
+      - name: 脚本匹配 Gate A 端到端（Fake Parser；创建/幂等/拆段/乐观锁/重排/候选空）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_script_gate_a_e2e.py --mode full | tee script_gate_a.log
+          grep -q "SCRIPT_GATE_A_E2E_OK" script_gate_a.log
       - name: AI 链路 DB 级持久化断言（不以 Celery task 自报成功为准）
         run: |
           q() { docker compose exec -T postgres psql -U clipmind -d clipmind -tAc "$1"; }
@@ -181,6 +188,9 @@ jobs:
           python scripts/ci_ai_e2e.py --mode check-persist
           python scripts/ci_search_e2e.py --mode check-persist
           python scripts/ci_hybrid_search_e2e.py --mode check-persist
+          set -o pipefail
+          python scripts/ci_script_gate_a_e2e.py --mode check-persist | tee script_gate_a_persist.log
+          grep -q "SCRIPT_GATE_A_PERSIST_OK" script_gate_a_persist.log
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |

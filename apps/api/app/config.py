@@ -69,6 +69,12 @@ class Settings(BaseSettings):
     search_parser_timeout: float = 8.0     # 解析超时（秒），超时降级规则解析，不阻断词法
     search_candidate_pool: int = 200       # 每通道候选池上限（有界融合）
 
+    # PR-05 脚本拆段解析
+    # ""/auto=ai(mimo) 已配置则用 mimo，否则规则拆段 | fake | rulebased | mimo
+    script_parser: str = ""
+    script_parser_model: str = ""          # mimo 文本拆段模型（空=回退 ai_model 或 mimo-v2.5-pro）
+    script_parser_timeout: float = 12.0    # 拆段超时（秒），超时降级规则拆段
+
     # PR-03B：当前无登录体系，审核者用配置的本地标签（不伪造用户，PR-07 接入后平滑替换）
     review_default_reviewer: str = "local-reviewer"
     # 产品参考图上传约束

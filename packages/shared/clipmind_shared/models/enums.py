@@ -249,3 +249,27 @@ class SearchEmbeddingStatus(StrEnum):
 SEARCHABLE_DOCUMENT_STATUS: SearchDocumentStatus = SearchDocumentStatus.INDEXED
 # 可参与向量召回的嵌入状态（还须 embedding 非空且 embedding_version 与当前 Provider 一致）
 VECTOR_READY_EMBEDDING_STATUS: SearchEmbeddingStatus = SearchEmbeddingStatus.COMPLETED
+
+
+# ============================================================
+# PR-05 脚本匹配 / 剪辑清单相关枚举
+# ============================================================
+
+
+class ScriptStatus(StrEnum):
+    """ScriptProject.status —— 脚本项目生命周期（Gate A 到 PARSED；MATCHED 留 Gate B）。"""
+
+    DRAFT = "draft"        # 已创建并存脚本，尚未拆段
+    PARSING = "parsing"    # 拆段进行中
+    PARSED = "parsed"      # 已拆段，段落就绪
+    MATCHED = "matched"    # 已完成镜头匹配（Gate B）
+    FAILED = "failed"      # 拆段失败
+
+
+class ScriptParseStatus(StrEnum):
+    """ScriptProject.parse_status —— 拆段解析状态（对外可见，绝不假装成功）。"""
+
+    PENDING = "pending"      # 尚未解析
+    OK = "ok"                # 解析成功（规则或 LLM）
+    DEGRADED = "degraded"    # LLM 解析失败/超时/非法，已降级规则解析
+    FAILED = "failed"        # 解析彻底失败

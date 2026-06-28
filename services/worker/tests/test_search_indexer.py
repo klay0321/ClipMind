@@ -116,6 +116,24 @@ def test_ai_source_builds_and_embeds(session):
     assert "桌面充电演示" in doc.search_document
 
 
+def test_empty_effective_result_excluded_not_searchable(session):
+    """有效结果产出空文档（有 AI 结果但无任何可检索文本字段）→ excluded、不可检索、不嵌入。
+
+    PR-05 回归：防御历史 shot58 类空文档（空串向量对任意查询近似恒定相似度，污染混合排序）。
+    """
+    _asset, shot, _ai = _seed_shot(
+        session, parsed={"confidence": 0.5, "needs_human_review": True}
+    )
+    status = rebuild_shot_document(session, shot.id, _fake())
+    session.commit()
+    assert status == "excluded"
+    doc = _doc(session, shot.id)
+    assert doc.is_searchable is False
+    assert doc.document_status == SearchDocumentStatus.EXCLUDED
+    assert doc.embedding is None
+    assert not (doc.search_document or "").strip()
+
+
 def test_vector_roundtrips_through_db(session):
     _asset, shot, _ai = _seed_shot(session)
     rebuild_shot_document(session, shot.id, _fake())

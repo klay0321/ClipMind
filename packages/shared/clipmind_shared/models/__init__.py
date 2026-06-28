@@ -30,6 +30,8 @@ from clipmind_shared.models.enums import (
     ReviewStatus,
     ScanRunStatus,
     ScanStatus,
+    ScriptParseStatus,
+    ScriptStatus,
     SearchDocumentStatus,
     SearchEmbeddingStatus,
     ShotStatus,
@@ -51,6 +53,11 @@ from clipmind_shared.models.review import (
     Tag,
 )
 from clipmind_shared.models.scan_run import ScanRun
+from clipmind_shared.models.script import (
+    ScriptProject,
+    ScriptSegment,
+    ScriptShotCandidate,
+)
 from clipmind_shared.models.search import EMBEDDING_DIM, ShotSearchDocument
 from clipmind_shared.models.shot import Shot
 from clipmind_shared.models.source_directory import SourceDirectory
@@ -102,4 +109,10 @@ __all__ = [
     "SEARCHABLE_DOCUMENT_STATUS",
     "VECTOR_READY_EMBEDDING_STATUS",
     "EMBEDDING_DIM",
+    # PR-05 脚本匹配
+    "ScriptProject",
+    "ScriptSegment",
+    "ScriptShotCandidate",
+    "ScriptStatus",
+    "ScriptParseStatus",
 ]

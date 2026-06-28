@@ -52,6 +52,13 @@ e2e/.artifacts*/
 e2e/playwright-report/
 e2e/test-results/
 
+# ===== 本地真实素材验收（绝不提交：真实视频/关键帧/分析结果/DB dump/报告）=====
+# 真实业务验收证据仅本地保存，详见 docs（PR-05 起的长期验收制度）
+.local/
+*.webp
+*.mp4
+*.mov
+
 # ===== OS / IDE =====
 .DS_Store
 Thumbs.db

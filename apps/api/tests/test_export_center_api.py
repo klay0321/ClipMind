@@ -145,9 +145,10 @@ async def test_retry_only_failed(client, session, monkeypatch):
     assert r.status_code == 409
 
 
-async def test_delete_removes_file_and_row(client, session, tmp_path):
+async def test_delete_removes_file_and_row(client, session, tmp_path, monkeypatch):
     from app.config import get_settings
-    data_dir = get_settings().data_dir
+    monkeypatch.setattr(get_settings(), "data_dir", str(tmp_path))
+    data_dir = str(tmp_path)
     rel = "exports/udel/clip.mp4"
     abs_path = os.path.join(data_dir, "exports", "udel", "clip.mp4")
     os.makedirs(os.path.dirname(abs_path), exist_ok=True)
@@ -180,9 +181,10 @@ async def test_delete_blocks_running_and_path_traversal(client, session):
     assert (await client.get(f"/api/export-center/clip/{evil.id}")).status_code == 200
 
 
-async def test_download_log_increments(client, session):
+async def test_download_log_increments(client, session, tmp_path, monkeypatch):
     from app.config import get_settings
-    data_dir = get_settings().data_dir
+    monkeypatch.setattr(get_settings(), "data_dir", str(tmp_path))
+    data_dir = str(tmp_path)
     rel = "exports/udl/clip.mp4"
     abs_path = os.path.join(data_dir, "exports", "udl", "clip.mp4")
     os.makedirs(os.path.dirname(abs_path), exist_ok=True)

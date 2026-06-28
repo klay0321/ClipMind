@@ -112,7 +112,8 @@ describe("AssetTable", () => {
     expect(screen.getByRole("button", { name: /继续分析/ })).toBeInTheDocument();
   });
 
-  it("重扫中按钮禁用", () => {
+  it("重扫中：更多菜单内重新扫描项禁用并显示重扫中…", async () => {
+    const user = userEvent.setup();
     render(
       <AssetTable
         assets={[makeAsset({ id: 7 })]}
@@ -123,7 +124,9 @@ describe("AssetTable", () => {
         onPreview={noop}
       />,
     );
-    expect(screen.getByRole("button", { name: "重扫中…" })).toBeDisabled();
+    // 次要操作（重新扫描）已收进 ⋮ 更多菜单：先展开再断言其禁用态
+    await user.click(screen.getByRole("button", { name: /更多操作/ }));
+    expect(screen.getByRole("menuitem", { name: "重扫中…" })).toBeDisabled();
   });
 
   it("未分析但有海报：显示素材海报封面", () => {

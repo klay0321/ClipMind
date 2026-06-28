@@ -24,7 +24,9 @@ type Filter = "all" | "active" | "archived";
 const PAGE_SIZE = 12;
 
 export function ProjectsView() {
-  const [filter, setFilter] = useState<Filter>("all");
+  // 默认只看「进行中」：已归档（含治理归档的测试项目）从老板默认视图退出，
+  // 仍可在「已归档 / 全部」找回。这是状态筛选，不是按名称前缀硬隐藏。
+  const [filter, setFilter] = useState<Filter>("active");
   const [page, setPage] = useState(1);
   const statusParam = filter === "all" ? undefined : (filter as ProjectStatus);
   const query = useProjects(page, PAGE_SIZE, statusParam);

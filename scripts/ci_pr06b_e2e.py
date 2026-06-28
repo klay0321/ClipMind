@@ -33,11 +33,13 @@ SCRIPT_NAME = "pr06b-e2e-script"
 SAVED_NAME = "pr06b-e2e-saved"
 DYN_NAME = "pr06b-e2e-dynamic"
 PROJECT_NAME = "pr06b-e2e-project"
+# 注意：必须与其它 E2E 脚本（如 gate B）文本不同 —— 系统按 script_hash 去重，
+# 文本相同会复用同一脚本，force 重拆段会破坏对方代次/锁定状态。
 SCRIPT = (
-    "开场画面：展示产品整体外观，时长不超过3秒。\n\n"
-    "使用演示：手持操作，画面清晰。\n\n"
-    "卖点强调：突出便携与轻巧。\n\n"
-    "结尾引导：点击下方了解更多。"
+    "PR06B 演示脚本：户外清晨展示新款保温杯整体外观与磨砂质感。\n\n"
+    "近景演示单手开合杯盖并倒入热水，强调密封不漏。\n\n"
+    "卖点字幕突出 12 小时长效保温与轻量便携。\n\n"
+    "结尾出现品牌标识与下单引导按钮。"
 )
 FORMATS = ("csv", "xlsx", "json", "markdown", "printable")
 

@@ -11,8 +11,10 @@ const SCRIPT_NAME = "PR06B-UI-script";
 const SAVED_NAME = "PR06B-UI-saved";
 const PROJECT_NAME = "PR06B-UI-project";
 const DYN_NAME = "PR06B-UI-dynamic";
+// 文本须与其它 spec（projects-ui/script-ui）不同：系统按 script_hash 去重，
+// 文本相同会复用同一脚本，force 重拆段会破坏对方脚本状态。
 const SCRIPT_TEXT =
-  "开场画面：展示产品整体外观。\n\n使用演示：手持操作画面清晰。\n\n卖点强调：突出便携轻巧。";
+  "PR06B-UI 演示：户外清晨展示保温杯外观。\n\n近景单手开合杯盖倒入热水。\n\n字幕强调长效保温与便携。";
 
 async function readyShots(request: APIRequestContext, n: number): Promise<number[]> {
   const res = await request.get(`${API}/api/shots?page=1&page_size=${n}&status=ready`);

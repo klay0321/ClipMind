@@ -657,3 +657,273 @@ export interface RebuildAcceptedResponse {
   celery_task_id: string | null;
   detail: string;
 }
+
+// ===== PR-05 脚本匹配与剪辑清单（与后端 schemas/script.py 对齐）=====
+
+export type ScriptStatus = "draft" | "parsing" | "parsed" | "matched" | "failed";
+export type ScriptParseStatus = "pending" | "ok" | "degraded" | "failed";
+// 段落匹配状态：pending 从未匹配 / matched 有候选 / gap 真实无结果 / degraded 降级匹配
+export type ScriptMatchStatusKind = "pending" | "matched" | "gap" | "degraded";
+// 剪辑清单选用状态：locked 锁定 / selected 已选未锁 / recommended 系统推荐 / none 无
+export type SelectionStatus = "locked" | "selected" | "recommended" | "none";
+export type DurationFitStatus = "fit" | "too_long" | "too_short" | "no_target";
+
+// 段落结构化需求（键白名单与后端 _ALLOWED_STRUCTURED_KEYS 一致）
+export interface StructuredRequirements {
+  products?: string[];
+  scenes?: string[];
+  actions?: string[];
+  shot_types?: string[];
+  marketing_uses?: string[];
+  people?: string[];
+  objects?: string[];
+  quality_requirements?: string[];
+  selling_points?: string[];
+  must_include?: string[];
+}
+
+export interface ScriptProject {
+  id: number;
+  name: string;
+  source_format: string;
+  status: ScriptStatus;
+  parse_status: ScriptParseStatus;
+  parser_provider: string | null;
+  parser_model: string | null;
+  parser_warnings: string[] | null;
+  result_schema_version: number;
+  segment_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScriptSegment {
+  id: number;
+  script_project_id: number;
+  order_index: number;
+  segment_text: string;
+  visual_requirement: string | null;
+  normalized_text: string | null;
+  target_duration_min: number | null;
+  target_duration_max: number | null;
+  product_id: number | null;
+  structured_requirements: StructuredRequirements | null;
+  negative_terms: string[] | null;
+  excluded_risks: string[] | null;
+  allow_similar_scene: boolean;
+  allow_similar_action: boolean;
+  current_generation: number;
+  selected_shot_id: number | null;
+  locked_shot_id: number | null;
+  lock_version: number;
+  match_status: ScriptMatchStatusKind;
+  candidates_stale: boolean;
+  parser_warnings: string[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScriptProjectDetail extends ScriptProject {
+  raw_script: string;
+  segments: ScriptSegment[];
+}
+
+export interface ScriptListResponse {
+  items: ScriptProject[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+// 候选镜头（分项分缺失为 null，前端绝不当 0；含展示 brief 与预览 URL）
+export interface ScriptCandidate {
+  shot_id: number;
+  asset_id: number | null;
+  rank: number;
+  final_score: number;
+  semantic_score: number | null;
+  lexical_score: number | null;
+  tag_score: number | null;
+  product_score: number | null;
+  quality_score: number | null;
+  review_bonus: number | null;
+  risk_penalty: number | null;
+  matched_reasons: string[];
+  unmatched_requirements: string[];
+  risk_warnings: string[];
+  sequence_no: number | null;
+  start_time: number | null;
+  end_time: number | null;
+  duration: number | null;
+  preview_url: string | null;
+  thumbnail_url: string | null;
+  keyframe_url: string | null;
+}
+
+export interface SegmentCandidatesResponse {
+  segment_id: number;
+  generation: number;
+  current_generation: number;
+  match_status: ScriptMatchStatusKind;
+  candidate_count: number;
+  best_score: number | null;
+  gap_reasons: string[];
+  reshoot_recommendation: string[];
+  requires_human_confirmation: boolean;
+  degraded: boolean;
+  candidates_stale: boolean;
+  selected_shot_id: number | null;
+  locked_shot_id: number | null;
+  lock_version: number;
+  candidates: ScriptCandidate[];
+}
+
+export interface ScriptMatchResponse {
+  script_id: number;
+  total_segments: number;
+  completed_segments: number[];
+  skipped_locked_segments: number[];
+  failed_segments: { segment_id: number; error: string }[];
+  match_token: string | null;
+}
+
+export interface SegmentMatchStatus {
+  segment_id: number;
+  order_index: number;
+  match_status: ScriptMatchStatusKind;
+  current_generation: number;
+  candidate_count: number;
+  best_score: number | null;
+  gap_reasons: string[];
+  reshoot_recommendation: string[];
+  requires_human_confirmation: boolean;
+  degraded: boolean;
+  candidates_stale: boolean;
+  selected_shot_id: number | null;
+  locked_shot_id: number | null;
+  lock_version: number;
+}
+
+export interface ScriptMatchStatusResponse {
+  script_id: number;
+  total_segments: number;
+  matched_segments: number;
+  gap_segments: number;
+  locked_segments: number;
+  selected_segments: number;
+  pending_segments: number;
+  segments: SegmentMatchStatus[];
+}
+
+export interface EditListRow {
+  segment_id: number;
+  segment_order: number;
+  segment_text: string;
+  target_duration_min: number | null;
+  target_duration_max: number | null;
+  selection_status: SelectionStatus;
+  match_status: ScriptMatchStatusKind;
+  shot_id: number | null;
+  asset_id: number | null;
+  source_start: number | null;
+  source_end: number | null;
+  source_duration: number | null;
+  suggested_in: number | null;
+  suggested_out: number | null;
+  suggested_duration: number | null;
+  duration_status: DurationFitStatus | null;
+  duration_warnings: string[];
+  product_name: string | null;
+  scene: string | null;
+  action: string | null;
+  match_score: number | null;
+  matched_reasons: string[];
+  unmatched_requirements: string[];
+  risk_warnings: string[];
+  gap_reasons: string[];
+  reshoot_recommendation: string[];
+  requires_human_confirmation: boolean;
+  reused: boolean;
+  shot_invalid: boolean;
+}
+
+export interface EditListSummary {
+  total_segments: number;
+  matched_segments: number;
+  selected_segments: number;
+  locked_segments: number;
+  recommended_segments: number;
+  gap_segments: number;
+  risk_segments: number;
+  target_total_duration_min: number | null;
+  target_total_duration_max: number | null;
+  suggested_total_duration: number;
+  duplicate_shot_count: number;
+  allocation_warnings: string[];
+}
+
+export interface ScriptEditList {
+  script_id: number;
+  summary: EditListSummary;
+  rows: EditListRow[];
+}
+
+export interface ScriptExport {
+  id: number;
+  script_project_id: number;
+  status: ExportStatus;
+  export_format: string;
+  filename: string | null;
+  row_count: number | null;
+  has_file: boolean;
+  error_message: string | null;
+  celery_task_id: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+// ---- 请求体 ----
+
+export interface ScriptCreateRequest {
+  name: string;
+  raw_script: string;
+  source_format?: string;
+}
+
+export interface SegmentUpdateRequest {
+  lock_version: number;
+  segment_text?: string;
+  visual_requirement?: string | null;
+  target_duration_min?: number | null;
+  target_duration_max?: number | null;
+  product_id?: number | null;
+  structured_requirements?: StructuredRequirements;
+  negative_terms?: string[];
+  excluded_risks?: string[];
+  allow_similar_scene?: boolean;
+  allow_similar_action?: boolean;
+}
+
+export interface ScriptMatchRequest {
+  candidate_limit?: number | null;
+  match_token?: string | null;
+  skip_locked?: boolean;
+}
+
+export interface SegmentMatchRequest {
+  candidate_limit?: number | null;
+  match_token?: string | null;
+}
+
+export interface SegmentSelectRequest {
+  shot_id: number;
+  lock_version: number;
+  allow_override?: boolean;
+}
+
+export interface SegmentLockRequest {
+  shot_id: number;
+  lock_version: number;
+  allow_override?: boolean;
+  force?: boolean;
+}

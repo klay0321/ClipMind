@@ -240,23 +240,26 @@ async def match_script(
     completed: list[int] = []
     skipped: list[int] = []
     failed: list[dict] = []
-    for seg in segs:
-        if skip_locked and seg.locked_shot_id is not None:
-            skipped.append(seg.id)  # 锁定段不重匹配、不覆盖
+    # 先把所需字段全部取成纯值：某段失败 rollback 会过期会话内所有 ORM 对象，
+    # 后续迭代再访问 seg.id 会触发异步刷新导致 MissingGreenlet。
+    seg_info = [(s.id, s.locked_shot_id is not None) for s in segs]
+    for seg_id, seg_locked in seg_info:
+        if skip_locked and seg_locked:
+            skipped.append(seg_id)  # 锁定段不重匹配、不覆盖
             continue
-        seg_token = f"{match_token}:{seg.id}" if match_token else None
+        seg_token = f"{match_token}:{seg_id}" if match_token else None
         try:
             await match_segment(
-                db, project_id, seg.id, parser=parser,
+                db, project_id, seg_id, parser=parser,
                 embedding_provider=embedding_provider, settings=settings,
                 match_token=seg_token, candidate_limit=candidate_limit,
             )
-            completed.append(seg.id)
+            completed.append(seg_id)
         except HTTPException:
             raise
         except Exception as exc:  # noqa: BLE001 - 单段失败不影响其余
             await db.rollback()
-            failed.append({"segment_id": seg.id, "error": str(exc)[:200]})
+            failed.append({"segment_id": seg_id, "error": str(exc)[:200]})
 
     return {
         "script_id": project_id,

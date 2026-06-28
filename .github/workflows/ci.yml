@@ -255,6 +255,8 @@ jobs:
           cp .env.example .env
           echo "AI_PROVIDER=fake" >> .env
           echo "EMBEDDING_PROVIDER=fake" >> .env
+          # Gate C 脚本匹配：Fake 向量相似度不稳定，置 0 让已索引镜头均成候选
+          echo "SCRIPT_MATCH_MIN_SCORE=0.0" >> .env
       - name: 构建并启动全栈
         run: |
           docker compose build
@@ -308,13 +310,26 @@ jobs:
           npx playwright test search-ui.spec.ts --grep-invert @persist | tee ui.log
           grep -q "SEARCH_UI_E2E_OK" ui.log
           grep -q "DESCRIPTION_MATCH_UI_E2E_OK" ui.log
-      - name: 重启 API/web/search-worker 后持久化（SEARCH_UI_PERSIST_OK）
+      - name: Gate C 脚本匹配 UI E2E（真实 /script 页面；创建→拆段→匹配→选择锁定→剪辑清单→CSV）
+        working-directory: e2e
         env:
           WEB_BASE: http://localhost:3000
           API_BASE: http://localhost:8000
         run: |
           set -o pipefail
-          docker compose restart api web search-worker
+          state=$(docker compose --project-directory .. ps export-worker --format '{{.State}}')
+          [ "$state" = "running" ] || { echo "export-worker 未运行: $state"; exit 1; }
+          npx playwright test script-ui.spec.ts --grep-invert @persist | tee script-ui.log
+          for flag in SCRIPT_UI_E2E_OK SCRIPT_CANDIDATE_UI_E2E_OK SCRIPT_LOCK_UI_E2E_OK SCRIPT_EDIT_LIST_UI_E2E_OK SCRIPT_CSV_UI_E2E_OK; do
+            grep -q "$flag" script-ui.log || { echo "缺少标志 $flag"; exit 1; }
+          done
+      - name: 重启 API/web/search-worker/export-worker 后持久化
+        env:
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          docker compose restart api web search-worker export-worker
           for i in $(seq 1 40); do
             [ "$(docker compose ps api --format '{{.Health}}')" = "healthy" ] && break
             sleep 3
@@ -325,6 +340,8 @@ jobs:
           done
           ( cd e2e && npx playwright test search-ui.spec.ts --grep @persist | tee persist.log )
           grep -q "SEARCH_UI_PERSIST_OK" e2e/persist.log
+          ( cd e2e && npx playwright test script-ui.spec.ts --grep @persist | tee script-persist.log )
+          grep -q "SCRIPT_UI_PERSIST_OK" e2e/script-persist.log
       - name: 失败时上传脱敏证据（trace/截图/报告；不含 .env/key/endpoint）
         if: failure()
         uses: actions/upload-artifact@v4

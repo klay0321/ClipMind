@@ -47,6 +47,8 @@ export function SemanticSearchView({
 }) {
   const [form, setForm] = useState<SearchFormState>(initialForm);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // 已保存搜索默认收起，不抢占结果区首屏
+  const [savedOpen, setSavedOpen] = useState(false);
   // ZIP 打包多选（仅当前页选择；换页/换条件后清空，绝不跨页打包）
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   // committed：已提交的搜索条件（与 form 草稿分离，避免输入即搜索）
@@ -155,12 +157,25 @@ export function SemanticSearchView({
         onToggle={() => setFiltersOpen((v) => !v)}
       />
 
-      <SavedSearchPanel
-        searchKind="shot_search"
-        currentQuery={savedQuery}
-        canSave={committed != null}
-        onLoad={loadSaved}
-      />
+      <div className="flex justify-end">
+        <button
+          type="button"
+          data-testid="toggle-saved-search"
+          aria-expanded={savedOpen}
+          onClick={() => setSavedOpen((v) => !v)}
+          className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+        >
+          {savedOpen ? "收起已保存搜索 ▴" : "已保存搜索 / 保存搜索 ▾"}
+        </button>
+      </div>
+      {savedOpen ? (
+        <SavedSearchPanel
+          searchKind="shot_search"
+          currentQuery={savedQuery}
+          canSave={committed != null}
+          onLoad={loadSaved}
+        />
+      ) : null}
 
       {/* 降级提示（真实可见） */}
       {data ? (

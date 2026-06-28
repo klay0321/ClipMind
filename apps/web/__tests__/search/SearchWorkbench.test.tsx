@@ -50,9 +50,9 @@ beforeEach(() => {
 });
 
 describe("SearchWorkbench", () => {
-  it("默认素材语义搜索模式，含智能搜索标题与两个标签", () => {
+  it("默认素材语义搜索模式，含智能匹配标题与两个标签", () => {
     render(<SearchWorkbench initial={INITIAL} />);
-    expect(screen.getByRole("heading", { name: "智能搜索" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "智能匹配" })).toBeInTheDocument();
     expect(screen.getByTestId("tab-search")).toHaveAttribute("aria-selected", "true");
     expect(screen.getByTestId("tab-description")).toHaveAttribute("aria-selected", "false");
   });

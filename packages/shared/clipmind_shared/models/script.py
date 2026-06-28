@@ -45,6 +45,11 @@ class ScriptProject(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(255))
+    # PR-06A：可选归属业务项目。可空 + SET NULL：历史脚本保持 NULL（不回填）；
+    # 项目删除（PR-07）时清空引用而非删除脚本。不改 script_hash / 幂等 / 匹配锁定逻辑。
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("project.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     raw_script: Mapped[str] = mapped_column(Text)
     normalized_script: Mapped[str | None] = mapped_column(Text, nullable=True)
     # 内容哈希：同一脚本重复创建据此幂等复用。唯一约束在 DB 层兜底并发竞态

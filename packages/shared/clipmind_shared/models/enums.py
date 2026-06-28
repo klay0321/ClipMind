@@ -273,3 +273,19 @@ class ScriptParseStatus(StrEnum):
     OK = "ok"                # 解析成功（规则或 LLM）
     DEGRADED = "degraded"    # LLM 解析失败/超时/非法，已降级规则解析
     FAILED = "failed"        # 解析彻底失败
+
+
+# ============================================================
+# PR-06A 项目 / 收藏 / 素材集合 相关枚举
+# ============================================================
+
+
+class ProjectStatus(StrEnum):
+    """Project.status —— 业务项目生命周期（PR-06A 只实现 active/archived）。
+
+    archived 后项目只读：可查看/预览/恢复，禁止新增/删除/重排成员（service 层统一保护）。
+    completed 等更多状态留待后续，不在 PR-06A 实现。
+    """
+
+    ACTIVE = "active"
+    ARCHIVED = "archived"

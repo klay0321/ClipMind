@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 class ExportCreate(BaseModel):
     mode: str = Field("reencode", pattern="^(reencode|copy)$")
+    project_id: int | None = None  # PR-06B：可选项目归属（导出中心聚合）
 
 
 class ExportOut(BaseModel):

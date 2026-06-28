@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from clipmind_shared.models import Project
 from clipmind_shared.models.enums import ShotStatus
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import FileResponse
@@ -106,8 +107,13 @@ async def export_shot(
     if shot is None:
         raise HTTPException(status_code=404, detail="镜头不存在")
     mode = (body.mode if body else "reencode")
+    project_id = body.project_id if body else None
+    if project_id is not None and await db.get(Project, project_id) is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
     try:
-        export = await shot_dispatch.request_export(db, shot, mode=mode)
+        export = await shot_dispatch.request_export(
+            db, shot, mode=mode, project_id=project_id
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=503, detail=f"无法入队导出任务: {exc}") from exc
     return ExportAcceptedOut(

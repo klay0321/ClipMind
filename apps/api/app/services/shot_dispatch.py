@@ -84,8 +84,13 @@ async def request_analysis(db: AsyncSession, asset: Asset) -> MediaProcessingRun
     return run
 
 
-async def request_export(db: AsyncSession, shot: Shot, *, mode: str = "reencode") -> Export:
-    """为镜头创建导出运行并入队，写入来源快照（永久可追溯，不依赖旧 Shot）。"""
+async def request_export(
+    db: AsyncSession, shot: Shot, *, mode: str = "reencode", project_id: int | None = None
+) -> Export:
+    """为镜头创建导出运行并入队，写入来源快照（永久可追溯，不依赖旧 Shot）。
+
+    PR-06B：可选 project_id 关联到导出中心（项目删除 SET NULL，记录保留）。
+    """
     asset = await db.get(Asset, shot.asset_id)
     if asset is None:
         raise ValueError("asset_not_found")
@@ -93,6 +98,7 @@ async def request_export(db: AsyncSession, shot: Shot, *, mode: str = "reencode"
         export_uuid=uuid.uuid4().hex,
         asset_id=shot.asset_id,
         shot_id=shot.id,
+        project_id=project_id,
         status=ExportStatus.QUEUED,
         mode=mode,
         # 来源快照

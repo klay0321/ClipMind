@@ -13,6 +13,7 @@ from clipmind_shared.constants import (
     TASK_ANALYZE_SHOT_AI,
     TASK_ANALYZE_SHOTS,
     TASK_BACKFILL_SEARCH_DOCS,
+    TASK_EXPORT_BUNDLE,
     TASK_EXPORT_SCRIPT_CSV,
     TASK_EXPORT_SHOT_CLIP,
     TASK_GENERATE_ASSET_POSTER,
@@ -116,9 +117,21 @@ def enqueue_backfill_search_docs(
     return result.id
 
 
-def enqueue_export_script_csv(export_id: int) -> str:
-    """入队脚本剪辑清单 CSV 导出（export 队列），返回 celery_task_id。"""
+def enqueue_export_script(export_id: int) -> str:
+    """入队脚本剪辑清单导出（export 队列；worker 按 export_format 多格式输出）。"""
     result = celery_client.send_task(
         TASK_EXPORT_SCRIPT_CSV, args=[export_id], queue=QUEUE_EXPORT
+    )
+    return result.id
+
+
+# 兼容旧名（CSV 专用语义；现统一走 enqueue_export_script）
+enqueue_export_script_csv = enqueue_export_script
+
+
+def enqueue_export_bundle(export_id: int) -> str:
+    """入队多镜头 ZIP 打包导出（media 队列：裁剪各 clip → 打包），返回 celery_task_id。"""
+    result = celery_client.send_task(
+        TASK_EXPORT_BUNDLE, args=[export_id], queue=QUEUE_MEDIA
     )
     return result.id

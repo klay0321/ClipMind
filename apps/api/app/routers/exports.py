@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from clipmind_shared.models import Export
-from clipmind_shared.models.enums import ExportStatus
+from clipmind_shared.models.enums import EXPORT_KIND_CLIP, ExportStatus
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
 from app.schemas.export import ExportOut, to_export_out
-from app.services import files
+from app.services import export_center_service, files
 
 router = APIRouter(prefix="/exports", tags=["exports"])
 
@@ -31,9 +31,11 @@ async def download_export(export_id: int, db: AsyncSession = Depends(get_db)) ->
     if export.status != ExportStatus.COMPLETED or not export.output_path:
         raise HTTPException(status_code=409, detail="导出尚未完成")
     download_name = export.filename or "clip.mp4"
-    return files.serve_derived(
+    response = files.serve_derived(
         export.output_path,
         media_type="video/mp4",
         download_name=download_name,
         immutable=True,
     )
+    await export_center_service.record_download(db, EXPORT_KIND_CLIP, export_id)
+    return response

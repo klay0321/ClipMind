@@ -289,3 +289,49 @@ class ProjectStatus(StrEnum):
 
     ACTIVE = "active"
     ARCHIVED = "archived"
+
+
+# ============================================================
+# PR-06B 导出中心 / 保存搜索 / 收藏 / 动态集合 相关枚举
+# ============================================================
+
+
+class SearchKind(StrEnum):
+    """SavedSearch.search_kind / DynamicCollection.search_kind —— 保存的查询类型。
+
+    决定 ``query`` JSONB 用哪个请求模型反序列化、re-run 时走哪个搜索服务。
+    """
+
+    SHOT_SEARCH = "shot_search"              # ShotSearchRequest（自然语言 + 结构化搜索）
+    DESCRIPTION_MATCH = "description_match"  # DescriptionMatchRequest（画面描述匹配）
+
+
+class FavoriteTargetType(StrEnum):
+    """Favorite.target_type —— 可收藏对象类型（PRD §7.14.2 四类）。
+
+    asset 关联 ``asset_id``；shot / search_result / script_match_result 最终都引用真实
+    ``shot_id``（搜索结果/脚本候选解析到底层镜头），context 仅存安全来源快照。
+    """
+
+    ASSET = "asset"
+    SHOT = "shot"
+    SEARCH_RESULT = "search_result"
+    SCRIPT_MATCH_RESULT = "script_match_result"
+
+
+# 以 shot_id 为底层引用的收藏类型（asset 例外，用 asset_id）
+SHOT_BASED_FAVORITE_TYPES: tuple[FavoriteTargetType, ...] = (
+    FavoriteTargetType.SHOT,
+    FavoriteTargetType.SEARCH_RESULT,
+    FavoriteTargetType.SCRIPT_MATCH_RESULT,
+)
+
+
+# 统一导出中心的导出种类（kind 判别）
+EXPORT_KIND_CLIP = "clip"      # Export（片段 MP4）
+EXPORT_KIND_SCRIPT = "script"  # ScriptExport（剪辑清单多格式）
+EXPORT_KIND_BUNDLE = "bundle"  # BundleExport（多镜头 ZIP）
+EXPORT_KINDS: tuple[str, ...] = (EXPORT_KIND_CLIP, EXPORT_KIND_SCRIPT, EXPORT_KIND_BUNDLE)
+
+# 脚本导出支持的格式（PRD §7.12.7）
+SCRIPT_EXPORT_FORMATS: tuple[str, ...] = ("csv", "xlsx", "json", "markdown", "printable")

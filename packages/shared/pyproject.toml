@@ -12,6 +12,8 @@ dependencies = [
     "pydantic>=2.9,<3",
     # PR-04 语义检索：pgvector 的 SQLAlchemy 'vector' 列类型（文本绑定，无需连接级注册）
     "pgvector>=0.3,<0.4",
+    # PR-06B 多格式导出：XLSX 生成（剪辑清单 editlist.to_xlsx，确定性、无外部网络）
+    "openpyxl>=3.1,<3.2",
 ]
 
 [tool.setuptools.packages.find]

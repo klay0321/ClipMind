@@ -1,8 +1,9 @@
-// 工作台顶栏：返回 + 项目名 + 解析状态 + 匹配状态汇总 + 操作（全脚本匹配 / 导出 CSV）。
+// 工作台顶栏：返回 + 项目名 + 解析状态 + 匹配状态汇总 + 操作（全脚本匹配 / 导出剪辑清单 / 导出中心）。
 "use client";
 
 import Link from "next/link";
 
+import { Button } from "@/components/ui/Button";
 import { matchStatusLabel } from "@/lib/script";
 import type { ScriptMatchStatusResponse, ScriptProjectDetail } from "@/lib/types";
 
@@ -14,12 +15,16 @@ export function ScriptTopBar({
   onMatchAll,
   matchingAll,
   canMatch,
+  onToggleExport,
+  exportOpen = false,
 }: {
   project: ScriptProjectDetail;
   status: ScriptMatchStatusResponse | undefined;
   onMatchAll: () => void;
   matchingAll: boolean;
   canMatch: boolean;
+  onToggleExport?: () => void;
+  exportOpen?: boolean;
 }) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-3">
@@ -39,16 +44,37 @@ export function ScriptTopBar({
           provider={project.parser_provider}
           warnings={project.parser_warnings}
         />
-        <button
-          type="button"
-          data-testid="match-all"
-          onClick={onMatchAll}
-          disabled={!canMatch || matchingAll}
-          className="ml-auto rounded-md bg-brand px-4 py-1.5 text-xs font-medium text-white hover:bg-brand-dark disabled:opacity-50"
-          title={canMatch ? "复用混合检索为每段生成候选" : "请先拆段"}
-        >
-          {matchingAll ? "匹配中…" : "▶ 全脚本匹配"}
-        </button>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Button
+            variant="primary"
+            size="sm"
+            data-testid="match-all"
+            onClick={onMatchAll}
+            disabled={!canMatch || matchingAll}
+            loading={matchingAll}
+            title={canMatch ? "复用混合检索为每段生成候选" : "请先拆段"}
+          >
+            {matchingAll ? "匹配中…" : "▶ 全脚本匹配"}
+          </Button>
+          {onToggleExport ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              data-testid="toggle-export"
+              aria-expanded={exportOpen}
+              onClick={onToggleExport}
+            >
+              导出剪辑清单 ▾
+            </Button>
+          ) : null}
+          <Link
+            href="/exports"
+            data-testid="open-export-center"
+            className="text-xs text-gray-500 hover:text-brand"
+          >
+            导出中心 →
+          </Link>
+        </div>
       </div>
 
       {status ? (

@@ -92,11 +92,13 @@ describe("ScriptWorkbench", () => {
     expect(screen.getByText("脚本 id 无效")).toBeInTheDocument();
   });
 
-  it("渲染顶栏标题与默认匹配 Tab", () => {
+  it("渲染顶栏标题，剪辑清单作为主视图直接可见", () => {
     render(<ScriptWorkbench scriptId={1} />);
     expect(screen.getByTestId("script-title")).toHaveTextContent("吹风机产品介绍");
-    expect(screen.getByTestId("tab-match")).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByTestId("candidate-panel")).toBeInTheDocument();
+    // 剪辑清单不再藏在二级 Tab，直接作为右侧主表渲染
+    expect(screen.getByTestId("editlist-tab")).toBeInTheDocument();
+    // 候选镜头默认收进抽屉，不抢占主视图
+    expect(screen.queryByTestId("candidate-panel")).not.toBeInTheDocument();
   });
 
   it("全脚本匹配 → 调真实 match", async () => {
@@ -106,11 +108,20 @@ describe("ScriptWorkbench", () => {
     expect(matchScriptMut.mutate).toHaveBeenCalled();
   });
 
-  it("切换到剪辑清单 Tab", async () => {
+  it("点剪辑清单行「查看候选」打开候选抽屉", async () => {
     const user = userEvent.setup();
     render(<ScriptWorkbench scriptId={1} />);
-    await user.click(screen.getByTestId("tab-editlist"));
-    expect(screen.getByTestId("tab-editlist")).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByTestId("editlist-tab")).toBeInTheDocument();
+    expect(screen.queryByTestId("candidate-panel")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("row-view-candidates-1"));
+    expect(screen.getByTestId("candidate-panel")).toBeInTheDocument();
+  });
+
+  it("导出剪辑清单为单一入口（点开才显示格式）", async () => {
+    const user = userEvent.setup();
+    render(<ScriptWorkbench scriptId={1} />);
+    // 默认不平铺多个导出按钮
+    expect(screen.queryByTestId("multi-export-panel")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("toggle-export"));
+    expect(screen.getByTestId("multi-export-panel")).toBeInTheDocument();
   });
 });

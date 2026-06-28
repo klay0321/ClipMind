@@ -1,7 +1,9 @@
-// 剪辑清单 Tab：摘要统计 + 逐段行（含推荐镜头/理由/缺口/时长建议/标记）+ CSV 导出。
+// 剪辑清单：摘要统计 + 逐段行（含推荐镜头/理由/缺口/时长建议/标记/查看候选）。
 // 系统推荐绝不标成「人工已确认」；重复/失效/风险/需确认醒目标识；缺口段保留成行。
+// 导出统一放到工作台顶栏的「导出剪辑清单 ▾」，本表不再内嵌多个导出按钮。
 "use client";
 
+import { MediaThumb } from "@/components/ui/MediaThumb";
 import { shotKeyframeUrl } from "@/lib/api";
 import { formatDuration } from "@/lib/format";
 import { useScriptEditList } from "@/lib/hooks";
@@ -17,9 +19,6 @@ import { Empty } from "@/components/states/Empty";
 import { ErrorState } from "@/components/states/ErrorState";
 import { Loading } from "@/components/states/Loading";
 import { MatchExplanation } from "@/components/search/MatchExplanation";
-
-import { ScriptExportPanel } from "./ScriptExportPanel";
-import { ScriptMultiExportPanel } from "./ScriptMultiExportPanel";
 
 function SummaryBar({ s }: { s: EditListSummary }) {
   const cells: [string, string | number, string?][] = [
@@ -60,7 +59,15 @@ function SummaryBar({ s }: { s: EditListSummary }) {
   );
 }
 
-function Row({ row, onPreview }: { row: EditListRow; onPreview: (shotId: number) => void }) {
+function Row({
+  row,
+  onPreview,
+  onViewCandidates,
+}: {
+  row: EditListRow;
+  onPreview: (shotId: number) => void;
+  onViewCandidates?: (segmentId: number) => void;
+}) {
   const hasShot = row.shot_id != null;
   return (
     <div
@@ -70,7 +77,7 @@ function Row({ row, onPreview }: { row: EditListRow; onPreview: (shotId: number)
         row.shot_invalid ? "bg-red-50" : row.risk_warnings.length ? "bg-amber-50/40" : ""
       }`}
     >
-      {/* 段号 */}
+      {/* 段号 + 当前状态 */}
       <div className="flex flex-col items-start gap-1">
         <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[10px] font-medium text-white">
           {row.segment_order}
@@ -92,23 +99,21 @@ function Row({ row, onPreview }: { row: EditListRow; onPreview: (shotId: number)
       <div>
         {hasShot ? (
           <div className="space-y-1">
-            <div className="relative aspect-video w-full overflow-hidden rounded bg-gray-100">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={shotKeyframeUrl(row.shot_id!)}
-                alt={`段 ${row.segment_order} 推荐镜头 #${row.shot_id} 关键帧`}
-                loading="lazy"
-                className="h-full w-full object-cover"
-              />
-              <button
-                type="button"
-                aria-label={`预览镜头 #${row.shot_id}`}
-                onClick={() => onPreview(row.shot_id!)}
-                className="absolute left-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-[11px] text-white hover:bg-black/75"
-              >
-                ▶
-              </button>
-            </div>
+            <MediaThumb
+              src={shotKeyframeUrl(row.shot_id!)}
+              alt={`段 ${row.segment_order} 推荐镜头 #${row.shot_id} 关键帧`}
+              ratio="video"
+              overlay={
+                <button
+                  type="button"
+                  aria-label={`预览镜头 #${row.shot_id}`}
+                  onClick={() => onPreview(row.shot_id!)}
+                  className="absolute left-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-[11px] text-white hover:bg-black/75"
+                >
+                  ▶
+                </button>
+              }
+            />
             <div className="flex flex-wrap items-center gap-1 text-[10px] text-gray-500">
               <span>镜头 #{row.shot_id}</span>
               {row.match_score != null ? (
@@ -150,7 +155,7 @@ function Row({ row, onPreview }: { row: EditListRow; onPreview: (shotId: number)
         )}
       </div>
 
-      {/* 理由 / 缺口 / 补拍 */}
+      {/* 理由 / 缺口 / 补拍 / 操作 */}
       <div className="min-w-0 space-y-1.5">
         <MatchExplanation
           matchedReasons={row.matched_reasons}
@@ -170,6 +175,16 @@ function Row({ row, onPreview }: { row: EditListRow; onPreview: (shotId: number)
             {row.reshoot_recommendation.join("；")}
           </div>
         ) : null}
+        {onViewCandidates ? (
+          <button
+            type="button"
+            data-testid={`row-view-candidates-${row.segment_id}`}
+            onClick={() => onViewCandidates(row.segment_id)}
+            className="inline-flex items-center rounded border border-gray-300 bg-white px-2 py-0.5 text-[11px] text-gray-700 hover:bg-gray-50"
+          >
+            查看候选 / 改选 →
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -179,24 +194,23 @@ export function EditListTab({
   scriptId,
   active,
   onPreview,
+  onViewCandidates,
 }: {
   scriptId: number;
   active: boolean;
   onPreview: (shotId: number) => void;
+  onViewCandidates?: (segmentId: number) => void;
 }) {
   const q = useScriptEditList(scriptId, active);
   const data = q.data;
   return (
     <div className="space-y-3" data-testid="editlist-tab">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h2 className="text-sm font-semibold text-gray-800">剪辑清单</h2>
-          <p className="text-[11px] text-gray-500">每段一行，缺口段也保留；可导出多种格式给剪辑师使用。</p>
-        </div>
-        <ScriptExportPanel scriptId={scriptId} />
+      <div>
+        <h2 className="text-sm font-semibold text-gray-800">剪辑清单</h2>
+        <p className="text-[11px] text-gray-500">
+          每段一行，缺口段也保留；确认后可在上方「导出剪辑清单」生成多种格式给剪辑师。
+        </p>
       </div>
-
-      <ScriptMultiExportPanel scriptId={scriptId} />
 
       {data ? <SummaryBar s={data.summary} /> : null}
 
@@ -209,7 +223,7 @@ export function EditListTab({
       ) : (
         <div className="rounded-lg border border-gray-200 bg-white" aria-busy={q.isFetching}>
           {data.rows.map((r) => (
-            <Row key={r.segment_id} row={r} onPreview={onPreview} />
+            <Row key={r.segment_id} row={r} onPreview={onPreview} onViewCandidates={onViewCandidates} />
           ))}
         </div>
       )}

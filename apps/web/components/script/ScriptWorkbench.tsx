@@ -1,5 +1,5 @@
-// 脚本匹配工作台：双 Tab（脚本与匹配 / 剪辑清单）。左脚本+段落、右候选；顶栏全脚本匹配；
-// 预览弹窗。所有数据来自真实 Gate A/B API，绝不前端伪造候选/分数/理由。
+// 脚本匹配工作台：剪辑清单为主视图（右侧主表）；左侧脚本原文 + 段落；候选镜头走抽屉。
+// 顶栏含全脚本匹配与「导出剪辑清单 ▾」。所有数据来自真实 Gate A/B API，绝不前端伪造候选/分数/理由。
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
@@ -12,6 +12,8 @@ import {
   useScriptProject,
 } from "@/lib/hooks";
 import type { ScriptMatchResponse } from "@/lib/types";
+import { Button } from "@/components/ui/Button";
+import { Drawer } from "@/components/ui/overlay";
 import { PreviewModal } from "@/components/PreviewModal";
 import { TopNav } from "@/components/TopNav";
 import { Empty } from "@/components/states/Empty";
@@ -21,10 +23,9 @@ import { Loading } from "@/components/states/Loading";
 import { CandidatePanel } from "./CandidatePanel";
 import { EditListTab } from "./EditListTab";
 import { ScriptInputPanel } from "./ScriptInputPanel";
+import { ScriptMultiExportPanel } from "./ScriptMultiExportPanel";
 import { ScriptTopBar } from "./ScriptTopBar";
 import { SegmentList } from "./SegmentList";
-
-type Tab = "match" | "editlist";
 
 export function ScriptWorkbench({ scriptId }: { scriptId: number | null }) {
   const projectQ = useScriptProject(scriptId);
@@ -33,16 +34,15 @@ export function ScriptWorkbench({ scriptId }: { scriptId: number | null }) {
   const matchAll = useMatchScript(scriptId ?? 0);
   const parse = useParseScript(scriptId ?? 0);
 
-  const [tab, setTab] = useState<Tab>("match");
   const [selectedSegmentId, setSelectedSegmentId] = useState<number | null>(null);
   const [previewShotId, setPreviewShotId] = useState<number | null>(null);
   const [matchResult, setMatchResult] = useState<ScriptMatchResponse | null>(null);
+  const [candidateOpen, setCandidateOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   const project = projectQ.data;
-  // useMemo 让 segments 引用随 project 变化才更新，避免每次 render 触发下方 useEffect。
   const segments = useMemo(() => project?.segments ?? [], [project]);
 
-  // 项目加载后默认选中第一段（仅当当前选中已不存在时）
   useEffect(() => {
     if (segments.length === 0) {
       setSelectedSegmentId(null);
@@ -74,6 +74,11 @@ export function ScriptWorkbench({ scriptId }: { scriptId: number | null }) {
     matchAll.mutate({}, { onSuccess: (res) => setMatchResult(res) });
   };
 
+  const openCandidates = (segmentId: number) => {
+    setSelectedSegmentId(segmentId);
+    setCandidateOpen(true);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       <TopNav active="script" />
@@ -95,6 +100,8 @@ export function ScriptWorkbench({ scriptId }: { scriptId: number | null }) {
               onMatchAll={onMatchAll}
               matchingAll={matchAll.isPending}
               canMatch={canMatch}
+              onToggleExport={() => setExportOpen((v) => !v)}
+              exportOpen={exportOpen}
             />
 
             {matchResult ? (
@@ -116,44 +123,22 @@ export function ScriptWorkbench({ scriptId }: { scriptId: number | null }) {
               </div>
             ) : null}
 
-            {/* Tabs */}
-            <div role="tablist" aria-label="脚本工作台视图" className="flex gap-1 border-b border-gray-200">
-              {([
-                ["match", "脚本与匹配"],
-                ["editlist", "剪辑清单"],
-              ] as [Tab, string][]).map(([key, label]) => (
-                <button
-                  key={key}
-                  role="tab"
-                  id={`tab-${key}`}
-                  data-testid={`tab-${key}`}
-                  aria-selected={tab === key}
-                  aria-controls={`panel-${key}`}
-                  onClick={() => setTab(key)}
-                  className={`-mb-px rounded-t px-3 py-1.5 text-sm ${
-                    tab === key
-                      ? "border-x border-t border-gray-200 bg-white font-medium text-brand"
-                      : "text-gray-500 hover:text-gray-800"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            {exportOpen ? <ScriptMultiExportPanel scriptId={scriptId} /> : null}
 
-            {tab === "match" ? (
-              <div role="tabpanel" id="panel-match" aria-labelledby="tab-match" className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(320px,420px)_1fr]">
-                <div className="space-y-3">
-                  <ScriptInputPanel
-                    project={project}
-                    hasLocked={hasLocked}
-                    onParse={(opts) => parse.mutate(opts)}
-                    parsing={parse.isPending}
-                    parseError={parse.error}
-                  />
-                  {segments.length === 0 ? (
-                    <Empty title="尚未拆段" description="点击「AI 拆段」把脚本拆成可匹配的段落。" />
-                  ) : (
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(300px,380px)_1fr]">
+              {/* 左：脚本原文 + 段落 */}
+              <div className="space-y-3">
+                <ScriptInputPanel
+                  project={project}
+                  hasLocked={hasLocked}
+                  onParse={(opts) => parse.mutate(opts)}
+                  parsing={parse.isPending}
+                  parseError={parse.error}
+                />
+                {segments.length === 0 ? (
+                  <Empty title="尚未拆段" description="点击「AI 拆段」把脚本拆成可匹配的段落。" />
+                ) : (
+                  <>
                     <SegmentList
                       scriptId={scriptId}
                       segments={segments}
@@ -161,23 +146,47 @@ export function ScriptWorkbench({ scriptId }: { scriptId: number | null }) {
                       selectedSegmentId={selectedSegmentId}
                       onSelect={setSelectedSegmentId}
                     />
-                  )}
-                </div>
-                <CandidatePanel
-                  scriptId={scriptId}
-                  segment={selectedSegment}
-                  segmentIndex={selectedIndex >= 0 ? selectedIndex : null}
-                  onPreview={setPreviewShotId}
-                />
+                    {selectedSegment ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full"
+                        onClick={() => setCandidateOpen(true)}
+                      >
+                        查看选中段候选镜头 →
+                      </Button>
+                    ) : null}
+                  </>
+                )}
               </div>
-            ) : (
-              <div role="tabpanel" id="panel-editlist" aria-labelledby="tab-editlist">
-                <EditListTab scriptId={scriptId} active={tab === "editlist"} onPreview={setPreviewShotId} />
-              </div>
-            )}
+
+              {/* 右：剪辑清单主表 */}
+              <EditListTab
+                scriptId={scriptId}
+                active
+                onPreview={setPreviewShotId}
+                onViewCandidates={openCandidates}
+              />
+            </div>
           </>
         )}
       </main>
+
+      {/* 候选镜头抽屉：选择 / 锁定 / 重匹配 */}
+      <Drawer
+        open={candidateOpen && selectedSegment != null}
+        onClose={() => setCandidateOpen(false)}
+        title={selectedSegment ? `段 ${selectedIndex + 1} 候选镜头` : "候选镜头"}
+        widthClass="max-w-lg"
+      >
+        <CandidatePanel
+          scriptId={scriptId}
+          segment={selectedSegment}
+          segmentIndex={selectedIndex >= 0 ? selectedIndex : null}
+          onPreview={setPreviewShotId}
+        />
+      </Drawer>
+
       <PreviewModal shotId={previewShotId} onClose={() => setPreviewShotId(null)} />
     </div>
   );

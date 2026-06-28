@@ -1,12 +1,13 @@
 name: clipmind
 
-# ClipMind —— 默认 9 服务：postgres / redis / migrate / api / worker / media-worker /
-# ai-worker / search-worker / web（+ 可选 embedder，profile "embedding"）。
+# ClipMind —— 默认 10 服务：postgres / redis / migrate / api / worker / media-worker /
+# ai-worker / search-worker / export-worker / web（+ 可选 embedder，profile "embedding"）。
 # 项目根执行：docker compose up -d
 # 源目录只读挂载到 /app/source；派生数据可读写挂载到 /app/data。
 # worker 消费 default,scan（扫描）；media-worker 专门消费 media（拆镜头/派生/导出，
 # FFmpeg 重负载，默认并发 1，与扫描隔离）；ai-worker 消费 ai（PR-03A 外部 AI 理解）；
-# search-worker 消费 search（PR-04 检索文档索引/嵌入；仅 DB+redis+embedder，不挂源目录）。
+# search-worker 消费 search（PR-04 检索文档索引/嵌入；仅 DB+redis+embedder，不挂源目录）；
+# export-worker 消费 export（PR-05 Gate B 脚本剪辑清单 CSV 导出；仅 DB+redis，写 /app/data）。
 # 本地真实语义检索：docker compose --profile embedding up -d embedder（torch+多语模型）。
 
 x-app-env: &app-env
@@ -42,7 +43,10 @@ services:
       timeout: 3s
       retries: 10
 
-  # 一次性迁移：先于 api/worker 把数据库迁到最新；完成即退出（禁止删库重建）
+  # 一次性迁移：先于 api/worker 把数据库迁到最新；完成即退出（禁止删库重建）。
+  # 注意：升级**已有**数据库时，`docker compose up -d` 不会重跑已成功退出的本服务，会跳过迁移
+  # → API 以旧 schema 启动并对新接口 500。升级务必显式运行 `bash scripts/db_upgrade.sh`
+  # （= `docker compose run --rm migrate`）。详见 docs/DATABASE_UPGRADE.md。
   migrate:
     build:
       context: .
@@ -141,6 +145,23 @@ services:
       dockerfile: infra/worker.Dockerfile
     <<: *app-env
     command: ["celery", "-A", "clipmind_worker.celery_app", "worker", "-Q", "search", "-c", "${SEARCH_WORKER_CONCURRENCY:-2}", "-l", "INFO"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # PR-05 Gate B：导出 worker，仅消费 export 队列（脚本剪辑清单 CSV 导出）。
+  # 仅访问 DB/redis + 写 /app/data（script_exports/），不挂载源目录。CSV 生成为轻量任务，默认并发 1。
+  export-worker:
+    build:
+      context: .
+      dockerfile: infra/worker.Dockerfile
+    <<: *app-env
+    command: ["celery", "-A", "clipmind_worker.celery_app", "worker", "-Q", "export", "-c", "${EXPORT_WORKER_CONCURRENCY:-1}", "-l", "INFO"]
+    volumes:
+      - clipmind-data:/app/data
     depends_on:
       migrate:
         condition: service_completed_successfully

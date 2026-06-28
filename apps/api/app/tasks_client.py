@@ -5,6 +5,7 @@ from __future__ import annotations
 from celery import Celery
 from clipmind_shared.constants import (
     QUEUE_AI,
+    QUEUE_EXPORT,
     QUEUE_MEDIA,
     QUEUE_SCAN,
     QUEUE_SEARCH,
@@ -12,6 +13,7 @@ from clipmind_shared.constants import (
     TASK_ANALYZE_SHOT_AI,
     TASK_ANALYZE_SHOTS,
     TASK_BACKFILL_SEARCH_DOCS,
+    TASK_EXPORT_SCRIPT_CSV,
     TASK_EXPORT_SHOT_CLIP,
     TASK_GENERATE_ASSET_POSTER,
     TASK_REBUILD_ASSET_SEARCH_DOCS,
@@ -110,5 +112,13 @@ def enqueue_backfill_search_docs(
     """入队全量/失败回填（search 队列），返回 celery_task_id。危险操作需显式参数。"""
     result = celery_client.send_task(
         TASK_BACKFILL_SEARCH_DOCS, args=[only_failed, force_reembed, limit], queue=QUEUE_SEARCH
+    )
+    return result.id
+
+
+def enqueue_export_script_csv(export_id: int) -> str:
+    """入队脚本剪辑清单 CSV 导出（export 队列），返回 celery_task_id。"""
+    result = celery_client.send_task(
+        TASK_EXPORT_SCRIPT_CSV, args=[export_id], queue=QUEUE_EXPORT
     )
     return result.id

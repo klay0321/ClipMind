@@ -32,6 +32,7 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+!.env.nas.example
 
 # ===== ClipMind runtime data (派生文件、数据库、日志) =====
 data/
@@ -58,6 +59,9 @@ e2e/test-results/
 *.webp
 *.mp4
 *.mov
+
+# ===== 交付包构建产物（NAS 自包含交付包，由 scripts/nas/package.sh 生成，绝不提交）=====
+dist/
 
 # ===== OS / IDE =====
 .DS_Store

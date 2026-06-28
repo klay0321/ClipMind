@@ -8,9 +8,10 @@ import Link from "next/link";
 
 import { InlineError } from "@/components/projects/widgets";
 import { PreviewModal } from "@/components/PreviewModal";
+import { MediaThumb } from "@/components/ui/MediaThumb";
+import { CardGridSkeleton } from "@/components/ui/Skeleton";
 import { Empty } from "@/components/states/Empty";
 import { ErrorState } from "@/components/states/ErrorState";
-import { Loading } from "@/components/states/Loading";
 import { TopNav } from "@/components/TopNav";
 import { assetPosterUrl, shotThumbnailUrl } from "@/lib/api";
 import { FAVORITE_TYPE_LABELS } from "@/lib/exports";
@@ -74,7 +75,7 @@ export function FavoritesView() {
         <InlineError error={del.error} />
 
         {query.isLoading ? (
-          <Loading rows={4} />
+          <CardGridSkeleton count={8} />
         ) : query.isError ? (
           <ErrorState message={(query.error as Error).message} onRetry={() => void query.refetch()} />
         ) : !data || data.items.length === 0 ? (
@@ -166,37 +167,37 @@ function FavoriteItem({
   return (
     <div
       data-testid={`favorite-item-${fav.id}`}
-      className="flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white"
+      className="flex h-full flex-col overflow-hidden rounded-lg border border-gray-200 bg-white"
     >
-      <div className="relative aspect-video w-full bg-gray-100">
-        {thumbUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={thumbUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
-        ) : (
-          <div className="flex h-full items-center justify-center text-[10px] text-gray-400">
-            无缩略图
-          </div>
-        )}
-        <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
-          {FAVORITE_TYPE_LABELS[fav.target_type]}
-        </span>
-        {!isAsset && shotId != null ? (
-          <button
-            type="button"
-            aria-label={`预览镜头 #${shotId}`}
-            onClick={() => onPreview(shotId)}
-            className="absolute bottom-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-[11px] text-white hover:bg-black/75"
-          >
-            ▶
-          </button>
-        ) : null}
-      </div>
+      <MediaThumb
+        src={thumbUrl}
+        alt={title}
+        ratio="video"
+        rounded="rounded-none"
+        overlay={
+          <>
+            <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
+              {FAVORITE_TYPE_LABELS[fav.target_type]}
+            </span>
+            {!isAsset && shotId != null ? (
+              <button
+                type="button"
+                aria-label={`预览镜头 #${shotId}`}
+                onClick={() => onPreview(shotId)}
+                className="absolute bottom-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/55 text-[11px] text-white hover:bg-black/75"
+              >
+                ▶
+              </button>
+            ) : null}
+          </>
+        }
+      />
       <div className="flex flex-1 flex-col gap-1 p-2">
         <div className="truncate text-xs font-medium text-gray-800" title={title}>
           {title}
         </div>
-        {sub ? <div className="text-[11px] text-gray-400">{sub}</div> : null}
-        <div className="text-[10px] text-gray-400">收藏于 {formatDateTime(fav.created_at)}</div>
+        {sub ? <div className="truncate text-[11px] text-gray-400">{sub}</div> : null}
+        <div className="truncate text-[10px] text-gray-400">收藏于 {formatDateTime(fav.created_at)}</div>
         <div className="mt-auto flex items-center gap-1 pt-1">
           {isAsset && assetId != null ? (
             <Link

@@ -9,9 +9,9 @@ import { ReviewSummaryBar } from "@/components/ReviewSummaryBar";
 import { ShotCard } from "@/components/ShotCard";
 import { ShotDetail } from "@/components/ShotDetail";
 import { TopNav } from "@/components/TopNav";
+import { CardGridSkeleton } from "@/components/ui/Skeleton";
 import { Empty } from "@/components/states/Empty";
 import { ErrorState } from "@/components/states/ErrorState";
-import { Loading } from "@/components/states/Loading";
 import { exportDownloadUrl } from "@/lib/api";
 import {
   useAnalyzeMutation,
@@ -226,7 +226,7 @@ export function ShotsView({ assetId }: { assetId: number | null }) {
 
   let grid: React.ReactNode;
   if (shotsQ.isLoading) {
-    grid = <Loading />;
+    grid = <CardGridSkeleton count={6} className="sm:grid-cols-3 xl:grid-cols-3" />;
   } else if (shotsQ.isError) {
     grid = (
       <ErrorState
@@ -243,7 +243,7 @@ export function ShotsView({ assetId }: { assetId: number | null }) {
             ? "调整或清空左侧智能筛选条件"
             : scoped
               ? "点击上方“开始分析”对该素材拆镜头"
-              : "请到素材库对素材发起镜头分析"
+              : "请到素材管理对素材发起镜头分析"
         }
       />
     );
@@ -279,10 +279,10 @@ export function ShotsView({ assetId }: { assetId: number | null }) {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             <Link href="/assets" className="text-sm text-gray-500 hover:text-gray-800">
-              ← 返回素材库
+              ← 返回素材管理
             </Link>
             <h1 className="text-base font-semibold">
-              {scoped ? `素材 #${assetId} 的镜头` : "全部镜头"}
+              {scoped ? `素材 #${assetId} 的镜头` : "AI 镜头拆解"}
             </h1>
             {shotsQ.data ? (
               <span className="text-xs text-gray-400">共 {shotsQ.data.total} 个镜头</span>

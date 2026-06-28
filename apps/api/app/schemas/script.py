@@ -104,8 +104,10 @@ class ScriptSegmentOut(BaseModel):
     allow_similar_scene: bool
     allow_similar_action: bool
     current_generation: int
+    selected_shot_id: int | None = None
     locked_shot_id: int | None
     lock_version: int
+    match_status: str = "pending"
     candidates_stale: bool
     parser_warnings: list[str] | None
     created_at: datetime
@@ -135,3 +137,209 @@ class ScriptDetailOut(ScriptProjectOut):
 
 class ScriptListResponse(Page[ScriptProjectOut]):
     pass
+
+
+# ======================= Gate B：匹配 / 候选 / 选择锁定 =======================
+
+# 候选数硬上限（与 clipmind_shared.script.editlist.MAX_CANDIDATE_LIMIT 一致）
+MAX_CANDIDATE_LIMIT = 50
+
+
+class ScriptMatchRequest(BaseModel):
+    """全脚本匹配（同步逐段复用描述匹配）。match_token 提供幂等。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_limit: int | None = Field(default=None, ge=1, le=MAX_CANDIDATE_LIMIT)
+    match_token: str | None = Field(default=None, max_length=128)
+    skip_locked: bool = True  # 锁定段默认跳过、不覆盖
+
+
+class SegmentMatchRequest(BaseModel):
+    """单段匹配 / 重匹配。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_limit: int | None = Field(default=None, ge=1, le=MAX_CANDIDATE_LIMIT)
+    match_token: str | None = Field(default=None, max_length=128)
+
+
+class SegmentSelectRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    shot_id: int
+    lock_version: int
+    allow_override: bool = False  # 允许指定不在当前候选中的镜头
+
+
+class SegmentLockRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    shot_id: int
+    lock_version: int
+    allow_override: bool = False
+    force: bool = False  # 替换已存在的不同锁定须显式
+
+
+class SegmentUnlockRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    lock_version: int
+
+
+# ---- 候选 / 状态响应 ----
+
+
+class ScriptCandidateOut(BaseModel):
+    shot_id: int
+    asset_id: int | None = None
+    rank: int
+    final_score: float
+    semantic_score: float | None = None
+    lexical_score: float | None = None
+    tag_score: float | None = None
+    product_score: float | None = None
+    quality_score: float | None = None
+    review_bonus: float | None = None
+    risk_penalty: float | None = None
+    matched_reasons: list[str] = []
+    unmatched_requirements: list[str] = []
+    risk_warnings: list[str] = []
+    # 镜头展示 brief（人工核对/预览）
+    sequence_no: int | None = None
+    start_time: float | None = None
+    end_time: float | None = None
+    duration: float | None = None
+    preview_url: str | None = None
+    thumbnail_url: str | None = None
+    keyframe_url: str | None = None
+
+
+class SegmentCandidatesResponse(BaseModel):
+    segment_id: int
+    generation: int           # 返回的代次（默认当前代次）
+    current_generation: int
+    match_status: str         # pending | matched | gap | degraded
+    candidate_count: int
+    best_score: float | None = None
+    gap_reasons: list[str] = []
+    reshoot_recommendation: list[str] = []
+    requires_human_confirmation: bool = False
+    degraded: bool = False
+    candidates_stale: bool = False
+    selected_shot_id: int | None = None
+    locked_shot_id: int | None = None
+    lock_version: int
+    candidates: list[ScriptCandidateOut] = []
+
+
+class ScriptMatchResponse(BaseModel):
+    script_id: int
+    total_segments: int
+    completed_segments: list[int]
+    skipped_locked_segments: list[int]
+    failed_segments: list[dict]
+    match_token: str | None = None
+
+
+class SegmentMatchStatusOut(BaseModel):
+    segment_id: int
+    order_index: int
+    match_status: str
+    current_generation: int
+    candidate_count: int
+    best_score: float | None = None
+    gap_reasons: list[str] = []
+    reshoot_recommendation: list[str] = []
+    requires_human_confirmation: bool = False
+    degraded: bool = False
+    candidates_stale: bool = False
+    selected_shot_id: int | None = None
+    locked_shot_id: int | None = None
+    lock_version: int
+
+
+class ScriptMatchStatusResponse(BaseModel):
+    script_id: int
+    total_segments: int
+    matched_segments: int
+    gap_segments: int
+    locked_segments: int
+    selected_segments: int
+    pending_segments: int
+    segments: list[SegmentMatchStatusOut] = []
+
+
+# ---- 剪辑清单 ----
+
+
+class EditListRowOut(BaseModel):
+    segment_id: int
+    segment_order: int
+    segment_text: str
+    target_duration_min: float | None = None
+    target_duration_max: float | None = None
+    selection_status: str       # locked | selected | recommended | none
+    match_status: str
+    shot_id: int | None = None
+    asset_id: int | None = None
+    source_start: float | None = None
+    source_end: float | None = None
+    source_duration: float | None = None
+    suggested_in: float | None = None
+    suggested_out: float | None = None
+    suggested_duration: float | None = None
+    duration_status: str | None = None
+    duration_warnings: list[str] = []
+    product_name: str | None = None
+    scene: str | None = None
+    action: str | None = None
+    match_score: float | None = None
+    matched_reasons: list[str] = []
+    unmatched_requirements: list[str] = []
+    risk_warnings: list[str] = []
+    gap_reasons: list[str] = []
+    reshoot_recommendation: list[str] = []
+    requires_human_confirmation: bool = False
+    reused: bool = False
+    shot_invalid: bool = False
+
+
+class EditListSummaryOut(BaseModel):
+    total_segments: int
+    matched_segments: int
+    selected_segments: int
+    locked_segments: int
+    recommended_segments: int
+    gap_segments: int
+    risk_segments: int
+    target_total_duration_min: float | None = None
+    target_total_duration_max: float | None = None
+    suggested_total_duration: float
+    duplicate_shot_count: int
+    allocation_warnings: list[str] = []
+
+
+class EditListResponse(BaseModel):
+    script_id: int
+    summary: EditListSummaryOut
+    rows: list[EditListRowOut] = []
+
+
+# ---- 导出 ----
+
+
+class ScriptExportOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    script_project_id: int
+    status: str
+    export_format: str
+    filename: str | None = None
+    row_count: int | None = None
+    has_file: bool = False
+    error_message: str | None = None
+    celery_task_id: str | None = None
+    created_at: datetime
+    finished_at: datetime | None = None

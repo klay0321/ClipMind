@@ -63,6 +63,18 @@ class DescriptionMatchRequest(BaseModel):
     duration_min: float | None = Field(default=None, ge=0)
     duration_max: float | None = Field(default=None, ge=0)
     aspect_ratios: list[AspectRatio] = []
+    # 显式结构化软信号（默认空 → 行为同既有，仅靠解析器抽取）。供脚本匹配（Gate B）把段落
+    # structured_requirements 精确注入软召回/解释，避免依赖脆弱的文本解析；allow_similar_*=False
+    # 时场景/动作会被升格为硬过滤（既有 require_scene/require_action 机制），不静默放宽硬约束。
+    scenes: list[str] = []
+    actions: list[str] = []
+    shot_types: list[str] = []
+    marketing_uses: list[str] = []
+    quality_levels: list[str] = []
+    negative_terms: list[str] = []   # 否定关键词 → 词法硬排除（含该词的镜头被剔除）
+    brands: list[str] = []
+    models: list[str] = []
+    skus: list[str] = []
 
 
 # ============================ 响应：item ============================

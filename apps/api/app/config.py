@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     script_parser_model: str = ""          # mimo 文本拆段模型（空=回退 ai_model 或 mimo-v2.5-pro）
     script_parser_timeout: float = 12.0    # 拆段超时（秒），超时降级规则拆段
 
+    # PR-05 Gate B 脚本镜头匹配
+    script_match_candidate_limit: int = 10   # 每段默认候选数（上限 50）
+    script_match_min_score: float = 0.05     # 候选最低综合分（未达视为该段无匹配/缺口）
+    script_match_max_reuse: int = 1          # 全局分配单 shot 默认最多分配段数（超出触发去重）
+
     # PR-03B：当前无登录体系，审核者用配置的本地标签（不伪造用户，PR-07 接入后平滑替换）
     review_default_reviewer: str = "local-reviewer"
     # 产品参考图上传约束

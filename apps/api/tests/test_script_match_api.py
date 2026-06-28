@@ -311,6 +311,32 @@ async def test_rematch_increments_generation_history_kept(client, session, match
     assert hist["generation"] == 1 and hist["candidate_count"] >= 1
 
 
+async def test_full_match_partial_failure_records_cleanly(
+    client, session, match_settings, monkeypatch
+):
+    """单段匹配抛非 HTTP 异常 → 记入 failed_segments，不影响其它段、不 MissingGreenlet 崩溃。"""
+    from app.services import script_match_service as sms
+
+    ids = await _seed(session, match_settings)
+    sid, segs = await _make_script(session, [
+        {"product_id": ids["prod_a"], "text": "吹风机"},
+        {"product_id": ids["prod_b"], "text": "烟灰缸"},
+    ])
+    real = sms.match_segment
+
+    async def flaky(db, project_id, segment_id, **kw):
+        if segment_id == segs[0]:
+            raise ValueError("boom")
+        return await real(db, project_id, segment_id, **kw)
+
+    monkeypatch.setattr(sms, "match_segment", flaky)
+    r = await client.post(f"/api/scripts/{sid}/match", json={})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert any(f["segment_id"] == segs[0] for f in body["failed_segments"])
+    assert segs[1] in body["completed_segments"]
+
+
 async def test_match_idempotent_with_token(client, session, match_settings):
     ids = await _seed(session, match_settings)
     sid, segs = await _make_script(session, [

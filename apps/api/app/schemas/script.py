@@ -132,6 +132,8 @@ class ScriptProjectOut(BaseModel):
 
 
 class ScriptDetailOut(ScriptProjectOut):
+    # 详情含原文（供工作台左栏展示与人工核对；列表不含以保持轻量）
+    raw_script: str = ""
     segments: list[ScriptSegmentOut] = []
 
 

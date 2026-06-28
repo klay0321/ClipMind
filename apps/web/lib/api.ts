@@ -62,6 +62,29 @@ import type {
   ProjectStatus,
   ProjectUpdateRequest,
 } from "./types";
+import type {
+  BundleAcceptedResponse,
+  BundleCreateRequest,
+  DynamicCollection,
+  DynamicCollectionCreateRequest,
+  DynamicCollectionListResponse,
+  DynamicCollectionUpdateRequest,
+  ExportCenterItem,
+  ExportCenterListResponse,
+  ExportCenterQuery,
+  ExportKind,
+  ExportRetryResponse,
+  FavoriteCreateRequest,
+  FavoriteListResponse,
+  FavoriteOut,
+  FavoriteTargetType,
+  SavedSearch,
+  SavedSearchCreateRequest,
+  SavedSearchKind,
+  SavedSearchListResponse,
+  SavedSearchUpdateRequest,
+  ScriptExportFormat,
+} from "./types";
 
 export interface ShotSearchQuery {
   asset_id?: number;
@@ -142,6 +165,11 @@ export const exportDownloadUrl = (id: number) => `/api/exports/${id}/download`;
 // 脚本剪辑清单 CSV 下载（走同源安全代理，浏览器直链不经 fetch）
 export const scriptCsvDownloadUrl = (scriptId: number, exportId: number) =>
   `/api/scripts/${scriptId}/exports/${exportId}/download`;
+// PR-06B 多格式脚本导出下载（与 CSV 同代理；格式由后端记录决定）
+export const scriptExportDownloadUrl = (scriptId: number, exportId: number) =>
+  `/api/scripts/${scriptId}/exports/${exportId}/download`;
+// PR-06B ZIP 打包导出下载直链
+export const bundleDownloadUrl = (id: number) => `/api/exports/bundle/${id}/download`;
 
 export const api = {
   listAssets(query: AssetQuery): Promise<PageResult<Asset>> {
@@ -582,5 +610,138 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ ids, lock_version: lockVersion }),
     });
+  },
+
+  // ===== PR-06B 导出中心（合并 clip / script / bundle）=====
+  exportCenter(query: ExportCenterQuery): Promise<ExportCenterListResponse> {
+    const p = new URLSearchParams();
+    p.set("page", String(query.page));
+    p.set("page_size", String(query.page_size));
+    if (query.kind) p.set("kind", query.kind);
+    if (query.status) p.set("status", query.status);
+    if (query.project_id != null) p.set("project_id", String(query.project_id));
+    if (query.created_from) p.set("created_from", query.created_from);
+    if (query.created_to) p.set("created_to", query.created_to);
+    return http<ExportCenterListResponse>(`/export-center?${p.toString()}`);
+  },
+  exportCenterItem(kind: ExportKind, id: number): Promise<ExportCenterItem> {
+    return http<ExportCenterItem>(`/export-center/${kind}/${id}`);
+  },
+  retryExportCenter(kind: ExportKind, id: number): Promise<ExportRetryResponse> {
+    return http<ExportRetryResponse>(`/export-center/${kind}/${id}/retry`, { method: "POST" });
+  },
+  deleteExportCenter(kind: ExportKind, id: number): Promise<void> {
+    return http<void>(`/export-center/${kind}/${id}`, { method: "DELETE" });
+  },
+
+  // ===== PR-06B ZIP 打包多镜头导出 =====
+  createBundle(req: BundleCreateRequest): Promise<BundleAcceptedResponse> {
+    return http<BundleAcceptedResponse>(`/exports/bundle`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  },
+  getBundle(id: number): Promise<ExportCenterItem> {
+    return http<ExportCenterItem>(`/exports/bundle/${id}`);
+  },
+
+  // ===== PR-06B 多格式脚本导出 =====
+  createScriptExport(scriptId: number, format: ScriptExportFormat): Promise<ScriptExport> {
+    const p = new URLSearchParams();
+    p.set("format", format);
+    return http<ScriptExport>(`/scripts/${scriptId}/exports?${p.toString()}`, { method: "POST" });
+  },
+
+  // ===== PR-06B 保存搜索 =====
+  listSavedSearches(
+    projectId?: number,
+    searchKind?: SavedSearchKind,
+    page = 1,
+    pageSize = 20,
+  ): Promise<SavedSearchListResponse> {
+    const p = new URLSearchParams();
+    p.set("page", String(page));
+    p.set("page_size", String(pageSize));
+    if (projectId != null) p.set("project_id", String(projectId));
+    if (searchKind) p.set("search_kind", searchKind);
+    return http<SavedSearchListResponse>(`/saved-searches?${p.toString()}`);
+  },
+  getSavedSearch(id: number): Promise<SavedSearch> {
+    return http<SavedSearch>(`/saved-searches/${id}`);
+  },
+  createSavedSearch(req: SavedSearchCreateRequest): Promise<SavedSearch> {
+    return http<SavedSearch>(`/saved-searches`, { method: "POST", body: JSON.stringify(req) });
+  },
+  updateSavedSearch(id: number, req: SavedSearchUpdateRequest): Promise<SavedSearch> {
+    return http<SavedSearch>(`/saved-searches/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(req),
+    });
+  },
+  deleteSavedSearch(id: number): Promise<void> {
+    return http<void>(`/saved-searches/${id}`, { method: "DELETE" });
+  },
+  runSavedSearch<T>(id: number, page = 1, pageSize = 24): Promise<T> {
+    const p = new URLSearchParams();
+    p.set("page", String(page));
+    p.set("page_size", String(pageSize));
+    return http<T>(`/saved-searches/${id}/run?${p.toString()}`, { method: "POST" });
+  },
+
+  // ===== PR-06B 收藏 =====
+  listFavorites(
+    targetType?: FavoriteTargetType,
+    page = 1,
+    pageSize = 24,
+  ): Promise<FavoriteListResponse> {
+    const p = new URLSearchParams();
+    p.set("page", String(page));
+    p.set("page_size", String(pageSize));
+    if (targetType) p.set("target_type", targetType);
+    return http<FavoriteListResponse>(`/favorites?${p.toString()}`);
+  },
+  createFavorite(req: FavoriteCreateRequest): Promise<FavoriteOut> {
+    return http<FavoriteOut>(`/favorites`, { method: "POST", body: JSON.stringify(req) });
+  },
+  deleteFavorite(id: number): Promise<void> {
+    return http<void>(`/favorites/${id}`, { method: "DELETE" });
+  },
+
+  // ===== PR-06B 动态集合 =====
+  listDynamicCollections(
+    projectId: number,
+    page = 1,
+    pageSize = 20,
+  ): Promise<DynamicCollectionListResponse> {
+    return http<DynamicCollectionListResponse>(
+      `/projects/${projectId}/dynamic-collections?page=${page}&page_size=${pageSize}`,
+    );
+  },
+  getDynamicCollection(id: number): Promise<DynamicCollection> {
+    return http<DynamicCollection>(`/dynamic-collections/${id}`);
+  },
+  createDynamicCollection(
+    projectId: number,
+    req: DynamicCollectionCreateRequest,
+  ): Promise<DynamicCollection> {
+    return http<DynamicCollection>(`/projects/${projectId}/dynamic-collections`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  },
+  updateDynamicCollection(
+    id: number,
+    req: DynamicCollectionUpdateRequest,
+  ): Promise<DynamicCollection> {
+    return http<DynamicCollection>(`/dynamic-collections/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(req),
+    });
+  },
+  deleteDynamicCollection(id: number): Promise<void> {
+    return http<void>(`/dynamic-collections/${id}`, { method: "DELETE" });
+  },
+  dynamicCollectionShots<T>(id: number, page = 1, pageSize = 24): Promise<T> {
+    return http<T>(`/dynamic-collections/${id}/shots?page=${page}&page_size=${pageSize}`);
   },
 };

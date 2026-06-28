@@ -5,6 +5,7 @@
 import { useEffect, useRef } from "react";
 import Link from "next/link";
 
+import { FavoriteButton } from "@/components/favorites/FavoriteButton";
 import { ShotDetail } from "@/components/ShotDetail";
 import type { DescriptionMatchItem, SearchResultItem } from "@/lib/types";
 
@@ -75,15 +76,22 @@ export function SearchResultDrawer({
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-semibold text-gray-900">镜头 #{item.sequence_no} · 匹配详情</h2>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="关闭详情"
-            data-testid="drawer-close"
-            className="rounded px-2 py-0.5 text-sm text-gray-500 hover:bg-gray-100"
-          >
-            关闭 ✕
-          </button>
+          <div className="flex items-center gap-2">
+            <FavoriteButton
+              targetType="search_result"
+              shotId={item.shot_id}
+              context={{ source: "search_drawer", match_percent: item.match_percent }}
+            />
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="关闭详情"
+              data-testid="drawer-close"
+              className="rounded px-2 py-0.5 text-sm text-gray-500 hover:bg-gray-100"
+            >
+              关闭 ✕
+            </button>
+          </div>
         </div>
 
         <div className="space-y-4 p-4">

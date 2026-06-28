@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { DynamicCollectionsSection } from "@/components/projects/DynamicCollections";
 import { MemberPicker, type PickerPage } from "@/components/projects/MemberPicker";
 import {
   BatchResultNotice,
@@ -300,9 +301,13 @@ export function ProjectCollectionsTab({ project }: { project: Project }) {
   };
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-6">
+      <section className="space-y-3" data-testid="static-collections">
       <div className="flex items-center justify-between">
-        <span className="text-sm text-gray-500">静态镜头集合（删除集合只删关联，不删镜头）</span>
+        <div>
+          <h3 className="text-sm font-semibold text-gray-800">静态集合</h3>
+          <span className="text-xs text-gray-500">人工挑选并固定保存镜头成员（删除集合只删关联，不删镜头）</span>
+        </div>
         <button type="button" onClick={() => setShowCreate((v) => !v)} disabled={archived} title={archived ? ARCHIVED_HINT : undefined} data-testid="toggle-create-collection" className="rounded bg-brand px-3 py-1.5 text-sm font-medium text-white disabled:opacity-50 hover:bg-brand-dark">
           + 新建集合
         </button>
@@ -337,6 +342,11 @@ export function ProjectCollectionsTab({ project }: { project: Project }) {
       {data && data.total > pageSize ? (
         <PagerBar page={page} total={data.total} pageSize={pageSize} onChange={setPage} noun="集合" />
       ) : null}
+      </section>
+
+      <div className="border-t border-gray-100 pt-4">
+        <DynamicCollectionsSection projectId={project.id} archived={archived} />
+      </div>
     </div>
   );
 }

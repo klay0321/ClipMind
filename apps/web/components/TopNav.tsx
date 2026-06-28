@@ -1,6 +1,14 @@
 import Link from "next/link";
 
-type NavKey = "projects" | "assets" | "shots" | "products" | "search" | "script";
+type NavKey =
+  | "projects"
+  | "assets"
+  | "shots"
+  | "products"
+  | "search"
+  | "script"
+  | "exports"
+  | "favorites";
 
 export function TopNav({ active }: { active?: NavKey }) {
   const linkCls = (key: NavKey) =>
@@ -46,6 +54,22 @@ export function TopNav({ active }: { active?: NavKey }) {
             aria-current={active === "script" ? "page" : undefined}
           >
             脚本匹配
+          </Link>
+          <Link
+            href="/exports"
+            className={linkCls("exports")}
+            data-testid="nav-exports"
+            aria-current={active === "exports" ? "page" : undefined}
+          >
+            导出中心
+          </Link>
+          <Link
+            href="/favorites"
+            className={linkCls("favorites")}
+            data-testid="nav-favorites"
+            aria-current={active === "favorites" ? "page" : undefined}
+          >
+            收藏
           </Link>
         </nav>
         <span className="ml-auto hidden text-xs text-gray-400 sm:inline">

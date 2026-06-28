@@ -19,6 +19,7 @@ import { Loading } from "@/components/states/Loading";
 import { MatchExplanation } from "@/components/search/MatchExplanation";
 
 import { ScriptExportPanel } from "./ScriptExportPanel";
+import { ScriptMultiExportPanel } from "./ScriptMultiExportPanel";
 
 function SummaryBar({ s }: { s: EditListSummary }) {
   const cells: [string, string | number, string?][] = [
@@ -190,10 +191,12 @@ export function EditListTab({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold text-gray-800">剪辑清单</h2>
-          <p className="text-[11px] text-gray-500">每段一行，缺口段也保留；可导出 CSV 给剪辑师使用。</p>
+          <p className="text-[11px] text-gray-500">每段一行，缺口段也保留；可导出多种格式给剪辑师使用。</p>
         </div>
         <ScriptExportPanel scriptId={scriptId} />
       </div>
+
+      <ScriptMultiExportPanel scriptId={scriptId} />
 
       {data ? <SummaryBar s={data.summary} /> : null}
 

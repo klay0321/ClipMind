@@ -11,17 +11,20 @@ export function ShotCard({
   onSelect,
   onDownload,
   downloading = false,
+  favorite,
 }: {
   shot: Shot;
   selected: boolean;
   onSelect: (id: number) => void;
   onDownload?: (id: number) => void;
   downloading?: boolean;
+  // 可选收藏动作槽（避免复制卡片；由调用方传入 FavoriteButton）
+  favorite?: React.ReactNode;
 }) {
   return (
     <div
       data-testid="shot-card"
-      className={`flex flex-col overflow-hidden rounded-lg border transition ${
+      className={`relative flex flex-col overflow-hidden rounded-lg border transition ${
         selected ? "border-brand ring-1 ring-brand" : "border-gray-200 hover:border-gray-300"
       }`}
     >
@@ -51,6 +54,7 @@ export function ShotCard({
           {shot.duration.toFixed(1)}s
         </span>
       </button>
+      {favorite ? <div className="absolute right-1 top-1">{favorite}</div> : null}
       <div className="space-y-1 p-2">
         <div className="flex items-center justify-between">
           <span className="text-xs text-gray-700">

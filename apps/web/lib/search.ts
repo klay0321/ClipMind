@@ -322,6 +322,46 @@ export function buildSearchRequest(
   return req;
 }
 
+/** 由保存的搜索请求（序列化 ShotSearchRequest）还原为表单状态，用于「加载保存的搜索」。
+ *  与 buildSearchRequest 互逆：空字段回退到 EMPTY_SEARCH_FORM 默认值。 */
+export function requestToForm(req: Partial<ShotSearchRequest>): SearchFormState {
+  const joinList = (arr: string[] | undefined): string => (arr && arr.length ? arr.join("、") : "");
+  const isoToDate = (iso: string | null | undefined): string => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  };
+  return {
+    ...EMPTY_SEARCH_FORM,
+    query: req.query ?? "",
+    mode: (req.search_mode as SearchMode) ?? "hybrid",
+    sort: (req.sort as SearchSort) ?? "relevance",
+    productId: req.product_ids && req.product_ids.length ? req.product_ids[0] : null,
+    brands: joinList(req.brands),
+    models: joinList(req.models),
+    skus: joinList(req.skus),
+    scenes: joinList(req.scenes),
+    actions: joinList(req.actions),
+    shotTypes: joinList(req.shot_types),
+    marketingUses: joinList(req.marketing_uses),
+    qualityLevels: joinList(req.quality_levels),
+    includeRisks: joinList(req.include_risks),
+    excludeRisks: joinList(req.exclude_risks),
+    durationMin: req.duration_min != null ? String(req.duration_min) : "",
+    durationMax: req.duration_max != null ? String(req.duration_max) : "",
+    aspectRatios: req.aspect_ratios ?? [],
+    reviewStatuses: req.review_statuses ?? [],
+    confirmedOnly: req.confirmed_only ?? false,
+    stale: req.stale === true ? "true" : req.stale === false ? "false" : "",
+    sourceDirectoryId: req.source_directory_id ?? null,
+    createdFrom: isoToDate(req.created_from),
+    createdTo: isoToDate(req.created_to),
+    includeExcluded: req.include_excluded ?? false,
+  };
+}
+
 // ---------------- 画面描述匹配表单 ----------------
 
 export interface DescriptionFormState {

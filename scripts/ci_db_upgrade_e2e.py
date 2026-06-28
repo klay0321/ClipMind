@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""PR-05 Gate B：已有数据库升级路径端到端（0008 → 0009）。
+"""已有数据库升级路径端到端（0008 → head；含 PR-05 Gate B 0009 与 PR-06A 0010）。
 
 复现并验证"已有数据库升级"可靠性：用独立测试库 ``clipmind_upgrade_test``（绝不碰真实业务库）
 migrate 至 0008 → 写入 Gate A 业务数据 → 运行**正式升级命令** ``scripts/db_upgrade.sh``
-（内部 ``docker compose run --rm migrate``，不依赖 up -d 的 migrate 跳过行为）→ 自动到 0009、
-Gate B 表/列出现、旧数据不丢 → 再次升级幂等。
+（内部 ``docker compose run --rm migrate``，不依赖 up -d 的 migrate 跳过行为）→ 自动到 head
+（当前 0010_projects_collections）：0009 Gate B 表/列 + 0010 项目/集合表/列出现、旧数据不丢、
+历史 script_project.project_id 保持 NULL（不回填）→ 再次升级幂等。
 
 输出：
     SCRIPT_DB_UPGRADE_OK
+    PROJECTS_DB_UPGRADE_OK
     SCRIPT_DB_UPGRADE_IDEMPOTENT_OK
 
 用法（需 compose 栈的 postgres 在运行）：
@@ -102,29 +104,51 @@ def main() -> None:
     assert up.stdout and "SCRIPT_DB_UPGRADE_OK" in up.stdout, "db_upgrade.sh 未输出 OK 标志"
     print("  db_upgrade.sh ran: SCRIPT_DB_UPGRADE_OK emitted by official command")
 
-    # 4. 自动到 0009 + Gate B 表/列出现 + 旧数据不丢
+    # 4. 自动到 head（0010）：0009 Gate B + 0010 项目/集合 表/列出现 + 旧数据不丢
     rev2 = psql(TEST_DB, "select version_num from alembic_version")
-    assert rev2 == "0009_script_matching_selection", f"应到 0009，实际 {rev2}"
+    assert rev2 == "0010_projects_collections", f"应到 head 0010，实际 {rev2}"
+    # 0009 Gate B 仍在
     has_export = psql(TEST_DB, "select to_regclass('public.script_export')")
-    assert has_export == "script_export", "0009 应有 script_export 表"
+    assert has_export == "script_export", "应有 script_export 表（0009）"
     has_col = psql(
         TEST_DB,
         "select count(*) from information_schema.columns where table_name='script_segment' "
         "and column_name='selected_shot_id'",
     )
-    assert has_col == "1", "script_segment 应有 selected_shot_id 列"
+    assert has_col == "1", "script_segment 应有 selected_shot_id 列（0009）"
     seg_after = psql(TEST_DB, f"select count(*) from script_segment where script_project_id={pid}")
     assert seg_after == seg_before, f"升级后业务数据丢失：{seg_before} -> {seg_after}"
     print(f"  upgraded to {rev2}; script_export+selected_shot_id present; data preserved "
           f"(segments={seg_after})")
     print("SCRIPT_DB_UPGRADE_OK")
 
-    # 5. 再次升级幂等（仍 0009，无错误，数据不变）
+    # 4b. 0010 项目/集合 表/列出现；历史 script_project.project_id 保持 NULL（不回填）
+    for tbl in ("project", "project_asset", "project_shot", "project_product",
+                "collection", "collection_shot"):
+        assert psql(TEST_DB, f"select to_regclass('public.{tbl}')") == tbl, f"应有 {tbl} 表（0010）"
+    has_pid = psql(
+        TEST_DB,
+        "select count(*) from information_schema.columns where table_name='script_project' "
+        "and column_name='project_id'",
+    )
+    assert has_pid == "1", "script_project 应有 project_id 列（0010）"
+    hist_null = psql(
+        TEST_DB,
+        f"select count(*) from script_project where id={pid} and project_id is null",
+    )
+    assert hist_null == "1", "历史 script_project.project_id 应保持 NULL（不回填）"
+    proj_rows = psql(TEST_DB, "select count(*) from project")
+    assert proj_rows == "0", "升级不应创建任何 project 行"
+    print("  0010 project/collection tables + script_project.project_id present; "
+          "historical project_id NULL; no project rows created")
+    print("PROJECTS_DB_UPGRADE_OK")
+
+    # 5. 再次升级幂等（仍 head 0010，无错误，数据不变）
     up2 = db_upgrade_script(ASYNC_URL)
     assert up2.returncode == 0, f"幂等升级失败: {up2.stderr}"
     rev3 = psql(TEST_DB, "select version_num from alembic_version")
     seg_final = psql(TEST_DB, f"select count(*) from script_segment where script_project_id={pid}")
-    assert rev3 == "0009_script_matching_selection" and seg_final == seg_before, "幂等升级破坏状态"
+    assert rev3 == "0010_projects_collections" and seg_final == seg_before, "幂等升级破坏状态"
     print(f"  idempotent re-run: still {rev3}, data intact (segments={seg_final})")
     print("SCRIPT_DB_UPGRADE_IDEMPOTENT_OK")
 

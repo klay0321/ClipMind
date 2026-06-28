@@ -174,11 +174,21 @@ jobs:
           for flag in SCRIPT_MATCH_E2E_OK SCRIPT_LOCK_E2E_OK SCRIPT_EDIT_LIST_E2E_OK SCRIPT_CSV_E2E_OK; do
             grep -q "$flag" script_gate_b.log || { echo "缺少标志 $flag"; exit 1; }
           done
-      - name: 已有数据库升级路径端到端（0008→0009 + 幂等；独立测试库，不碰业务库）
+      - name: 项目/集合 Gate A 端到端（PR-06A；创建/成员/集合/归档守卫/删除安全；合成数据，FakeProvider）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_projects_gate_a_e2e.py --mode full | tee projects_gate_a.log
+          for flag in PROJECTS_GATE_A_E2E_OK PROJECTS_ARCHIVE_GUARD_OK COLLECTIONS_GATE_A_E2E_OK PROJECTS_DELETE_SAFETY_OK; do
+            grep -q "$flag" projects_gate_a.log || { echo "缺少标志 $flag"; exit 1; }
+          done
+      - name: 已有数据库升级路径端到端（0008→head 含 0009/0010 + 幂等；独立测试库，不碰业务库）
         run: |
           set -o pipefail
           python scripts/ci_db_upgrade_e2e.py | tee db_upgrade.log
           grep -q "SCRIPT_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "PROJECTS_DB_UPGRADE_OK" db_upgrade.log
           grep -q "SCRIPT_DB_UPGRADE_IDEMPOTENT_OK" db_upgrade.log
       - name: AI 链路 DB 级持久化断言（不以 Celery task 自报成功为准）
         run: |
@@ -212,6 +222,8 @@ jobs:
           grep -q "SCRIPT_GATE_A_PERSIST_OK" script_gate_a_persist.log
           python scripts/ci_script_gate_b_e2e.py --mode check-persist | tee script_gate_b_persist.log
           grep -q "SCRIPT_GATE_B_PERSIST_OK" script_gate_b_persist.log
+          python scripts/ci_projects_gate_a_e2e.py --mode check-persist | tee projects_gate_a_persist.log
+          grep -q "PROJECTS_GATE_A_PERSIST_OK" projects_gate_a_persist.log
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |

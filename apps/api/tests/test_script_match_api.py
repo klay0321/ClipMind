@@ -265,6 +265,19 @@ async def test_gap_when_product_has_no_shots(client, session, match_settings):
     assert c["requires_human_confirmation"] is True
 
 
+async def test_segment_text_duration_not_hard_filter(client, session, match_settings):
+    """段落文本含'时长不超过3秒'不得被当成时长硬过滤排除镜头（时长是软偏好）。"""
+    ids = await _seed(session, match_settings)
+    # 段落文本含时长措辞；产品A镜头时长均非 3s（5/8/4s），若被硬过滤则 0 候选
+    sid, segs = await _make_script(session, [
+        {"product_id": ids["prod_a"], "text": "展示吹风机整体外观，时长不超过3秒，室内使用"},
+    ])
+    await client.post(f"/api/scripts/{sid}/match", json={})
+    c = (await client.get(f"/api/scripts/{sid}/segments/{segs[0]}/candidates")).json()
+    assert c["candidate_count"] >= 1, f"时长措辞不应导致 0 候选: {c}"
+    assert c["match_status"] in ("matched", "degraded")
+
+
 async def test_min_score_forces_gap(client, session, match_settings):
     ids = await _seed(session, match_settings)
     # 提高 min_score 到 0.99 → 无候选达标 → 缺口

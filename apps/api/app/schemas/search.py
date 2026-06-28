@@ -63,6 +63,9 @@ class DescriptionMatchRequest(BaseModel):
     duration_min: float | None = Field(default=None, ge=0)
     duration_max: float | None = Field(default=None, ge=0)
     aspect_ratios: list[AspectRatio] = []
+    # 脚本匹配（Gate B）置 True：忽略从 target_description 文本中解析出的时长（如"不超过3秒"），
+    # 不据此硬过滤镜头——时长是软偏好，由剪辑清单时长建议单独处理。默认 False 保持 PR-04 行为。
+    suppress_parsed_duration: bool = False
     # 显式结构化软信号（默认空 → 行为同既有，仅靠解析器抽取）。供脚本匹配（Gate B）把段落
     # structured_requirements 精确注入软召回/解释，避免依赖脆弱的文本解析；allow_similar_*=False
     # 时场景/动作会被升格为硬过滤（既有 require_scene/require_action 机制），不静默放宽硬约束。

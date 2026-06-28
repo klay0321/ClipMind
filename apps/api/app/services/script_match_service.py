@@ -84,6 +84,9 @@ def build_match_request(
         limit=limit,
         minimum_score=minimum_score,
         exclude_risks=list(seg.excluded_risks or []),    # 风险硬排除
+        # 段落文本常含"不超过3秒/5秒展示"等时长措辞；时长是软偏好（剪辑清单单独算建议），
+        # 绝不据文本时长硬过滤镜头，否则会错误排除有效镜头。
+        suppress_parsed_duration=True,
         allow_similar_scene=seg.allow_similar_scene,     # False → 场景硬过滤
         allow_similar_action=seg.allow_similar_action,   # False → 动作硬过滤
         # 显式结构化软信号（并入软通道；不传时长作为硬过滤——时长是软偏好，单独算建议）

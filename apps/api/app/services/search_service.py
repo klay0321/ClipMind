@@ -1228,6 +1228,11 @@ async def run_description_match(
     m.brands = _dedupe(m.brands, request.brands)
     m.models = _dedupe(m.models, request.models)
     m.skus = _dedupe(m.skus, request.skus)
+    # 脚本匹配：忽略从文本解析出的时长，不据此硬过滤（时长是软偏好，单独算建议）。
+    # 显式 request.duration_min/max（若传）不受影响，仍生效。
+    if request.suppress_parsed_duration:
+        m.duration_min = request.duration_min
+        m.duration_max = request.duration_max
     _validate_conflicts(m)
     m.require_scene = not request.allow_similar_scene
     m.require_action = not request.allow_similar_action

@@ -11,6 +11,14 @@ import { api, type ShotSearchQuery } from "./api";
 import type { AIRunStatus, AssetQuery, MediaRunStatus, ShotQuery } from "./types";
 import type { ExportStatus, ReviewActionInput, ReviewActionKind, ScanStatus } from "./types";
 import type { DescriptionMatchRequest, ShotSearchRequest } from "./types";
+import type {
+  ScriptCreateRequest,
+  ScriptMatchRequest,
+  SegmentLockRequest,
+  SegmentMatchRequest,
+  SegmentSelectRequest,
+  SegmentUpdateRequest,
+} from "./types";
 
 const ACTIVE_SCAN: ScanStatus[] = ["queued", "scanning"];
 const ACTIVE_RUN: MediaRunStatus[] = ["queued", "running"];
@@ -350,5 +358,196 @@ export function useReviewActionMutation() {
       qc.invalidateQueries({ queryKey: ["shot-search"] });
       qc.invalidateQueries({ queryKey: ["review-summary"] });
     },
+  });
+}
+
+// ===== PR-05 脚本匹配与剪辑清单 =====
+//
+// 失效策略：parse/match/select/lock/unlock 后局部失效 script 详情 + match-status +
+// edit-list + 受影响段候选，而非整页刷新；轮询有界（export 完成即停）。
+
+export function useScripts(page = 1, pageSize = 20) {
+  return useQuery({
+    queryKey: ["scripts", page, pageSize],
+    queryFn: () => api.listScripts(page, pageSize),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useScriptProject(scriptId: number | null) {
+  return useQuery({
+    queryKey: ["script", scriptId],
+    queryFn: () => api.getScript(scriptId as number),
+    enabled: scriptId != null,
+  });
+}
+
+export function useSegmentCandidates(
+  scriptId: number | null,
+  segmentId: number | null,
+  generation?: number,
+) {
+  return useQuery({
+    queryKey: ["script-candidates", scriptId, segmentId, generation ?? "current"],
+    queryFn: () => api.segmentCandidates(scriptId as number, segmentId as number, generation),
+    enabled: scriptId != null && segmentId != null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useScriptMatchStatus(scriptId: number | null) {
+  return useQuery({
+    queryKey: ["script-match-status", scriptId],
+    queryFn: () => api.scriptMatchStatus(scriptId as number),
+    enabled: scriptId != null,
+  });
+}
+
+export function useScriptEditList(scriptId: number | null, enabled = true) {
+  return useQuery({
+    queryKey: ["script-edit-list", scriptId],
+    queryFn: () => api.scriptEditList(scriptId as number),
+    enabled: enabled && scriptId != null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useScriptExportStatus(scriptId: number | null, exportId: number | null) {
+  return useQuery({
+    queryKey: ["script-export", scriptId, exportId],
+    queryFn: () => api.scriptExportStatus(scriptId as number, exportId as number),
+    enabled: scriptId != null && exportId != null,
+    // 导出进行中轮询，完成/失败即停（页面卸载后 TanStack 自动停止）
+    refetchInterval: (q) => {
+      const status = q.state.data?.status;
+      return status && ACTIVE_EXPORT.includes(status) ? 1500 : false;
+    },
+  });
+}
+
+export function useCreateScript() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: ScriptCreateRequest) => api.createScript(req),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["scripts"] }),
+  });
+}
+
+export function useRenameScript(scriptId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => api.renameScript(scriptId, name),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["script", scriptId] });
+      qc.invalidateQueries({ queryKey: ["scripts"] });
+    },
+  });
+}
+
+// 失效整个脚本的匹配相关查询（parse/全脚本 match 后用）
+function invalidateScriptAll(qc: ReturnType<typeof useQueryClient>, scriptId: number) {
+  qc.invalidateQueries({ queryKey: ["script", scriptId] });
+  qc.invalidateQueries({ queryKey: ["script-match-status", scriptId] });
+  qc.invalidateQueries({ queryKey: ["script-edit-list", scriptId] });
+  qc.invalidateQueries({ queryKey: ["script-candidates", scriptId] });
+}
+
+export function useParseScript(scriptId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ parser, force }: { parser?: string; force?: boolean } = {}) =>
+      api.parseScript(scriptId, parser, force),
+    onSuccess: () => invalidateScriptAll(qc, scriptId),
+  });
+}
+
+export function useUpdateSegment(scriptId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ segmentId, req }: { segmentId: number; req: SegmentUpdateRequest }) =>
+      api.updateSegment(scriptId, segmentId, req),
+    onSuccess: (_data, { segmentId }) => {
+      qc.invalidateQueries({ queryKey: ["script", scriptId] });
+      qc.invalidateQueries({ queryKey: ["script-candidates", scriptId, segmentId] });
+      qc.invalidateQueries({ queryKey: ["script-match-status", scriptId] });
+    },
+  });
+}
+
+export function useReorderSegments(scriptId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (segmentIds: number[]) => api.reorderSegments(scriptId, segmentIds),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["script", scriptId] });
+      qc.invalidateQueries({ queryKey: ["script-edit-list", scriptId] });
+    },
+  });
+}
+
+export function useMatchScript(scriptId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: ScriptMatchRequest = {}) => api.matchScript(scriptId, req),
+    onSuccess: () => invalidateScriptAll(qc, scriptId),
+  });
+}
+
+export function useMatchSegment(scriptId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ segmentId, req }: { segmentId: number; req?: SegmentMatchRequest }) =>
+      api.matchSegment(scriptId, segmentId, req ?? {}),
+    onSuccess: (_data, { segmentId }) => {
+      qc.invalidateQueries({ queryKey: ["script", scriptId] });
+      qc.invalidateQueries({ queryKey: ["script-candidates", scriptId, segmentId] });
+      qc.invalidateQueries({ queryKey: ["script-match-status", scriptId] });
+      qc.invalidateQueries({ queryKey: ["script-edit-list", scriptId] });
+    },
+  });
+}
+
+// 选择后局部刷新该段候选 + 详情 + 状态 + 清单（不整页刷新）
+function invalidateSegmentPick(
+  qc: ReturnType<typeof useQueryClient>,
+  scriptId: number,
+  segmentId: number,
+) {
+  qc.invalidateQueries({ queryKey: ["script", scriptId] });
+  qc.invalidateQueries({ queryKey: ["script-candidates", scriptId, segmentId] });
+  qc.invalidateQueries({ queryKey: ["script-match-status", scriptId] });
+  qc.invalidateQueries({ queryKey: ["script-edit-list", scriptId] });
+}
+
+export function useSelectCandidate(scriptId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ segmentId, req }: { segmentId: number; req: SegmentSelectRequest }) =>
+      api.selectCandidate(scriptId, segmentId, req),
+    onSuccess: (_data, { segmentId }) => invalidateSegmentPick(qc, scriptId, segmentId),
+  });
+}
+
+export function useLockCandidate(scriptId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ segmentId, req }: { segmentId: number; req: SegmentLockRequest }) =>
+      api.lockCandidate(scriptId, segmentId, req),
+    onSuccess: (_data, { segmentId }) => invalidateSegmentPick(qc, scriptId, segmentId),
+  });
+}
+
+export function useUnlockSegment(scriptId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ segmentId, lockVersion }: { segmentId: number; lockVersion: number }) =>
+      api.unlockSegment(scriptId, segmentId, lockVersion),
+    onSuccess: (_data, { segmentId }) => invalidateSegmentPick(qc, scriptId, segmentId),
+  });
+}
+
+export function useCreateScriptCsvExport(scriptId: number) {
+  return useMutation({
+    mutationFn: () => api.createScriptCsvExport(scriptId),
   });
 }

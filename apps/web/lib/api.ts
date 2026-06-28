@@ -19,7 +19,22 @@ import type {
   ReviewState,
   ScanRun,
   ScanStatusResponse,
+  ScriptCreateRequest,
+  ScriptEditList,
+  ScriptExport,
+  ScriptListResponse,
+  ScriptMatchRequest,
+  ScriptMatchResponse,
+  ScriptMatchStatusResponse,
+  ScriptProject,
+  ScriptProjectDetail,
+  ScriptSegment,
   SearchIndexStatus,
+  SegmentCandidatesResponse,
+  SegmentLockRequest,
+  SegmentMatchRequest,
+  SegmentSelectRequest,
+  SegmentUpdateRequest,
   Shot,
   ShotAI,
   ShotAnalysis,
@@ -109,6 +124,9 @@ export const shotKeyframeAtUrl = (id: number, index: number) =>
   `/api/shots/${id}/keyframe/${index}`;
 export const shotPreviewUrl = (id: number) => `/api/shots/${id}/preview`;
 export const exportDownloadUrl = (id: number) => `/api/exports/${id}/download`;
+// 脚本剪辑清单 CSV 下载（走同源安全代理，浏览器直链不经 fetch）
+export const scriptCsvDownloadUrl = (scriptId: number, exportId: number) =>
+  `/api/scripts/${scriptId}/exports/${exportId}/download`;
 
 export const api = {
   listAssets(query: AssetQuery): Promise<PageResult<Asset>> {
@@ -300,5 +318,109 @@ export const api = {
       throw new ApiError(res.status, typeof detail === "string" ? detail : JSON.stringify(detail));
     }
     return res.json();
+  },
+
+  // ===== PR-05 脚本匹配与剪辑清单（Gate A/B；POST/PATCH JSON）=====
+  listScripts(page = 1, pageSize = 20): Promise<ScriptListResponse> {
+    return http<ScriptListResponse>(`/scripts?page=${page}&page_size=${pageSize}`);
+  },
+  createScript(req: ScriptCreateRequest): Promise<ScriptProject> {
+    return http<ScriptProject>(`/scripts`, { method: "POST", body: JSON.stringify(req) });
+  },
+  getScript(id: number): Promise<ScriptProjectDetail> {
+    return http<ScriptProjectDetail>(`/scripts/${id}`);
+  },
+  renameScript(id: number, name: string): Promise<ScriptProject> {
+    return http<ScriptProject>(`/scripts/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    });
+  },
+  parseScript(id: number, parser?: string, force = false): Promise<ScriptProjectDetail> {
+    const p = force ? "?force=true" : "";
+    return http<ScriptProjectDetail>(`/scripts/${id}/parse${p}`, {
+      method: "POST",
+      body: JSON.stringify(parser ? { parser } : {}),
+    });
+  },
+  updateSegment(
+    scriptId: number,
+    segmentId: number,
+    req: SegmentUpdateRequest,
+  ): Promise<ScriptSegment> {
+    return http<ScriptSegment>(`/scripts/${scriptId}/segments/${segmentId}`, {
+      method: "PATCH",
+      body: JSON.stringify(req),
+    });
+  },
+  reorderSegments(scriptId: number, segmentIds: number[]): Promise<ScriptProjectDetail> {
+    return http<ScriptProjectDetail>(`/scripts/${scriptId}/segments/reorder`, {
+      method: "POST",
+      body: JSON.stringify({ segment_ids: segmentIds }),
+    });
+  },
+  matchScript(scriptId: number, req: ScriptMatchRequest = {}): Promise<ScriptMatchResponse> {
+    return http<ScriptMatchResponse>(`/scripts/${scriptId}/match`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  },
+  matchSegment(
+    scriptId: number,
+    segmentId: number,
+    req: SegmentMatchRequest = {},
+  ): Promise<SegmentCandidatesResponse> {
+    return http<SegmentCandidatesResponse>(`/scripts/${scriptId}/segments/${segmentId}/match`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  },
+  segmentCandidates(
+    scriptId: number,
+    segmentId: number,
+    generation?: number,
+  ): Promise<SegmentCandidatesResponse> {
+    const p = generation != null ? `?generation=${generation}` : "";
+    return http<SegmentCandidatesResponse>(
+      `/scripts/${scriptId}/segments/${segmentId}/candidates${p}`,
+    );
+  },
+  selectCandidate(
+    scriptId: number,
+    segmentId: number,
+    req: SegmentSelectRequest,
+  ): Promise<ScriptSegment> {
+    return http<ScriptSegment>(`/scripts/${scriptId}/segments/${segmentId}/select`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  },
+  lockCandidate(
+    scriptId: number,
+    segmentId: number,
+    req: SegmentLockRequest,
+  ): Promise<ScriptSegment> {
+    return http<ScriptSegment>(`/scripts/${scriptId}/segments/${segmentId}/lock`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  },
+  unlockSegment(scriptId: number, segmentId: number, lockVersion: number): Promise<ScriptSegment> {
+    return http<ScriptSegment>(`/scripts/${scriptId}/segments/${segmentId}/unlock`, {
+      method: "POST",
+      body: JSON.stringify({ lock_version: lockVersion }),
+    });
+  },
+  scriptMatchStatus(scriptId: number): Promise<ScriptMatchStatusResponse> {
+    return http<ScriptMatchStatusResponse>(`/scripts/${scriptId}/match-status`);
+  },
+  scriptEditList(scriptId: number): Promise<ScriptEditList> {
+    return http<ScriptEditList>(`/scripts/${scriptId}/edit-list`);
+  },
+  createScriptCsvExport(scriptId: number): Promise<ScriptExport> {
+    return http<ScriptExport>(`/scripts/${scriptId}/exports/csv`, { method: "POST" });
+  },
+  scriptExportStatus(scriptId: number, exportId: number): Promise<ScriptExport> {
+    return http<ScriptExport>(`/scripts/${scriptId}/exports/${exportId}`);
   },
 };

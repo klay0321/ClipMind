@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-type NavKey = "assets" | "shots" | "products" | "search";
+type NavKey = "assets" | "shots" | "products" | "search" | "script";
 
 export function TopNav({ active }: { active?: NavKey }) {
   const linkCls = (key: NavKey) =>
@@ -30,6 +30,14 @@ export function TopNav({ active }: { active?: NavKey }) {
             aria-current={active === "search" ? "page" : undefined}
           >
             智能搜索
+          </Link>
+          <Link
+            href="/script"
+            className={linkCls("script")}
+            data-testid="nav-script"
+            aria-current={active === "script" ? "page" : undefined}
+          >
+            脚本匹配
           </Link>
         </nav>
         <span className="ml-auto hidden text-xs text-gray-400 sm:inline">

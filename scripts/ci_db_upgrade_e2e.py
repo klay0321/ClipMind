@@ -104,9 +104,9 @@ def main() -> None:
     assert up.stdout and "SCRIPT_DB_UPGRADE_OK" in up.stdout, "db_upgrade.sh 未输出 OK 标志"
     print("  db_upgrade.sh ran: SCRIPT_DB_UPGRADE_OK emitted by official command")
 
-    # 4. 自动到 head（0010）：0009 Gate B + 0010 项目/集合 表/列出现 + 旧数据不丢
+    # 4. 自动到 head（0012）：0009 Gate B + 0010 项目/集合 + 0011/0012 导出中心 表/列出现 + 旧数据不丢
     rev2 = psql(TEST_DB, "select version_num from alembic_version")
-    assert rev2 == "0010_projects_collections", f"应到 head 0010，实际 {rev2}"
+    assert rev2 == "0012_library_export_features", f"应到 head 0012，实际 {rev2}"
     # 0009 Gate B 仍在
     has_export = psql(TEST_DB, "select to_regclass('public.script_export')")
     assert has_export == "script_export", "应有 script_export 表（0009）"
@@ -143,12 +143,39 @@ def main() -> None:
           "historical project_id NULL; no project rows created")
     print("PROJECTS_DB_UPGRADE_OK")
 
-    # 5. 再次升级幂等（仍 head 0010，无错误，数据不变）
+    # 4c. 0011 导出中心列：export/script_export.project_id + export_format 列宽 16 + download_log
+    for tbl, col in (("export", "project_id"), ("script_export", "project_id")):
+        cnt = psql(
+            TEST_DB,
+            f"select count(*) from information_schema.columns where table_name='{tbl}' "
+            f"and column_name='{col}'",
+        )
+        assert cnt == "1", f"{tbl}.{col} 应存在（0011）"
+    fmt_len = psql(
+        TEST_DB,
+        "select character_maximum_length from information_schema.columns "
+        "where table_name='script_export' and column_name='export_format'",
+    )
+    assert fmt_len == "16", f"script_export.export_format 列宽应为 16（0011），实际 {fmt_len}"
+    assert psql(TEST_DB, "select to_regclass('public.download_log')") == "download_log", \
+        "应有 download_log 表（0011）"
+
+    # 4d. 0012 库表：saved_search / favorite / dynamic_collection / bundle_export
+    for tbl in ("saved_search", "favorite", "dynamic_collection", "bundle_export"):
+        assert psql(TEST_DB, f"select to_regclass('public.{tbl}')") == tbl, f"应有 {tbl} 表（0012）"
+    # 历史业务数据仍未丢
+    seg_06b = psql(TEST_DB, f"select count(*) from script_segment where script_project_id={pid}")
+    assert seg_06b == seg_before, "0011/0012 升级后业务数据丢失"
+    print("  0011 export/script_export.project_id + export_format(16) + download_log; "
+          "0012 saved_search/favorite/dynamic_collection/bundle_export present; data intact")
+    print("EXPORT_CENTER_DB_UPGRADE_OK")
+
+    # 5. 再次升级幂等（仍 head 0012，无错误，数据不变）
     up2 = db_upgrade_script(ASYNC_URL)
     assert up2.returncode == 0, f"幂等升级失败: {up2.stderr}"
     rev3 = psql(TEST_DB, "select version_num from alembic_version")
     seg_final = psql(TEST_DB, f"select count(*) from script_segment where script_project_id={pid}")
-    assert rev3 == "0010_projects_collections" and seg_final == seg_before, "幂等升级破坏状态"
+    assert rev3 == "0012_library_export_features" and seg_final == seg_before, "幂等升级破坏状态"
     print(f"  idempotent re-run: still {rev3}, data intact (segments={seg_final})")
     print("SCRIPT_DB_UPGRADE_IDEMPOTENT_OK")
 

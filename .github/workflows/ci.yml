@@ -73,6 +73,19 @@ jobs:
         run: |
           cp .env.example .env
           docker compose config
+      - name: 校验 NAS 部署包（compose 配置 + 自包含交付包构建/排除项）
+        run: |
+          set -o pipefail
+          POSTGRES_PASSWORD=ci CLIPMIND_SOURCE_DIR=/tmp/src CLIPMIND_DATA_ROOT=/tmp/cmdata \
+            docker compose -f docker-compose.nas.yml config -q
+          bash scripts/nas/package.sh | tee pkg.log
+          grep -q "RELEASE_PACKAGE_OK" pkg.log
+          # 禁含项：真实 .env / node_modules / venv / .git / 视频
+          test -z "$(find dist/clipmind-nas -name '.env' -o -name node_modules -o -name '.venv' -o -name '.git' 2>/dev/null)"
+          test -z "$(find dist/clipmind-nas -iregex '.*\.\(mp4\|mov\|mkv\)' 2>/dev/null)"
+          test -f dist/clipmind-nas/.env.nas.example
+          test -f dist/clipmind-nas-release.tar.gz.sha256
+          echo "NAS_PACKAGE_E2E_OK"
 
   # PR-02：云端真实镜像构建 + 全栈端到端（本地 Claude 环境无 apt 网络，无法构建镜像）
   docker-e2e:
@@ -183,12 +196,24 @@ jobs:
           for flag in PROJECTS_GATE_A_E2E_OK PROJECTS_ARCHIVE_GUARD_OK COLLECTIONS_GATE_A_E2E_OK PROJECTS_DELETE_SAFETY_OK; do
             grep -q "$flag" projects_gate_a.log || { echo "缺少标志 $flag"; exit 1; }
           done
-      - name: 已有数据库升级路径端到端（0008→head 含 0009/0010 + 幂等；独立测试库，不碰业务库）
+      - name: 导出中心/多格式/Bundle/保存搜索/收藏/动态集合 端到端（PR-06B；FakeProvider；export+media worker）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_pr06b_e2e.py --mode full | tee pr06b.log
+          for flag in MULTI_FORMAT_EXPORT_E2E_OK BUNDLE_EXPORT_E2E_OK EXPORT_CENTER_E2E_OK \
+                      EXPORT_DELETE_SAFETY_E2E_OK SAVED_SEARCH_E2E_OK FAVORITE_E2E_OK \
+                      DYNAMIC_COLLECTION_E2E_OK PR06B_E2E_OK; do
+            grep -q "$flag" pr06b.log || { echo "缺少标志 $flag"; exit 1; }
+          done
+      - name: 已有数据库升级路径端到端（0008→head 含 0009/0010/0011/0012 + 幂等；独立测试库，不碰业务库）
         run: |
           set -o pipefail
           python scripts/ci_db_upgrade_e2e.py | tee db_upgrade.log
           grep -q "SCRIPT_DB_UPGRADE_OK" db_upgrade.log
           grep -q "PROJECTS_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "EXPORT_CENTER_DB_UPGRADE_OK" db_upgrade.log
           grep -q "SCRIPT_DB_UPGRADE_IDEMPOTENT_OK" db_upgrade.log
       - name: AI 链路 DB 级持久化断言（不以 Celery task 自报成功为准）
         run: |
@@ -224,6 +249,8 @@ jobs:
           grep -q "SCRIPT_GATE_B_PERSIST_OK" script_gate_b_persist.log
           python scripts/ci_projects_gate_a_e2e.py --mode check-persist | tee projects_gate_a_persist.log
           grep -q "PROJECTS_GATE_A_PERSIST_OK" projects_gate_a_persist.log
+          python scripts/ci_pr06b_e2e.py --mode check-persist | tee pr06b_persist.log
+          grep -q "PR06B_PERSIST_OK" pr06b_persist.log
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |
@@ -346,6 +373,15 @@ jobs:
           for flag in PROJECTS_UI_E2E_OK PROJECTS_MEMBERS_UI_E2E_OK COLLECTIONS_UI_E2E_OK PROJECTS_ARCHIVE_UI_E2E_OK PROJECTS_DELETE_SAFETY_UI_E2E_OK; do
             grep -q "$flag" projects-ui.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: PR-06B 导出中心/多格式/收藏/保存搜索/动态集合 UI E2E（真实页面；合成数据）
+        working-directory: e2e
+        env:
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          npx playwright test pr06b-ui.spec.ts --grep-invert @persist | tee pr06b-ui.log
+          grep -q "PR06B_UI_E2E_OK" pr06b-ui.log || { echo "缺少标志 PR06B_UI_E2E_OK"; exit 1; }
       - name: 重启 API/web/search-worker/export-worker 后持久化
         env:
           WEB_BASE: http://localhost:3000
@@ -367,6 +403,8 @@ jobs:
           grep -q "SCRIPT_UI_PERSIST_OK" e2e/script-persist.log
           ( cd e2e && npx playwright test projects-ui.spec.ts --grep @persist | tee projects-persist.log )
           grep -q "PROJECTS_UI_PERSIST_OK" e2e/projects-persist.log
+          ( cd e2e && npx playwright test pr06b-ui.spec.ts --grep @persist | tee pr06b-persist.log )
+          grep -q "PR06B_UI_PERSIST_OK" e2e/pr06b-persist.log
       - name: 失败时上传脱敏证据（trace/截图/报告；不含 .env/key/endpoint）
         if: failure()
         uses: actions/upload-artifact@v4

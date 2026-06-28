@@ -30,6 +30,9 @@ vi.mock("@/lib/hooks", () => ({
   useScriptEditList: vi.fn(),
   useCreateScriptCsvExport: vi.fn(),
   useScriptExportStatus: vi.fn(),
+  // PR-06B：CandidateCard 内 FavoriteButton + ScriptMultiExportPanel 依赖
+  useCreateFavorite: vi.fn(() => ({ mutate: vi.fn(), isPending: false, error: null })),
+  useCreateScriptExport: vi.fn(() => ({ mutate: vi.fn(), isPending: false, error: null })),
 }));
 
 const matchScriptMut = mutation();

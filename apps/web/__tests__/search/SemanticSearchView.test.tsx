@@ -6,13 +6,21 @@ import { SemanticSearchView } from "@/components/search/SemanticSearchView";
 import * as hooks from "@/lib/hooks";
 import { EMPTY_SEARCH_FORM } from "@/lib/search";
 
-import { makeItem, makeResponse, query } from "./fixtures";
+import { makeItem, makeResponse, mutation, query } from "./fixtures";
 
 vi.mock("@/lib/hooks", () => ({
   useSemanticSearch: vi.fn(),
   useProducts: vi.fn(),
   useSourceDirectories: vi.fn(),
   useSearchSuggestions: vi.fn(),
+  // PR-06B：SavedSearchPanel / BundleBar / FavoriteButton 依赖
+  useSavedSearches: vi.fn(),
+  useCreateSavedSearch: vi.fn(),
+  useUpdateSavedSearch: vi.fn(),
+  useDeleteSavedSearch: vi.fn(),
+  useCreateBundle: vi.fn(),
+  useBundleStatus: vi.fn(),
+  useCreateFavorite: vi.fn(),
 }));
 
 function lastReq() {
@@ -39,6 +47,15 @@ beforeEach(() => {
   vi.mocked(hooks.useProducts).mockReturnValue(query({ data: [] }));
   vi.mocked(hooks.useSourceDirectories).mockReturnValue(query({ data: [] }));
   vi.mocked(hooks.useSearchSuggestions).mockReturnValue(query({ data: { items: [] } }));
+  vi.mocked(hooks.useSavedSearches).mockReturnValue(
+    query({ data: { items: [], total: 0, page: 1, page_size: 50 } }),
+  );
+  vi.mocked(hooks.useCreateSavedSearch).mockReturnValue(mutation());
+  vi.mocked(hooks.useUpdateSavedSearch).mockReturnValue(mutation());
+  vi.mocked(hooks.useDeleteSavedSearch).mockReturnValue(mutation());
+  vi.mocked(hooks.useCreateBundle).mockReturnValue(mutation());
+  vi.mocked(hooks.useBundleStatus).mockReturnValue(query());
+  vi.mocked(hooks.useCreateFavorite).mockReturnValue(mutation());
 });
 
 describe("SemanticSearchView 初始与提交", () => {
@@ -193,6 +210,45 @@ describe("SemanticSearchView 结果渲染", () => {
     expect(screen.getByText("本页没有结果")).toBeInTheDocument();
     expect(screen.getByTestId("back-to-first-page")).toBeInTheDocument();
     expect(screen.queryByText("没有匹配的镜头")).not.toBeInTheDocument();
+  });
+});
+
+describe("SemanticSearchView ZIP 打包多选", () => {
+  it("勾选镜头 → 工具条计数更新且创建携带 shot_ids", async () => {
+    const create = mutation();
+    vi.mocked(hooks.useCreateBundle).mockReturnValue(create);
+    vi.mocked(hooks.useSemanticSearch).mockReturnValue(
+      query({
+        data: makeResponse([
+          makeItem({ shot_id: 101, sequence_no: 1, duration: 3 }),
+          makeItem({ shot_id: 102, sequence_no: 2, duration: 4 }),
+        ]),
+      }),
+    );
+    const user = userEvent.setup();
+    renderView({ initialForm: { ...EMPTY_SEARCH_FORM, query: "x" } });
+    await user.click(screen.getByTestId("bundle-select-101"));
+    await user.click(screen.getByTestId("bundle-select-102"));
+    expect(screen.getByTestId("bundle-count")).toHaveTextContent("已选 2 个镜头");
+    await user.click(screen.getByTestId("bundle-create"));
+    expect(create.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ shot_ids: [101, 102] }),
+      expect.anything(),
+    );
+  });
+
+  it("取消勾选后从打包集合移除", async () => {
+    vi.mocked(hooks.useSemanticSearch).mockReturnValue(
+      query({ data: makeResponse([makeItem({ shot_id: 101, sequence_no: 1, duration: 3 })]) }),
+    );
+    const user = userEvent.setup();
+    renderView({ initialForm: { ...EMPTY_SEARCH_FORM, query: "x" } });
+    const cb = screen.getByTestId("bundle-select-101");
+    await user.click(cb);
+    expect(screen.getByTestId("bundle-count")).toHaveTextContent("已选 1 个镜头");
+    await user.click(cb);
+    // 取消后工具条消失（无选择且无打包）
+    expect(screen.queryByTestId("bundle-count")).not.toBeInTheDocument();
   });
 });
 

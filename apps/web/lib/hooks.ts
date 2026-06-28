@@ -19,6 +19,14 @@ import type {
   SegmentSelectRequest,
   SegmentUpdateRequest,
 } from "./types";
+import type {
+  CollectionCreateRequest,
+  CollectionUpdateRequest,
+  ProjectCreateRequest,
+  ProjectShotsQuery,
+  ProjectStatus,
+  ProjectUpdateRequest,
+} from "./types";
 
 const ACTIVE_SCAN: ScanStatus[] = ["queued", "scanning"];
 const ACTIVE_RUN: MediaRunStatus[] = ["queued", "running"];
@@ -549,5 +557,325 @@ export function useUnlockSegment(scriptId: number) {
 export function useCreateScriptCsvExport(scriptId: number) {
   return useMutation({
     mutationFn: () => api.createScriptCsvExport(scriptId),
+  });
+}
+
+// ===== PR-06A 项目 / 静态镜头集合 =====
+//
+// 失效策略：列表/成员/统计精确失效，不整页刷新；reorder 返回新 lock_version → 失效 ["project",id]
+// 让详情头部拿到新版本；归档/恢复后失效列表+详情+统计。成员变更同时失效统计（计数变化）。
+
+function invalidateProjectAll(qc: ReturnType<typeof useQueryClient>, id: number) {
+  qc.invalidateQueries({ queryKey: ["project", id] });
+  qc.invalidateQueries({ queryKey: ["project-stats", id] });
+  qc.invalidateQueries({ queryKey: ["projects"] });
+}
+
+export function useProjects(page = 1, pageSize = 20, status?: ProjectStatus) {
+  return useQuery({
+    queryKey: ["projects", page, pageSize, status ?? "all"],
+    queryFn: () => api.listProjects(page, pageSize, status),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useProject(id: number | null) {
+  return useQuery({
+    queryKey: ["project", id],
+    queryFn: () => api.getProject(id as number),
+    enabled: id != null,
+  });
+}
+
+// 统计只在详情页加载（不在列表逐项目请求，避免 N+1）
+export function useProjectStats(id: number | null, enabled = true) {
+  return useQuery({
+    queryKey: ["project-stats", id],
+    queryFn: () => api.getProjectStats(id as number),
+    enabled: enabled && id != null,
+  });
+}
+
+export function useCreateProject() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: ProjectCreateRequest) => api.createProject(req),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects"] }),
+  });
+}
+
+export function useUpdateProject(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: ProjectUpdateRequest) => api.updateProject(id, req),
+    onSuccess: () => invalidateProjectAll(qc, id),
+  });
+}
+
+export function useArchiveProject(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (lockVersion: number) => api.archiveProject(id, lockVersion),
+    onSuccess: () => invalidateProjectAll(qc, id),
+  });
+}
+
+export function useUnarchiveProject(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (lockVersion: number) => api.unarchiveProject(id, lockVersion),
+    onSuccess: () => invalidateProjectAll(qc, id),
+  });
+}
+
+export function useProjectAssets(id: number | null, page: number, pageSize: number) {
+  return useQuery({
+    queryKey: ["project-assets", id, page, pageSize],
+    queryFn: () => api.projectAssets(id as number, page, pageSize),
+    enabled: id != null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useAddProjectAssets(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[]) => api.addProjectAssets(id, ids),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-assets", id] });
+      qc.invalidateQueries({ queryKey: ["project-shots", id] });
+      qc.invalidateQueries({ queryKey: ["project-stats", id] });
+    },
+  });
+}
+
+export function useRemoveProjectAsset(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (assetId: number) => api.removeProjectAsset(id, assetId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-assets", id] });
+      qc.invalidateQueries({ queryKey: ["project-shots", id] });
+      qc.invalidateQueries({ queryKey: ["project-stats", id] });
+    },
+  });
+}
+
+export function useReorderProjectAssets(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, lockVersion }: { ids: number[]; lockVersion: number }) =>
+      api.reorderProjectAssets(id, ids, lockVersion),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-assets", id] });
+      qc.invalidateQueries({ queryKey: ["project", id] });
+    },
+  });
+}
+
+export function useProjectShots(id: number | null, query: ProjectShotsQuery) {
+  return useQuery({
+    queryKey: ["project-shots", id, query],
+    queryFn: () => api.projectShots(id as number, query),
+    enabled: id != null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useAddProjectShots(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[]) => api.addProjectShots(id, ids),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-shots", id] });
+      qc.invalidateQueries({ queryKey: ["project-stats", id] });
+    },
+  });
+}
+
+export function useRemoveProjectShot(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (shotId: number) => api.removeProjectShot(id, shotId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-shots", id] });
+      qc.invalidateQueries({ queryKey: ["project-stats", id] });
+    },
+  });
+}
+
+export function useReorderProjectShots(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, lockVersion }: { ids: number[]; lockVersion: number }) =>
+      api.reorderProjectShots(id, ids, lockVersion),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-shots", id] });
+      qc.invalidateQueries({ queryKey: ["project", id] });
+    },
+  });
+}
+
+export function useProjectProducts(id: number | null, page: number, pageSize: number) {
+  return useQuery({
+    queryKey: ["project-products", id, page, pageSize],
+    queryFn: () => api.projectProducts(id as number, page, pageSize),
+    enabled: id != null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useAddProjectProducts(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[]) => api.addProjectProducts(id, ids),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-products", id] });
+      qc.invalidateQueries({ queryKey: ["project-stats", id] });
+    },
+  });
+}
+
+export function useRemoveProjectProduct(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (productId: number) => api.removeProjectProduct(id, productId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-products", id] });
+      qc.invalidateQueries({ queryKey: ["project-stats", id] });
+    },
+  });
+}
+
+export function useProjectScripts(id: number | null, page: number, pageSize: number) {
+  return useQuery({
+    queryKey: ["project-scripts", id, page, pageSize],
+    queryFn: () => api.projectScripts(id as number, page, pageSize),
+    enabled: id != null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useAttachProjectScript(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (scriptId: number) => api.attachProjectScript(id, scriptId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-scripts", id] });
+      qc.invalidateQueries({ queryKey: ["project-stats", id] });
+      qc.invalidateQueries({ queryKey: ["scripts"] });
+    },
+  });
+}
+
+export function useDetachProjectScript(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (scriptId: number) => api.detachProjectScript(id, scriptId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-scripts", id] });
+      qc.invalidateQueries({ queryKey: ["project-stats", id] });
+      qc.invalidateQueries({ queryKey: ["scripts"] });
+    },
+  });
+}
+
+export function useProjectCollections(projectId: number | null, page: number, pageSize: number) {
+  return useQuery({
+    queryKey: ["project-collections", projectId, page, pageSize],
+    queryFn: () => api.listProjectCollections(projectId as number, page, pageSize),
+    enabled: projectId != null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useCollection(id: number | null) {
+  return useQuery({
+    queryKey: ["collection", id],
+    queryFn: () => api.getCollection(id as number),
+    enabled: id != null,
+  });
+}
+
+export function useCreateCollection(projectId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: CollectionCreateRequest) => api.createCollection(projectId, req),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-collections", projectId] });
+      qc.invalidateQueries({ queryKey: ["project-stats", projectId] });
+    },
+  });
+}
+
+export function useUpdateCollection(id: number, projectId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: CollectionUpdateRequest) => api.updateCollection(id, req),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["collection", id] });
+      qc.invalidateQueries({ queryKey: ["project-collections", projectId] });
+    },
+  });
+}
+
+export function useDeleteCollection(id: number, projectId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.deleteCollection(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["project-collections", projectId] });
+      qc.invalidateQueries({ queryKey: ["project-stats", projectId] });
+      qc.invalidateQueries({ queryKey: ["project-shots", projectId] });
+    },
+  });
+}
+
+export function useCollectionShots(id: number | null, page: number, pageSize: number) {
+  return useQuery({
+    queryKey: ["collection-shots", id, page, pageSize],
+    queryFn: () => api.collectionShots(id as number, page, pageSize),
+    enabled: id != null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useAddCollectionShots(id: number, projectId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: number[]) => api.addCollectionShots(id, ids),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["collection-shots", id] });
+      qc.invalidateQueries({ queryKey: ["collection", id] });
+      qc.invalidateQueries({ queryKey: ["project-collections", projectId] });
+      qc.invalidateQueries({ queryKey: ["project-stats", projectId] });
+      qc.invalidateQueries({ queryKey: ["project-shots", projectId] });
+    },
+  });
+}
+
+export function useRemoveCollectionShot(id: number, projectId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (shotId: number) => api.removeCollectionShot(id, shotId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["collection-shots", id] });
+      qc.invalidateQueries({ queryKey: ["collection", id] });
+      qc.invalidateQueries({ queryKey: ["project-collections", projectId] });
+      qc.invalidateQueries({ queryKey: ["project-stats", projectId] });
+      qc.invalidateQueries({ queryKey: ["project-shots", projectId] });
+    },
+  });
+}
+
+export function useReorderCollectionShots(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, lockVersion }: { ids: number[]; lockVersion: number }) =>
+      api.reorderCollectionShots(id, ids, lockVersion),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["collection-shots", id] });
+      qc.invalidateQueries({ queryKey: ["collection", id] });
+    },
   });
 }

@@ -47,6 +47,21 @@ import type {
   SuggestionsResponse,
   TagDict,
 } from "./types";
+import type {
+  BatchMembershipResult,
+  Collection,
+  CollectionCreateRequest,
+  CollectionListResponse,
+  CollectionUpdateRequest,
+  Project,
+  ProjectAssetListResponse,
+  ProjectCreateRequest,
+  ProjectListResponse,
+  ProjectShotsQuery,
+  ProjectStats,
+  ProjectStatus,
+  ProjectUpdateRequest,
+} from "./types";
 
 export interface ShotSearchQuery {
   asset_id?: number;
@@ -422,5 +437,150 @@ export const api = {
   },
   scriptExportStatus(scriptId: number, exportId: number): Promise<ScriptExport> {
     return http<ScriptExport>(`/scripts/${scriptId}/exports/${exportId}`);
+  },
+
+  // ===== PR-06A 项目 / 静态镜头集合 =====
+  listProjects(page = 1, pageSize = 20, status?: ProjectStatus): Promise<ProjectListResponse> {
+    const p = new URLSearchParams();
+    p.set("page", String(page));
+    p.set("page_size", String(pageSize));
+    if (status) p.set("status", status);
+    return http<ProjectListResponse>(`/projects?${p.toString()}`);
+  },
+  getProject(id: number): Promise<Project> {
+    return http<Project>(`/projects/${id}`);
+  },
+  getProjectStats(id: number): Promise<ProjectStats> {
+    return http<ProjectStats>(`/projects/${id}/stats`);
+  },
+  createProject(req: ProjectCreateRequest): Promise<Project> {
+    return http<Project>(`/projects`, { method: "POST", body: JSON.stringify(req) });
+  },
+  updateProject(id: number, req: ProjectUpdateRequest): Promise<Project> {
+    return http<Project>(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(req) });
+  },
+  archiveProject(id: number, lockVersion: number): Promise<Project> {
+    return http<Project>(`/projects/${id}/archive`, {
+      method: "POST",
+      body: JSON.stringify({ lock_version: lockVersion }),
+    });
+  },
+  unarchiveProject(id: number, lockVersion: number): Promise<Project> {
+    return http<Project>(`/projects/${id}/unarchive`, {
+      method: "POST",
+      body: JSON.stringify({ lock_version: lockVersion }),
+    });
+  },
+  projectAssets(id: number, page = 1, pageSize = 24): Promise<ProjectAssetListResponse> {
+    return http<ProjectAssetListResponse>(
+      `/projects/${id}/assets?page=${page}&page_size=${pageSize}`,
+    );
+  },
+  addProjectAssets(id: number, ids: number[]): Promise<BatchMembershipResult> {
+    return http<BatchMembershipResult>(`/projects/${id}/assets/batch`, {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+  },
+  removeProjectAsset(id: number, assetId: number): Promise<void> {
+    return http<void>(`/projects/${id}/assets/${assetId}`, { method: "DELETE" });
+  },
+  reorderProjectAssets(id: number, ids: number[], lockVersion: number): Promise<Project> {
+    return http<Project>(`/projects/${id}/assets/reorder`, {
+      method: "POST",
+      body: JSON.stringify({ ids, lock_version: lockVersion }),
+    });
+  },
+  projectShots(id: number, query: ProjectShotsQuery): Promise<PageResult<Shot>> {
+    const p = new URLSearchParams();
+    p.set("page", String(query.page));
+    p.set("page_size", String(query.page_size));
+    if (query.source) p.set("source", query.source);
+    if (query.product_id != null) p.set("product_id", String(query.product_id));
+    if (query.review_status) p.set("review_status", query.review_status);
+    if (query.risk) p.set("risk", query.risk);
+    if (query.include_excluded) p.set("include_excluded", "true");
+    return http<PageResult<Shot>>(`/projects/${id}/shots?${p.toString()}`);
+  },
+  addProjectShots(id: number, ids: number[]): Promise<BatchMembershipResult> {
+    return http<BatchMembershipResult>(`/projects/${id}/shots/batch`, {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+  },
+  removeProjectShot(id: number, shotId: number): Promise<void> {
+    return http<void>(`/projects/${id}/shots/${shotId}`, { method: "DELETE" });
+  },
+  reorderProjectShots(id: number, ids: number[], lockVersion: number): Promise<Project> {
+    return http<Project>(`/projects/${id}/shots/reorder`, {
+      method: "POST",
+      body: JSON.stringify({ ids, lock_version: lockVersion }),
+    });
+  },
+  projectProducts(id: number, page = 1, pageSize = 50): Promise<PageResult<Product>> {
+    return http<PageResult<Product>>(
+      `/projects/${id}/products?page=${page}&page_size=${pageSize}`,
+    );
+  },
+  addProjectProducts(id: number, ids: number[]): Promise<BatchMembershipResult> {
+    return http<BatchMembershipResult>(`/projects/${id}/products/batch`, {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+  },
+  removeProjectProduct(id: number, productId: number): Promise<void> {
+    return http<void>(`/projects/${id}/products/${productId}`, { method: "DELETE" });
+  },
+  projectScripts(id: number, page = 1, pageSize = 20): Promise<ScriptListResponse> {
+    return http<ScriptListResponse>(
+      `/projects/${id}/scripts?page=${page}&page_size=${pageSize}`,
+    );
+  },
+  attachProjectScript(id: number, scriptId: number): Promise<ScriptProject> {
+    return http<ScriptProject>(`/projects/${id}/scripts/${scriptId}`, { method: "POST" });
+  },
+  detachProjectScript(id: number, scriptId: number): Promise<ScriptProject> {
+    return http<ScriptProject>(`/projects/${id}/scripts/${scriptId}`, { method: "DELETE" });
+  },
+  listProjectCollections(projectId: number, page = 1, pageSize = 20): Promise<CollectionListResponse> {
+    return http<CollectionListResponse>(
+      `/projects/${projectId}/collections?page=${page}&page_size=${pageSize}`,
+    );
+  },
+  createCollection(projectId: number, req: CollectionCreateRequest): Promise<Collection> {
+    return http<Collection>(`/projects/${projectId}/collections`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  },
+  getCollection(id: number): Promise<Collection> {
+    return http<Collection>(`/collections/${id}`);
+  },
+  updateCollection(id: number, req: CollectionUpdateRequest): Promise<Collection> {
+    return http<Collection>(`/collections/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(req),
+    });
+  },
+  deleteCollection(id: number): Promise<void> {
+    return http<void>(`/collections/${id}`, { method: "DELETE" });
+  },
+  collectionShots(id: number, page = 1, pageSize = 24): Promise<PageResult<Shot>> {
+    return http<PageResult<Shot>>(`/collections/${id}/shots?page=${page}&page_size=${pageSize}`);
+  },
+  addCollectionShots(id: number, ids: number[]): Promise<BatchMembershipResult> {
+    return http<BatchMembershipResult>(`/collections/${id}/shots/batch`, {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+  },
+  removeCollectionShot(id: number, shotId: number): Promise<void> {
+    return http<void>(`/collections/${id}/shots/${shotId}`, { method: "DELETE" });
+  },
+  reorderCollectionShots(id: number, ids: number[], lockVersion: number): Promise<Collection> {
+    return http<Collection>(`/collections/${id}/shots/reorder`, {
+      method: "POST",
+      body: JSON.stringify({ ids, lock_version: lockVersion }),
+    });
   },
 };

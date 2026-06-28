@@ -927,3 +927,131 @@ export interface SegmentLockRequest {
   allow_override?: boolean;
   force?: boolean;
 }
+
+// ===== PR-06A 项目 / 静态镜头集合（与后端 schemas/project.py、collection.py 对齐）=====
+
+export type ProjectStatus = "active" | "archived";
+// 项目可见镜头来源：all=三源并集 / asset=素材派生 / explicit=显式加入 / collection=集合内
+export type ProjectShotSource = "all" | "asset" | "explicit" | "collection";
+
+export interface Project {
+  id: number;
+  name: string;
+  description: string | null;
+  status: ProjectStatus;
+  archived_at: string | null;
+  lock_version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectListResponse {
+  items: Project[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface ProjectStats {
+  project_id: number;
+  asset_count: number;
+  visible_shot_count: number;
+  explicit_shot_count: number;
+  collection_count: number;
+  collection_shot_count: number;
+  product_count: number;
+  script_count: number;
+  active_script_count: number;
+  locked_segment_count: number;
+  gap_segment_count: number;
+  completed_script_export_count: number;
+  risk_shot_count: number;
+  searchable_shot_count: number;
+  updated_at: string;
+}
+
+export interface ProjectAssetItem {
+  order_index: number;
+  asset: Asset;
+}
+
+export interface ProjectAssetListResponse {
+  items: ProjectAssetItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface Collection {
+  id: number;
+  project_id: number;
+  name: string;
+  description: string | null;
+  lock_version: number;
+  created_at: string;
+  updated_at: string;
+  shot_count: number;
+}
+
+export interface CollectionListResponse {
+  items: Collection[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+// 批量成员操作结果（completed/skipped/failed；与后端事务语义一致）
+export interface BatchFailure {
+  id: number;
+  error: string;
+}
+
+export interface BatchMembershipResult {
+  completed: number[];
+  skipped: number[];
+  failed: BatchFailure[];
+}
+
+// ---- 请求体 ----
+
+export interface ProjectCreateRequest {
+  name: string;
+  description?: string | null;
+}
+
+export interface ProjectUpdateRequest {
+  lock_version: number;
+  name?: string;
+  description?: string | null;
+}
+
+export interface MemberBatchRequest {
+  ids: number[];
+  token?: string | null;
+}
+
+export interface MemberReorderRequest {
+  ids: number[];
+  lock_version: number;
+}
+
+export interface CollectionCreateRequest {
+  name: string;
+  description?: string | null;
+}
+
+export interface CollectionUpdateRequest {
+  lock_version: number;
+  name?: string;
+  description?: string | null;
+}
+
+export interface ProjectShotsQuery {
+  source?: ProjectShotSource;
+  product_id?: number;
+  review_status?: ReviewStatus;
+  risk?: string;
+  include_excluded?: boolean;
+  page: number;
+  page_size: number;
+}

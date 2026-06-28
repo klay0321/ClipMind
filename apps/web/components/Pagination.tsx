@@ -5,17 +5,19 @@ export function Pagination({
   pageSize,
   total,
   onPageChange,
+  noun = "素材",
 }: {
   page: number;
   pageSize: number;
   total: number;
   onPageChange: (page: number) => void;
+  noun?: string;
 }) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   return (
     <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3 text-sm text-gray-600">
       <span>
-        共 {total} 个素材 · 第 {page} / {totalPages} 页
+        共 {total} 个{noun} · 第 {page} / {totalPages} 页
       </span>
       <div className="flex gap-2">
         <button

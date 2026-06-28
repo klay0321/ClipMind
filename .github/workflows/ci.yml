@@ -335,6 +335,17 @@ jobs:
           for flag in SCRIPT_UI_E2E_OK SCRIPT_CANDIDATE_UI_E2E_OK SCRIPT_LOCK_UI_E2E_OK SCRIPT_EDIT_LIST_UI_E2E_OK SCRIPT_CSV_UI_E2E_OK; do
             grep -q "$flag" script-ui.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: PR-06A 项目/集合 UI E2E（真实页面：创建→成员→集合→归档只读→删除安全；合成数据）
+        working-directory: e2e
+        env:
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          npx playwright test projects-ui.spec.ts --grep-invert @persist | tee projects-ui.log
+          for flag in PROJECTS_UI_E2E_OK PROJECTS_MEMBERS_UI_E2E_OK COLLECTIONS_UI_E2E_OK PROJECTS_ARCHIVE_UI_E2E_OK PROJECTS_DELETE_SAFETY_UI_E2E_OK; do
+            grep -q "$flag" projects-ui.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: 重启 API/web/search-worker/export-worker 后持久化
         env:
           WEB_BASE: http://localhost:3000
@@ -354,6 +365,8 @@ jobs:
           grep -q "SEARCH_UI_PERSIST_OK" e2e/persist.log
           ( cd e2e && npx playwright test script-ui.spec.ts --grep @persist | tee script-persist.log )
           grep -q "SCRIPT_UI_PERSIST_OK" e2e/script-persist.log
+          ( cd e2e && npx playwright test projects-ui.spec.ts --grep @persist | tee projects-persist.log )
+          grep -q "PROJECTS_UI_PERSIST_OK" e2e/projects-persist.log
       - name: 失败时上传脱敏证据（trace/截图/报告；不含 .env/key/endpoint）
         if: failure()
         uses: actions/upload-artifact@v4

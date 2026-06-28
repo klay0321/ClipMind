@@ -16,6 +16,10 @@ class HealthReadyOut(BaseModel):
     database: bool
     redis: bool
     ffprobe: bool
+    # 迁移就绪：DB revision 是否已到迁移脚本 head（落后 → migration_ok=false 且整体 503）
+    migration_ok: bool = True
+    migration_current: str | None = None
+    migration_head: str | None = None
     detail: dict[str, str] = {}
 
 

@@ -61,6 +61,11 @@ def export_dir(root_real: str, export_uuid: str) -> str:
     return _join(root_real, "exports", export_uuid)
 
 
+def script_export_dir(root_real: str, export_uuid: str) -> str:
+    """脚本剪辑清单 CSV 导出目录（与片段视频导出 exports/ 分离）。"""
+    return _join(root_real, "script_exports", export_uuid)
+
+
 def ensure_dir(path: str) -> str:
     os.makedirs(path, exist_ok=True)
     return path

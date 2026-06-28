@@ -33,6 +33,9 @@ class WorkerSettings(BaseSettings):
     # 写派生文件前要求 data_dir 至少剩余的空间（MiB）
     disk_min_free_mb: int = 500
 
+    # PR-05 Gate B：全局分配中单 shot 默认最多分配段数（CSV 导出与 API 须取同值）
+    script_match_max_reuse: int = 1
+
     # ---- 镜头检测参数（可被环境变量覆盖；为初始默认值，非写死业务规则）----
     shot_detector_type: str = "pyscenedetect"   # pyscenedetect | fixed
     scene_threshold: float = 27.0

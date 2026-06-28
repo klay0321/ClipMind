@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""PR-05 Gate B：已有数据库升级路径端到端（0008 → 0009）。
+
+复现并验证"已有数据库升级"可靠性：用独立测试库 ``clipmind_upgrade_test``（绝不碰真实业务库）
+migrate 至 0008 → 写入 Gate A 业务数据 → 运行**正式升级命令** ``scripts/db_upgrade.sh``
+（内部 ``docker compose run --rm migrate``，不依赖 up -d 的 migrate 跳过行为）→ 自动到 0009、
+Gate B 表/列出现、旧数据不丢 → 再次升级幂等。
+
+输出：
+    SCRIPT_DB_UPGRADE_OK
+    SCRIPT_DB_UPGRADE_IDEMPOTENT_OK
+
+用法（需 compose 栈的 postgres 在运行）：
+    python scripts/ci_db_upgrade_e2e.py
+"""
+
+from __future__ import annotations
+
+import os
+import platform
+import subprocess
+import sys
+
+TEST_DB = "clipmind_upgrade_test"
+
+
+def _bash() -> str:
+    """选择正确的 bash：Windows 用 Git Bash（避免 WSL bash 拦截无法访问 docker）；Linux/CI 用 bash。"""
+    if platform.system() == "Windows":
+        for p in (
+            r"C:\Program Files\Git\bin\bash.exe",
+            r"C:\Program Files (x86)\Git\bin\bash.exe",
+        ):
+            if os.path.exists(p):
+                return p
+    return "bash"
+ASYNC_URL = f"postgresql+asyncpg://clipmind:clipmind@postgres:5432/{TEST_DB}"
+
+
+def _run(cmd: list[str], **kw) -> subprocess.CompletedProcess[str]:
+    # errors="replace"：docker/compose 在部分平台输出非 UTF-8 字节，宽松解码避免崩溃
+    return subprocess.run(
+        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", **kw
+    )
+
+
+def psql(db: str, sql: str, *, single=True) -> str:
+    cmd = ["docker", "compose", "exec", "-T", "postgres", "psql", "-U", "clipmind", "-d", db]
+    cmd += (["-tAc", sql] if single else ["-c", sql])
+    out = _run(cmd, timeout=60)
+    if out.returncode != 0:
+        print(f"psql 失败: {out.stderr.strip()}", file=sys.stderr)
+    return out.stdout.strip()
+
+
+def compose_migrate(database_url: str, *extra_args: str) -> subprocess.CompletedProcess[str]:
+    cmd = ["docker", "compose", "run", "--rm", "-e", f"DATABASE_URL={database_url}", "migrate"]
+    cmd += list(extra_args)
+    return _run(cmd, timeout=300)
+
+
+def db_upgrade_script(database_url: str) -> subprocess.CompletedProcess[str]:
+    env = {**os.environ, "DB_UPGRADE_DATABASE_URL": database_url}
+    return _run([_bash(), "scripts/db_upgrade.sh"], env=env, timeout=300)
+
+
+def main() -> None:
+    # 0. 重建独立测试库（CREATE DATABASE 不能在事务中，单独执行）
+    psql("postgres", f"DROP DATABASE IF EXISTS {TEST_DB}")
+    psql("postgres", f"CREATE DATABASE {TEST_DB}")
+
+    # 1. 升级到 0008（模拟"已有 Gate A 数据库"）
+    r = compose_migrate(ASYNC_URL, "alembic", "upgrade", "0008_script_matching")
+    assert r.returncode == 0, f"upgrade 0008 失败: {r.stderr}"
+    rev = psql(TEST_DB, "select version_num from alembic_version")
+    assert rev == "0008_script_matching", f"应停在 0008，实际 {rev}"
+    no_export = psql(TEST_DB, "select to_regclass('public.script_export')")
+    assert no_export in ("", "\\N"), f"0008 不应有 script_export，实际 {no_export!r}"
+    print(f"  baseline at {rev}; script_export absent")
+
+    # 2. 写入 Gate A 业务数据（升级须保留）
+    psql(
+        TEST_DB,
+        "insert into script_project(name, raw_script, source_format, status, parse_status, "
+        "result_schema_version, created_at, updated_at) "
+        "values('upgrade-marker','x','paste','parsed','ok',1, now(), now())",
+    )
+    pid = psql(TEST_DB, "select id from script_project where name='upgrade-marker'")
+    psql(
+        TEST_DB,
+        "insert into script_segment(script_project_id, order_index, segment_text, "
+        "allow_similar_scene, allow_similar_action, current_generation, lock_version, "
+        "candidates_stale, created_at, updated_at) "
+        f"values({pid}, 0, 'marker-seg', true, true, 1, 0, false, now(), now())",
+    )
+    seg_before = psql(TEST_DB, f"select count(*) from script_segment where script_project_id={pid}")
+    print(f"  seeded Gate A data: project={pid} segments={seg_before}")
+
+    # 3. 正式升级命令（db_upgrade.sh → docker compose run --rm migrate）
+    up = db_upgrade_script(ASYNC_URL)
+    assert up.returncode == 0, "db_upgrade.sh 非零退出"
+    assert up.stdout and "SCRIPT_DB_UPGRADE_OK" in up.stdout, "db_upgrade.sh 未输出 OK 标志"
+    print("  db_upgrade.sh ran: SCRIPT_DB_UPGRADE_OK emitted by official command")
+
+    # 4. 自动到 0009 + Gate B 表/列出现 + 旧数据不丢
+    rev2 = psql(TEST_DB, "select version_num from alembic_version")
+    assert rev2 == "0009_script_matching_selection", f"应到 0009，实际 {rev2}"
+    has_export = psql(TEST_DB, "select to_regclass('public.script_export')")
+    assert has_export == "script_export", "0009 应有 script_export 表"
+    has_col = psql(
+        TEST_DB,
+        "select count(*) from information_schema.columns where table_name='script_segment' "
+        "and column_name='selected_shot_id'",
+    )
+    assert has_col == "1", "script_segment 应有 selected_shot_id 列"
+    seg_after = psql(TEST_DB, f"select count(*) from script_segment where script_project_id={pid}")
+    assert seg_after == seg_before, f"升级后业务数据丢失：{seg_before} -> {seg_after}"
+    print(f"  upgraded to {rev2}; script_export+selected_shot_id present; data preserved "
+          f"(segments={seg_after})")
+    print("SCRIPT_DB_UPGRADE_OK")
+
+    # 5. 再次升级幂等（仍 0009，无错误，数据不变）
+    up2 = db_upgrade_script(ASYNC_URL)
+    assert up2.returncode == 0, f"幂等升级失败: {up2.stderr}"
+    rev3 = psql(TEST_DB, "select version_num from alembic_version")
+    seg_final = psql(TEST_DB, f"select count(*) from script_segment where script_project_id={pid}")
+    assert rev3 == "0009_script_matching_selection" and seg_final == seg_before, "幂等升级破坏状态"
+    print(f"  idempotent re-run: still {rev3}, data intact (segments={seg_final})")
+    print("SCRIPT_DB_UPGRADE_IDEMPOTENT_OK")
+
+    # 6. 清理测试库（绝不碰真实业务库）
+    psql("postgres", f"DROP DATABASE IF EXISTS {TEST_DB}")
+
+
+if __name__ == "__main__":
+    main()

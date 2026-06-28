@@ -508,6 +508,10 @@ async def _channel_vector(db, m, qvec, version, pool) -> list[tuple[int, float]]
         ShotSearchDocument.embedding_status == SearchEmbeddingStatus.COMPLETED,
         ShotSearchDocument.embedding.isnot(None),
         ShotSearchDocument.embedding_version == version,
+        # 历史空检索文档防御：空串向量对任意查询给近似恒定相似度，污染排序。
+        # 仅排除真正“无任何文本”的文档（含标签/产品的退化文档其 normalized_document 非空，
+        # 仍参与向量召回）。词法/标签/产品通道天然不会命中空文档，故只在此通道加固。
+        func.length(func.coalesce(func.trim(ShotSearchDocument.normalized_document), "")) > 0,
     )
     stmt = stmt.order_by(dist.asc(), Shot.id).limit(pool)
     rows = (await db.execute(stmt)).all()
@@ -1212,6 +1216,23 @@ async def run_description_match(
         page_size=request.limit,
     )
     m = _merge(parsed, base_req)
+    # 显式结构化软信号并入软通道（解析结果 + 段落 structured_requirements 合并去重）。
+    # 注意：并入 m.scenes/actions（软召回），而非 m.hard_scenes（始终硬）——是否升格为硬过滤
+    # 由下方 require_scene/require_action（allow_similar_*=False）统一决定。
+    m.scenes = _dedupe(m.scenes, request.scenes)
+    m.actions = _dedupe(m.actions, request.actions)
+    m.shot_types = _dedupe(m.shot_types, request.shot_types)
+    m.marketing_uses = _dedupe(m.marketing_uses, request.marketing_uses)
+    m.quality_levels = _dedupe(m.quality_levels, request.quality_levels)
+    m.negative_terms = _dedupe(m.negative_terms, request.negative_terms)
+    m.brands = _dedupe(m.brands, request.brands)
+    m.models = _dedupe(m.models, request.models)
+    m.skus = _dedupe(m.skus, request.skus)
+    # 脚本匹配：忽略从文本解析出的时长，不据此硬过滤（时长是软偏好，单独算建议）。
+    # 显式 request.duration_min/max（若传）不受影响，仍生效。
+    if request.suppress_parsed_duration:
+        m.duration_min = request.duration_min
+        m.duration_max = request.duration_max
     _validate_conflicts(m)
     m.require_scene = not request.allow_similar_scene
     m.require_action = not request.allow_similar_action

@@ -73,6 +73,15 @@ def _find_project_id() -> int | None:
     return None
 
 
+def _candidate_count(project_id: int) -> int:
+    """本脚本项目的候选数（Gate B 会为其它脚本写候选，故 Gate A 断言须按项目限定）。"""
+    return _int(
+        "select count(*) from script_shot_candidate c "
+        "join script_segment s on c.script_segment_id = s.id "
+        f"where s.script_project_id = {int(project_id)}"
+    )
+
+
 def run_full() -> None:
     # 1. 创建 + 哈希幂等
     p1, c1 = jreq("POST", "/api/scripts", {"name": NAME, "raw_script": SCRIPT})
@@ -119,10 +128,10 @@ def run_full() -> None:
     assert [s["order_index"] for s in rev["segments"]] == list(range(n)), "重排后 order 连续"
     print("  reorder OK")
 
-    # 5. 候选表保持为空（Gate A 不伪造候选）
-    cand = _int("select count(*) from script_shot_candidate")
+    # 5. 本脚本候选表保持为空（Gate A 不伪造候选；按本项目限定，避免与 Gate B 其它脚本的候选混淆）
+    cand = _candidate_count(sid)
     assert cand == 0, f"Gate A 不应有候选，实际 {cand}"
-    print(f"  candidate table empty ({cand})")
+    print(f"  candidate table empty for this script ({cand})")
 
     print("SCRIPT_GATE_A_E2E_OK")
 
@@ -137,8 +146,8 @@ def run_check_persist() -> None:
     assert n >= 3, f"重启后段落丢失，实际 {n}"
     assert [s["order_index"] for s in segs] == list(range(n)), "重启后 order 必须仍连续"
     assert any(s["lock_version"] >= 1 for s in segs), "重启后编辑过的 lock_version 必须仍在"
-    cand = _int("select count(*) from script_shot_candidate")
-    assert cand == 0, f"重启后候选表应仍为空，实际 {cand}"
+    cand = _candidate_count(sid)
+    assert cand == 0, f"重启后本脚本候选表应仍为空，实际 {cand}"
     print(f"  persisted script id={sid} segments={n} (order+lock_version intact, candidates empty)")
     print("SCRIPT_GATE_A_PERSIST_OK")
 

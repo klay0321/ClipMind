@@ -98,6 +98,8 @@ jobs:
           echo "AI_PROVIDER=fake" >> .env
           # PR-04：用确定性 FakeEmbedding 让检索文档索引链路水密验证（不下载 torch/模型）
           echo "EMBEDDING_PROVIDER=fake" >> .env
+          # PR-05 Gate B：Fake 向量相似度不稳定，置 0 让已索引镜头均成候选，匹配链路可确定性回归
+          echo "SCRIPT_MATCH_MIN_SCORE=0.0" >> .env
           docker compose build
       - name: 启动全栈
         run: docker compose up -d
@@ -113,7 +115,7 @@ jobs:
             sleep 3
           done
           docker compose ps
-          for svc in web worker media-worker ai-worker search-worker; do
+          for svc in web worker media-worker ai-worker search-worker export-worker; do
             state=$(docker compose ps "$svc" --format '{{.State}}')
             echo "$svc: $state"
             [ "$state" = "running" ] || { echo "$svc 未运行"; exit 1; }
@@ -161,6 +163,23 @@ jobs:
           set -o pipefail
           python scripts/ci_script_gate_a_e2e.py --mode full | tee script_gate_a.log
           grep -q "SCRIPT_GATE_A_E2E_OK" script_gate_a.log
+      - name: 脚本匹配 Gate B 端到端（匹配→选择→锁定→重匹配→剪辑清单→CSV；export-worker）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          state=$(docker compose ps export-worker --format '{{.State}}')
+          [ "$state" = "running" ] || { echo "export-worker 未运行: $state"; exit 1; }
+          python scripts/ci_script_gate_b_e2e.py --mode full | tee script_gate_b.log
+          for flag in SCRIPT_MATCH_E2E_OK SCRIPT_LOCK_E2E_OK SCRIPT_EDIT_LIST_E2E_OK SCRIPT_CSV_E2E_OK; do
+            grep -q "$flag" script_gate_b.log || { echo "缺少标志 $flag"; exit 1; }
+          done
+      - name: 已有数据库升级路径端到端（0008→0009 + 幂等；独立测试库，不碰业务库）
+        run: |
+          set -o pipefail
+          python scripts/ci_db_upgrade_e2e.py | tee db_upgrade.log
+          grep -q "SCRIPT_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "SCRIPT_DB_UPGRADE_IDEMPOTENT_OK" db_upgrade.log
       - name: AI 链路 DB 级持久化断言（不以 Celery task 自报成功为准）
         run: |
           q() { docker compose exec -T postgres psql -U clipmind -d clipmind -tAc "$1"; }
@@ -179,7 +198,7 @@ jobs:
         env:
           API_BASE: http://localhost:8000
         run: |
-          docker compose restart api worker media-worker ai-worker search-worker
+          docker compose restart api worker media-worker ai-worker search-worker export-worker
           for i in $(seq 1 40); do
             [ "$(docker compose ps api --format '{{.Health}}')" = "healthy" ] && break
             sleep 3
@@ -191,6 +210,8 @@ jobs:
           set -o pipefail
           python scripts/ci_script_gate_a_e2e.py --mode check-persist | tee script_gate_a_persist.log
           grep -q "SCRIPT_GATE_A_PERSIST_OK" script_gate_a_persist.log
+          python scripts/ci_script_gate_b_e2e.py --mode check-persist | tee script_gate_b_persist.log
+          grep -q "SCRIPT_GATE_B_PERSIST_OK" script_gate_b_persist.log
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |
@@ -201,6 +222,7 @@ jobs:
           echo "===== media-worker logs ====="; docker compose logs media-worker || true
           echo "===== ai-worker logs ====="; docker compose logs ai-worker || true
           echo "===== search-worker logs ====="; docker compose logs search-worker || true
+          echo "===== export-worker logs ====="; docker compose logs export-worker || true
           echo "===== postgres logs ====="; docker compose logs postgres || true
           echo "===== AI / 检索链路计数 ====="
           docker compose exec -T postgres psql -U clipmind -d clipmind -tAc "select 'run:'||status, count(*) from ai_analysis_run group by status; select 'ai_shot', count(*) from ai_shot_analysis; select 'shot_tag_active', count(*) from shot_tag where active; select 'review:'||review_status, count(*) from shot_review_state group by review_status; select 'searchdoc_emb:'||embedding_status, count(*) from shot_search_document group by embedding_status; select 'searchdoc_doc:'||document_status, count(*) from shot_search_document group by document_status;" || true

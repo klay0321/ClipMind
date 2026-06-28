@@ -138,7 +138,9 @@ async def test_dynamic_collection_crud_and_archived_guard(client, monkeypatch):
 
     # run（实时计算，stub）
     _stub_search(monkeypatch, "app.routers.dynamic_collections")
-    r = await client.get(f"/api/dynamic-collections/{did}/shots", params={"page": 1, "page_size": 5})
+    r = await client.get(
+        f"/api/dynamic-collections/{did}/shots", params={"page": 1, "page_size": 5}
+    )
     assert r.status_code == 200
 
     # 归档项目下只读：创建/修改 409

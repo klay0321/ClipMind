@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-type NavKey = "assets" | "shots" | "products" | "search" | "script";
+type NavKey = "projects" | "assets" | "shots" | "products" | "search" | "script";
 
 export function TopNav({ active }: { active?: NavKey }) {
   const linkCls = (key: NavKey) =>
@@ -14,6 +14,14 @@ export function TopNav({ active }: { active?: NavKey }) {
           ClipMind
         </Link>
         <nav className="flex items-center gap-4 text-sm">
+          <Link
+            href="/projects"
+            className={linkCls("projects")}
+            data-testid="nav-projects"
+            aria-current={active === "projects" ? "page" : undefined}
+          >
+            项目
+          </Link>
           <Link href="/assets" className={linkCls("assets")} aria-current={active === "assets" ? "page" : undefined}>
             素材库
           </Link>

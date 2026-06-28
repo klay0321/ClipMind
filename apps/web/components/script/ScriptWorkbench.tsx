@@ -151,6 +151,7 @@ export function ScriptWorkbench({ scriptId }: { scriptId: number | null }) {
                         variant="outline"
                         size="sm"
                         className="w-full"
+                        data-testid="open-candidates"
                         onClick={() => setCandidateOpen(true)}
                       >
                         查看选中段候选镜头 →

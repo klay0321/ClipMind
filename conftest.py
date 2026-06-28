@@ -77,7 +77,9 @@ def _truncate():
     with engine.begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE script_shot_candidate, script_segment, script_project, "
+                "TRUNCATE collection_shot, collection, "
+                "project_product, project_shot, project_asset, project, "
+                "script_shot_candidate, script_segment, script_project, "
                 "shot_search_document, review_event, shot_review_state, shot_tag, tag, "
                 "asset_product, product_image, product_alias, product, "
                 "ai_call_log, ai_shot_analysis, ai_analysis_run, "

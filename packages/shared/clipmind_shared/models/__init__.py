@@ -11,6 +11,7 @@ from clipmind_shared.models.ai_analysis import (
     AIShotAnalysis,
 )
 from clipmind_shared.models.asset import Asset
+from clipmind_shared.models.collection import Collection, CollectionShot
 from clipmind_shared.models.enums import (
     ACTIVE_AI_RUN_STATUSES,
     ACTIVE_MEDIA_RUN_STATUSES,
@@ -26,6 +27,7 @@ from clipmind_shared.models.enums import (
     ExportStatus,
     MediaRunStatus,
     ProductStatus,
+    ProjectStatus,
     ReviewAction,
     ReviewStatus,
     ScanRunStatus,
@@ -45,6 +47,12 @@ from clipmind_shared.models.product import (
     Product,
     ProductAlias,
     ProductImage,
+)
+from clipmind_shared.models.project import (
+    Project,
+    ProjectAsset,
+    ProjectProduct,
+    ProjectShot,
 )
 from clipmind_shared.models.review import (
     ReviewEvent,
@@ -117,4 +125,12 @@ __all__ = [
     "ScriptExport",
     "ScriptStatus",
     "ScriptParseStatus",
+    # PR-06A 项目 / 收藏 / 素材集合
+    "Project",
+    "ProjectAsset",
+    "ProjectShot",
+    "ProjectProduct",
+    "Collection",
+    "CollectionShot",
+    "ProjectStatus",
 ]

@@ -69,11 +69,18 @@ ClipMind 是面向公司 NAS 部署的 **AI 视频素材管理与智能匹配系
 - 范围：粘贴脚本 + TXT/Markdown/Word 导入；段落拆分；画面需求/产品/动作/场景/卖点提取；每段候选镜头 + 匹配度 + 推荐理由；时长适配；同镜头去重 + 相邻差异化；风险过滤；无素材提示 + 补拍建议；人工选择 + 入点/出点；剪辑清单（CSV 起）；UI 参考图 03 完整。
 - 退出标准：脚本→剪辑清单闭环可用、入/出点与时长正确；CI 全绿。
 
-### PR-06 — 项目·收藏·导出闭环（分支 `feat/projects-collections-exports`，迁移 `0009_projects_collections`）— 计划中
-- 范围：项目/收藏/素材集合/保存搜索/保存脚本/保存剪辑清单；批量选择镜头；导出 CSV/XLSX/JSON/Markdown/ZIP；镜头片段 + 清单打包；导出历史 + 下载记录。
+### PR-06 — 项目·收藏·导出闭环 — 计划中（已拆分为 PR-06A / PR-06B）
+> 编号修正：真实迁移链已用到 `0009_script_matching_selection`（PR-05 Gate B），故 PR-06 迁移顺延为
+> **`0010_projects_collections`**（早期本表误标 `0009`）。整体范围过大，拆分为两个独立分支/PR：
+
+- **PR-06A — 项目与静态镜头集合（分支 `feat/projects-collections-foundation`，迁移 `0010_projects_collections`）**
+  - 范围：Project；Project↔Asset/Shot/Product 业务关联；静态 Shot Collection；`ScriptProject.project_id`（可空 SET NULL）；项目统计；后端 API；Fake 测试；真实本地素材 API 验收；后续 Gate C 项目/集合 UI。
+  - **不含**：Saved Search、Favorite、动态 Collection、统一 Export Center、多格式导出、ZIP 打包、下载历史、Export/ScriptExport 项目关联、bundle_export、Project 删除（删除留待 PR-07）。
+- **PR-06B — 保存搜索·收藏·导出中心（独立分支/PR，迁移顺延）**
+  - 范围：Saved Search；Favorite；动态 Collection；统一 Export Center（只读聚合）；多格式导出（XLSX/JSON/Markdown）；ZIP 片段+清单打包；下载历史；Export/ScriptExport 项目关联；bundle export。
 - 退出标准：项目/收藏/多格式导出可用、导出可追溯；CI 全绿。
 
-### PR-07 — 用户·权限·后台管理（分支 `feat/auth-admin-audit`，迁移 `0010_auth_admin_audit`）— 计划中
+### PR-07 — 用户·权限·后台管理（分支 `feat/auth-admin-audit`，迁移 `0011_auth_admin_audit`）— 计划中
 - 范围：登录 + 密码哈希 + Session/JWT；用户/角色/权限矩阵（管理员/素材管理员/运营/剪辑/只读）；API/下载/审核/配置权限；登录日志 + 操作审计；任务中心；AI 配置/NAS 目录配置/标签管理/风险规则/系统设置。
 - 退出标准：权限生效、审计有效、后台可配置；CI 全绿。
 
@@ -98,10 +105,11 @@ ClipMind 是面向公司 NAS 部署的 **AI 视频素材管理与智能匹配系
 | PR-03A | `feat/ai-analysis-foundation` | `0005_ai_analysis` | **ai-worker(`ai`)** | 否 |
 | PR-03B | `feat/ai-review-product-library` | `0006_ai_review_products` | — | 否 |
 | PR-04 | `feat/semantic-shot-search` | `0007_semantic_search` | **search-worker(`search`)** + 可选 embedder | **启用** |
-| PR-05 | `feat/script-shot-matching` | `0008_script_matching` | export-worker(`export`) | 已启用 |
-| PR-06 | `feat/projects-collections-exports` | `0009_projects_collections` | — | 已启用 |
-| PR-07 | `feat/auth-admin-audit` | `0010_auth_admin_audit` | — | 已启用 |
-| PR-08 | `feat/nas-production-operations` | `0011_ops_retention`（如需） | **beat/scheduler** | 已启用 |
+| PR-05 | `feat/script-shot-matching` | `0008_script_matching` (+`0009_script_matching_selection` Gate B) | export-worker(`export`) | 已启用 |
+| PR-06A | `feat/projects-collections-foundation` | `0010_projects_collections` | — | 已启用 |
+| PR-06B | （独立分支，待定） | （顺延，如 `0011_export_center`） | — | 已启用 |
+| PR-07 | `feat/auth-admin-audit` | `0012_auth_admin_audit` | — | 已启用 |
+| PR-08 | `feat/nas-production-operations` | `0013_ops_retention`（如需） | **beat/scheduler** | 已启用 |
 | PR-09 | `release/v1-hardening` | —（仅加固/索引优化迁移如需） | — | 已启用 |
 
 > 所有迁移只增不毁、可正向与回退；每个 PR 从最新 main 开分支、可独立验收。

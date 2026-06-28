@@ -17,7 +17,7 @@ from typing import Any
 
 from clipmind_shared.models import AIShotAnalysis, Shot, ShotReviewState, ShotTag, Tag
 from clipmind_shared.models.enums import ReviewStatus, ShotStatus, TagType
-from sqlalchemy import Text, and_, case, cast, exists, func, literal, or_, select
+from sqlalchemy import Select, Text, and_, case, cast, exists, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _HUMAN = (ReviewStatus.CONFIRMED.value, ReviewStatus.MODIFIED.value)
@@ -91,6 +91,7 @@ async def filter_shots(
     quality: str | None = None,
     risk: str | None = None,
     include_excluded: bool = False,
+    restrict_shot_ids: Select | None = None,
     sort: str = "sequence",
     page: int = 1,
     page_size: int = 24,
@@ -99,6 +100,9 @@ async def filter_shots(
 
     if asset_id is not None:
         conds.append(Shot.asset_id == asset_id)
+    # PR-06A：限制到给定 shot_id 子查询（项目可见镜头并集），复用全部既有筛选/排序/分页
+    if restrict_shot_ids is not None:
+        conds.append(Shot.id.in_(restrict_shot_ids))
     if review_status is not None:
         conds.append(ShotReviewState.review_status == review_status)
     if has_ai_result is True:

@@ -13,9 +13,11 @@ from app.config import get_settings
 from app.routers import (
     ai,
     assets,
+    collections,
     exports,
     health,
     products,
+    projects,
     review,
     scripts,
     search,
@@ -59,3 +61,5 @@ app.include_router(products.router, prefix="/api")
 app.include_router(tags.router, prefix="/api")
 app.include_router(search.router, prefix="/api")
 app.include_router(scripts.router, prefix="/api")
+app.include_router(projects.router, prefix="/api")
+app.include_router(collections.router, prefix="/api")

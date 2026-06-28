@@ -80,7 +80,8 @@ def _find_project_id() -> int | None:
 def _setup_script() -> tuple[int, list[dict]]:
     p1, c1 = jreq("POST", "/api/scripts", {"name": NAME, "raw_script": SCRIPT})
     sid = p1["id"]
-    detail, _ = jreq("POST", f"/api/scripts/{sid}/parse", {"parser": "fake"})
+    # force=true 让本 E2E 可重复运行：清掉上次运行残留的锁定段落（fresh DB 上 force 无副作用）
+    detail, _ = jreq("POST", f"/api/scripts/{sid}/parse?force=true", {"parser": "fake"})
     assert detail["parse_status"] == "ok", detail
     segs = detail["segments"]
     assert len(segs) >= 2, f"需要 >=2 段，实际 {len(segs)}"

@@ -58,6 +58,7 @@ from clipmind_shared.models.script import (
     ScriptSegment,
     ScriptShotCandidate,
 )
+from clipmind_shared.models.script_export import ScriptExport
 from clipmind_shared.models.search import EMBEDDING_DIM, ShotSearchDocument
 from clipmind_shared.models.shot import Shot
 from clipmind_shared.models.source_directory import SourceDirectory
@@ -113,6 +114,7 @@ __all__ = [
     "ScriptProject",
     "ScriptSegment",
     "ScriptShotCandidate",
+    "ScriptExport",
     "ScriptStatus",
     "ScriptParseStatus",
 ]

@@ -21,6 +21,8 @@ TASK_REBUILD_SHOT_SEARCH_DOC = "clipmind.rebuild_shot_search_doc"
 TASK_REBUILD_ASSET_SEARCH_DOCS = "clipmind.rebuild_asset_search_docs"
 TASK_SWEEP_SEARCH_DOCS = "clipmind.sweep_search_docs"
 TASK_BACKFILL_SEARCH_DOCS = "clipmind.backfill_search_docs"
+# PR-05 Gate B 脚本剪辑清单 CSV 导出（export 队列）
+TASK_EXPORT_SCRIPT_CSV = "clipmind.export_script_csv"
 
 # ----- Celery 队列名 -----
 # PR-01 worker 只消费 default + scan；media/ai/export 为后续 PR 预留（不运行）

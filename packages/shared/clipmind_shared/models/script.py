@@ -102,12 +102,28 @@ class ScriptSegment(Base):
 
     # 重匹配代次：候选随代次原子替换（Gate B）
     current_generation: Mapped[int] = mapped_column(Integer, default=1)
+    # 人工选择的镜头（Gate B）：当前人工选中的 shot；区别于"锁定"。
+    # 选择 = 当前选中；锁定 = 后续自动匹配不得覆盖。镜头删除时清空（SET NULL）。
+    selected_shot_id: Mapped[int | None] = mapped_column(
+        ForeignKey("shot.id", ondelete="SET NULL"), nullable=True
+    )
     # 人工锁定的镜头：重匹配不覆盖；镜头删除时清空（SET NULL）
     locked_shot_id: Mapped[int | None] = mapped_column(
         ForeignKey("shot.id", ondelete="SET NULL"), nullable=True
     )
     # 乐观锁版本：人工编辑/锁定并发保护（Gate B 重匹配须校验）
     lock_version: Mapped[int] = mapped_column(Integer, default=0)
+
+    # 上次匹配结果摘要（Gate B；规则派生，绝不由 LLM 编造）：
+    # - match_status：pending（从未匹配）/ matched（有候选）/ gap（匹配后真实无结果）/ degraded（降级匹配）。
+    # - match_summary(JSONB)：best_score / candidate_count / gap_reasons / reshoot_recommendation /
+    #   requires_human_confirmation / degraded / generation / match_token（幂等）等。
+    # - matched_at：上次匹配完成时刻（NULL=从未匹配，用于区分 pending 与真实 gap）。
+    match_status: Mapped[str] = mapped_column(String(16), default="pending")
+    match_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    matched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     parser_warnings: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
     # 候选是否已过期（段落被编辑后置 true，提示需重匹配；Gate A 不自动重匹配）

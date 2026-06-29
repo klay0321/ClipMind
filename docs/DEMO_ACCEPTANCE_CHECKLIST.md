@@ -2,6 +2,10 @@
 
 逐页验证系统是否就绪。打开 Web（`http://<bind-addr>:<WEB_PORT>`），按顺序核对。
 
+页面入口（顶部导航 + "更多"菜单）：`/assets` 素材管理 · `/shots` AI 镜头拆解 · `/search` 智能匹配 ·
+`/script` 脚本剪辑 · `/projects` 项目 · `/exports` 导出中心 · `/products` 产品库 · `/favorites` 收藏。
+变量与部署见 [CONFIGURATION.md](CONFIGURATION.md) 与 [NAS_DEPLOYMENT.md](NAS_DEPLOYMENT.md)。
+
 ## 核心链路（端到端）
 - [ ] **素材库** `/assets`：能看到 NAS 索引的真实视频；对一个素材触发拆镜头。
 - [ ] **镜头库** `/shots`：拆出的镜头有真实关键帧/缩略图；点开能播放代理视频。

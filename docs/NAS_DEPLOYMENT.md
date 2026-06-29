@@ -39,6 +39,9 @@ cp .env.nas.example .env
 语义检索默认启用内置 `embedder`（多语 e5-small，纯 CPU 可用），首次构建会下载模型并持久化到
 `${CLIPMIND_DATA_ROOT}/models`。
 
+> **每个变量的完整说明**（是否必填 / 是否敏感 / 安全默认 / 修改场景 / 最小可启动与启用真实 MiMo+E5 配置）见
+> [CONFIGURATION.md](CONFIGURATION.md)。
+
 ## 4. 安装与启动
 ```bash
 bash scripts/nas/install.sh
@@ -72,7 +75,10 @@ backups/   备份产物（backup.sh 写入）
 ## 7. 安全
 - 无应用级鉴权 → **仅可信内网/VPN**；公网访问须反代 + HTTPS + 访问控制。
 - 源素材只读；导出删除只删派生文件，绝不碰源。下载只服务派生目录，路径经穿越校验。
-- `.env`/密钥不入镜像、不入日志、不入交付包。
+- `.env`/密钥不入镜像、不入日志、不入公开交付包（公开包只含 `.env.nas.example` 模板）。
+- **老板私密交付包**（由 `scripts/nas/package-boss-handoff.sh` 在本地生成）内含 `private/.env`，
+  其中是**真实敏感配置**（数据库口令、AI 密钥等）。该包**只能通过安全渠道私下传输，绝不上传 GitHub /
+  公开网盘 / 公共聊天群**。安装时把 `private/.env` 复制为部署目录下的 `.env` 即可。
 
 ## 8. 架构兼容
 - **x86_64：已验证**（构建、迁移、核心流程、导出、重启持久均通过）。

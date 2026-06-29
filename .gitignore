@@ -63,6 +63,11 @@ e2e/test-results/
 # ===== 交付包构建产物（NAS 自包含交付包，由 scripts/nas/package.sh 生成，绝不提交）=====
 dist/
 
+# ===== 老板私密交付包 / 私密配置（含真实口令密钥，绝不提交；纵深防御，即使移出 dist 也忽略）=====
+clipmind-boss-delivery*
+*.private.env
+*private-config*
+
 # ===== OS / IDE =====
 .DS_Store
 Thumbs.db

@@ -306,6 +306,26 @@ export function useProducts(q?: string) {
   });
 }
 
+// 每产品绑定计数（绑定素材/镜头/已确认），由 ProductsView 合并到行。
+export function useProductStats() {
+  return useQuery({
+    queryKey: ["product-stats"],
+    queryFn: () => api.productStats(),
+    staleTime: 30_000,
+    select: (data) => {
+      const map: Record<number, { asset_count: number; shot_count: number; confirmed_shot_count: number }> = {};
+      for (const s of data.items) {
+        map[s.product_id] = {
+          asset_count: s.asset_count,
+          shot_count: s.shot_count,
+          confirmed_shot_count: s.confirmed_shot_count,
+        };
+      }
+      return map;
+    },
+  });
+}
+
 // ===== PR-04 Gate B 语义搜索 / 画面描述匹配 =====
 //
 // 注意：与已有 useShotSearch（/shot-search，PR-03B 结构化筛选）不同，这里是 Gate B

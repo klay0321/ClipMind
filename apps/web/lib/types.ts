@@ -290,6 +290,18 @@ export interface Product {
   updated_at: string;
 }
 
+// 每产品绑定计数（只读聚合，/products/stats）。
+export interface ProductStats {
+  product_id: number;
+  asset_count: number;
+  shot_count: number;
+  confirmed_shot_count: number;
+}
+
+export interface ProductStatsListResponse {
+  items: ProductStats[];
+}
+
 export interface TagDict {
   id: number;
   tag_type: TagType;

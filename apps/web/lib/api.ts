@@ -12,6 +12,7 @@ import type {
   PageResult,
   Product,
   ProductCandidate,
+  ProductStatsListResponse,
   RebuildAcceptedResponse,
   ReviewActionInput,
   ReviewActionKind,
@@ -296,6 +297,9 @@ export const api = {
     const p = new URLSearchParams();
     if (q) p.set("q", q);
     return http<Product[]>(`/products?${p.toString()}`);
+  },
+  productStats(): Promise<ProductStatsListResponse> {
+    return http<ProductStatsListResponse>(`/products/stats`);
   },
   listTags(tagType?: string): Promise<TagDict[]> {
     const p = new URLSearchParams();

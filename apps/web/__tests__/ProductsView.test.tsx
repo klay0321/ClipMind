@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProductsView } from "@/components/ProductsView";
 import * as hooks from "@/lib/hooks";
 
-vi.mock("@/lib/hooks", () => ({ useProducts: vi.fn() }));
+vi.mock("@/lib/hooks", () => ({ useProducts: vi.fn(), useProductStats: vi.fn() }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function query(overrides: Record<string, any> = {}): any {
@@ -22,6 +22,7 @@ function query(overrides: Record<string, any> = {}): any {
 
 beforeEach(() => {
   vi.mocked(hooks.useProducts).mockReturnValue(query({ data: [] }));
+  vi.mocked(hooks.useProductStats).mockReturnValue(query({ data: {} }));
 });
 
 describe("ProductsView", () => {

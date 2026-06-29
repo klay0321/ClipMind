@@ -26,8 +26,11 @@ beforeEach(() => {
 });
 
 describe("ScriptListView", () => {
-  it("空名/空脚本时创建按钮禁用", () => {
+  it("空名/空脚本时创建按钮禁用", async () => {
+    const user = userEvent.setup();
     render(<ScriptListView />);
+    // 创建表单已移入「新建脚本」Modal：先打开再断言
+    await user.click(screen.getByTestId("script-new-btn"));
     expect(screen.getByTestId("script-create")).toBeDisabled();
   });
 
@@ -37,6 +40,7 @@ describe("ScriptListView", () => {
     );
     const user = userEvent.setup();
     render(<ScriptListView />);
+    await user.click(screen.getByTestId("script-new-btn"));
     await user.type(screen.getByTestId("script-name"), "吹风机");
     await user.type(screen.getByTestId("script-raw"), "开场展示");
     await user.click(screen.getByTestId("script-create"));
@@ -53,7 +57,9 @@ describe("ScriptListView", () => {
   });
 
   it("导入非 txt/md 文件被拒", async () => {
+    const user = userEvent.setup();
     render(<ScriptListView />);
+    await user.click(screen.getByTestId("script-new-btn"));
     const file = new File(["x"], "bad.docx", { type: "application/vnd.openxmlformats" });
     // 隐藏 input 由按钮触发；测试直接派发 change 设置文件
     fireEvent.change(screen.getByTestId("script-import"), { target: { files: [file] } });

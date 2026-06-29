@@ -52,6 +52,11 @@ function Overlay({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
+  // onClose 以 ref 持有：避免其每次渲染的新身份让焦点/滚动锁 effect 重跑、反复抢焦点。
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -59,7 +64,7 @@ function Overlay({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onClose();
+        onCloseRef.current();
       } else if (e.key === "Tab") {
         trapTab(e, panelRef.current);
       }
@@ -79,7 +84,9 @@ function Overlay({
       window.clearTimeout(t);
       restoreRef.current?.focus?.();
     };
-  }, [open, onClose]);
+    // 仅在 open 切换时运行；onClose 变化通过 ref 透传，不重跑本 effect。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   if (!open) return null;
 

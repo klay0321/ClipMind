@@ -219,6 +219,22 @@ class IndexStatusResponse(BaseModel):
     provider_detail: str = ""
 
 
+class ShotCompletenessResponse(BaseModel):
+    """全库镜头拆解完整度聚合（只读）。供镜头工作台顶部展示真实处理进度。
+
+    所有计数均来自真实表统计，前端不再估算/伪造。
+    """
+
+    total_assets: int          # 已入库素材数
+    total_shots: int           # READY 镜头总数
+    ai_analyzed_shots: int     # 已完成 AI 分析的镜头数（去重）
+    ai_failed_shots: int       # AI 分析失败的镜头数（去重）
+    pending_review_shots: int  # 待人工确认（review_status=pending_review）
+    confirmed_shots: int       # 已确认（confirmed/modified）
+    searchable_shots: int      # 已建立语义索引、可检索（is_searchable）
+    risk_shots: int            # 命中风险标签的镜头数
+
+
 class RebuildAcceptedResponse(BaseModel):
     accepted: bool
     scope: str               # shot | asset | sweep | backfill

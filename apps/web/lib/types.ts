@@ -631,6 +631,18 @@ export interface SuggestionsResponse {
   items: SearchSuggestion[];
 }
 
+// 全库镜头拆解完整度（只读聚合，/stats/completeness）。真实计数，前端不估算。
+export interface ShotCompleteness {
+  total_assets: number;
+  total_shots: number;
+  ai_analyzed_shots: number;
+  ai_failed_shots: number;
+  pending_review_shots: number;
+  confirmed_shots: number;
+  searchable_shots: number;
+  risk_shots: number;
+}
+
 export interface SearchIndexStatus {
   total_shots: number;
   indexed_documents: number;

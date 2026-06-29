@@ -342,6 +342,31 @@ export function useSearchSuggestions(q: string, enabled = true) {
   });
 }
 
+export function useShotCompleteness() {
+  return useQuery({
+    queryKey: ["shot-completeness"],
+    queryFn: () => api.shotCompleteness(),
+    staleTime: 15_000,
+  });
+}
+
+// 镜头筛选下拉选项：来自真实 /search/suggestions（产品/场景/动作/镜头类型/营销），按 type 分组。
+export function useShotFilterOptions() {
+  return useQuery({
+    queryKey: ["shot-filter-options"],
+    queryFn: () => api.searchSuggestions("", 60),
+    staleTime: 60_000,
+    select: (data): Record<string, string[]> => {
+      const groups: Record<string, string[]> = {};
+      for (const it of data.items) {
+        const arr = (groups[it.type] ??= []);
+        if (!arr.includes(it.value)) arr.push(it.value);
+      }
+      return groups;
+    },
+  });
+}
+
 export function useSearchIndexStatus() {
   return useQuery({
     queryKey: ["search-index-status"],

@@ -8,7 +8,9 @@ import { Pagination } from "@/components/Pagination";
 import { ReviewSummaryBar } from "@/components/ReviewSummaryBar";
 import { ShotCard } from "@/components/ShotCard";
 import { ShotDetail } from "@/components/ShotDetail";
+import { ShotCompletenessBar } from "@/components/shots/ShotCompletenessBar";
 import { TopNav } from "@/components/TopNav";
+import { Button } from "@/components/ui/Button";
 import { CardGridSkeleton } from "@/components/ui/Skeleton";
 import { Empty } from "@/components/states/Empty";
 import { ErrorState } from "@/components/states/ErrorState";
@@ -18,11 +20,13 @@ import {
   useAssetShots,
   useExportMutation,
   useExportStatus,
+  useProducts,
   useShotAnalysis,
+  useShotFilterOptions,
   useShots,
   useShotSearch,
 } from "@/lib/hooks";
-import type { Shot } from "@/lib/types";
+import type { Product, Shot } from "@/lib/types";
 
 const PAGE_SIZE = 24;
 
@@ -36,6 +40,9 @@ type Filters = {
   risk?: string;
   scene?: string;
   action?: string;
+  shot_type?: string;
+  marketing_use?: string;
+  product_id?: number;
   include_excluded?: boolean;
 };
 
@@ -54,11 +61,17 @@ function FilterSidebar({
   onSort,
   filters,
   onFilters,
+  onClear,
+  products,
+  options,
 }: {
   sort: SortKey;
   onSort: (k: SortKey) => void;
   filters: Filters;
   onFilters: (f: Filters) => void;
+  onClear: () => void;
+  products: Product[];
+  options: Record<string, string[]>;
 }) {
   const sortBtn = (k: SortKey, label: string) => (
     <button
@@ -72,14 +85,41 @@ function FilterSidebar({
     </button>
   );
   const set = (patch: Partial<Filters>) => onFilters({ ...filters, ...patch });
-  const text = (key: "scene" | "action" | "risk", placeholder: string, testid?: string) => (
-    <input
-      data-testid={testid}
-      placeholder={placeholder}
-      value={filters[key] ?? ""}
-      onChange={(e) => set({ [key]: e.target.value || undefined })}
-      className="w-full rounded border border-gray-200 px-1.5 py-1 text-xs"
-    />
+  // 字符串维度下拉：选项来自真实 /search/suggestions（按 type 分组），不前端伪造
+  const strSelect = (
+    key: "scene" | "action" | "shot_type" | "marketing_use",
+    label: string,
+    values: string[],
+    testid?: string,
+  ) => (
+    <label className="block">
+      <span className="text-gray-500">{label}</span>
+      <select
+        data-testid={testid}
+        value={filters[key] ?? ""}
+        onChange={(e) => set({ [key]: e.target.value || undefined })}
+        className="mt-0.5 w-full rounded border border-gray-200 px-1.5 py-1 text-xs"
+      >
+        <option value="">全部</option>
+        {values.map((v) => (
+          <option key={v} value={v}>
+            {v}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  const text = (key: "risk", placeholder: string, testid?: string) => (
+    <label className="block">
+      <span className="text-gray-500">{placeholder}</span>
+      <input
+        data-testid={testid}
+        placeholder={placeholder}
+        value={filters[key] ?? ""}
+        onChange={(e) => set({ [key]: e.target.value || undefined })}
+        className="mt-0.5 w-full rounded border border-gray-200 px-1.5 py-1 text-xs"
+      />
+    </label>
   );
   const check = (
     key: "has_ai_result" | "stale" | "include_excluded",
@@ -95,7 +135,7 @@ function FilterSidebar({
     </label>
   );
   return (
-    <aside className="shrink-0 space-y-4 lg:w-52">
+    <aside className="shrink-0 space-y-4 lg:w-56">
       <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm">
         <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">排序</h3>
         <div className="flex flex-wrap gap-1.5">
@@ -105,10 +145,38 @@ function FilterSidebar({
         </div>
       </div>
       <div className="rounded-lg border border-gray-100 bg-white p-3 shadow-sm" data-testid="ai-filters">
-        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-          智能筛选
-        </h3>
+        <div className="mb-2 flex items-center justify-between">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">筛选镜头</h3>
+          <button
+            type="button"
+            data-testid="filter-clear"
+            onClick={onClear}
+            className="text-[11px] text-gray-400 hover:text-brand"
+          >
+            清空
+          </button>
+        </div>
         <div className="space-y-2 text-xs">
+          <label className="block">
+            <span className="text-gray-500">产品</span>
+            <select
+              data-testid="filter-product"
+              value={filters.product_id ?? ""}
+              onChange={(e) => set({ product_id: e.target.value ? Number(e.target.value) : undefined })}
+              className="mt-0.5 w-full rounded border border-gray-200 px-1.5 py-1 text-xs"
+            >
+              <option value="">全部产品</option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {strSelect("marketing_use", "营销用途", options.marketing ?? [])}
+          {strSelect("scene", "场景", options.scene ?? [])}
+          {strSelect("action", "动作", options.action ?? [])}
+          {strSelect("shot_type", "镜头类型", options.shot_type ?? [])}
           <label className="block">
             <span className="text-gray-500">审核状态</span>
             <select
@@ -124,15 +192,13 @@ function FilterSidebar({
               ))}
             </select>
           </label>
-          {text("scene", "场景")}
-          {text("action", "动作")}
           {text("risk", "风险标记", "filter-risk")}
           {check("has_ai_result", "仅已 AI 分析")}
           {check("stale", "仅过期需复审")}
           {check("include_excluded", "含已驳回 / 无法判断")}
         </div>
         <p className="mt-2 text-[10px] leading-relaxed text-gray-400">
-          按结构化投影筛选（有效标签：人工优先，AI 兜底）；不扫描原始 JSON。
+          下拉值来自真实标签聚合；需要自然语言检索请前往「智能匹配」。
         </p>
       </div>
     </aside>
@@ -149,6 +215,8 @@ export function ShotsView({ assetId }: { assetId: number | null }) {
 
   const analysisQ = useShotAnalysis(scoped ? assetId : null);
   const analyzeMut = useAnalyzeMutation();
+  const productsQ = useProducts();
+  const filterOptionsQ = useShotFilterOptions();
   const assetShotsQ = useAssetShots(scoped && !filterActive ? assetId : null, page, PAGE_SIZE);
   const allShotsQ = useShots({ page, page_size: PAGE_SIZE }, !scoped && !filterActive);
   const searchQ = useShotSearch(
@@ -313,8 +381,18 @@ export function ShotsView({ assetId }: { assetId: number | null }) {
           </p>
         ) : null}
 
+        {!scoped ? <ShotCompletenessBar /> : null}
+
         <div className="flex flex-col gap-4 lg:flex-row">
-          <FilterSidebar sort={sort} onSort={setSort} filters={filters} onFilters={setFilters} />
+          <FilterSidebar
+            sort={sort}
+            onSort={setSort}
+            filters={filters}
+            onFilters={setFilters}
+            onClear={() => setFilters({})}
+            products={productsQ.data ?? []}
+            options={filterOptionsQ.data ?? {}}
+          />
           <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-3">
             <section className="space-y-3 lg:col-span-2">{grid}</section>
             <aside className="rounded-lg border border-gray-100 bg-white shadow-sm lg:sticky lg:top-4 lg:self-start">

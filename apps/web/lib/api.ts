@@ -30,6 +30,7 @@ import type {
   ScriptProjectDetail,
   ScriptSegment,
   SearchIndexStatus,
+  ShotCompleteness,
   SegmentCandidatesResponse,
   SegmentLockRequest,
   SegmentMatchRequest,
@@ -328,6 +329,9 @@ export const api = {
   },
   searchIndexStatus(): Promise<SearchIndexStatus> {
     return http<SearchIndexStatus>(`/search/index/status`);
+  },
+  shotCompleteness(): Promise<ShotCompleteness> {
+    return http<ShotCompleteness>(`/stats/completeness`);
   },
   // 管理操作（不进普通用户主流程）：单镜头/单素材重建检索文档
   rebuildSearchShot(shotId: number, forceReembed = false): Promise<RebuildAcceptedResponse> {

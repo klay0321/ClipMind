@@ -14,6 +14,9 @@ vi.mock("@/lib/hooks", () => ({
   useShots: vi.fn(),
   useShotSearch: vi.fn(),
   useReviewSummary: vi.fn(),
+  useShotCompleteness: vi.fn(),
+  useShotFilterOptions: vi.fn(),
+  useProducts: vi.fn(),
   useShot: vi.fn(),
   useExportMutation: vi.fn(),
   useExportStatus: vi.fn(),
@@ -108,6 +111,9 @@ beforeEach(() => {
   vi.mocked(hooks.useShots).mockReturnValue(query());
   vi.mocked(hooks.useShotSearch).mockReturnValue(query());
   vi.mocked(hooks.useReviewSummary).mockReturnValue(query({ data: undefined }));
+  vi.mocked(hooks.useShotCompleteness).mockReturnValue(query({ data: undefined }));
+  vi.mocked(hooks.useShotFilterOptions).mockReturnValue(query({ data: {} }));
+  vi.mocked(hooks.useProducts).mockReturnValue(query({ data: [] }));
   vi.mocked(hooks.useShot).mockReturnValue(query({ data: makeDetail() }));
   vi.mocked(hooks.useExportMutation).mockReturnValue(mutation());
   vi.mocked(hooks.useExportStatus).mockReturnValue(query());
@@ -275,7 +281,8 @@ describe("ShotDetail", () => {
     render(<ShotDetail shotId={1} />);
     expect(screen.getByTestId("review-panel")).toBeInTheDocument();
     expect(screen.getByText("产品特写")).toBeInTheDocument();
-    expect(screen.getByText("AI 结果（未确认）")).toBeInTheDocument();
+    // 最终检索内容区明确标注来源为 AI（未经人工确认）
+    expect(screen.getByText("采用 AI 结果")).toBeInTheDocument();
     expect(screen.getByText("competitor")).toBeInTheDocument();
   });
 
@@ -320,7 +327,8 @@ describe("ShotDetail", () => {
       query({ data: { review_status: "confirmed", lock_version: 1 } }),
     );
     render(<ShotDetail shotId={1} />);
-    expect(screen.getByText("人工确认结果")).toBeInTheDocument();
+    // 三区分离：最终检索内容标注采用人工结果，人工审核区状态为已确认
+    expect(screen.getByText("采用人工结果")).toBeInTheDocument();
     expect(screen.getByText("已确认")).toBeInTheDocument();
   });
 });

@@ -205,12 +205,20 @@ function FilterSidebar({
   );
 }
 
-export function ShotsView({ assetId }: { assetId: number | null }) {
+export function ShotsView({
+  assetId,
+  initialProductId = null,
+}: {
+  assetId: number | null;
+  initialProductId?: number | null;
+}) {
   const scoped = assetId != null;
   const [page, setPage] = useState(1);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [sort, setSort] = useState<SortKey>("seq");
-  const [filters, setFilters] = useState<Filters>({});
+  const [filters, setFilters] = useState<Filters>(
+    initialProductId != null ? { product_id: initialProductId } : {},
+  );
   const filterActive = Object.values(filters).some((v) => v != null && v !== "");
 
   const analysisQ = useShotAnalysis(scoped ? assetId : null);

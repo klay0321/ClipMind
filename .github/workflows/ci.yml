@@ -382,6 +382,17 @@ jobs:
           set -o pipefail
           npx playwright test pr06b-ui.spec.ts --grep-invert @persist | tee pr06b-ui.log
           grep -q "PR06B_UI_E2E_OK" pr06b-ui.log || { echo "缺少标志 PR06B_UI_E2E_OK"; exit 1; }
+      - name: 核心产品 UX E2E（跨页结构/导航/响应式无溢出/媒体兜底；真实页面）
+        working-directory: e2e
+        env:
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          npx playwright test core-product-ux.spec.ts --grep-invert @persist | tee core-ux.log
+          for flag in CORE_UX_ASSETS_E2E_OK CORE_UX_SHOTS_E2E_OK CORE_UX_DESCRIPTION_MATCH_E2E_OK CORE_UX_SCRIPT_E2E_OK CORE_UX_AUXILIARY_PAGES_E2E_OK CORE_UX_NAV_E2E_OK CORE_UX_RESPONSIVE_E2E_OK CORE_UX_MEDIA_FALLBACK_E2E_OK; do
+            grep -q "$flag" core-ux.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: 重启 API/web/search-worker/export-worker 后持久化
         env:
           WEB_BASE: http://localhost:3000
@@ -405,6 +416,8 @@ jobs:
           grep -q "PROJECTS_UI_PERSIST_OK" e2e/projects-persist.log
           ( cd e2e && npx playwright test pr06b-ui.spec.ts --grep @persist | tee pr06b-persist.log )
           grep -q "PR06B_UI_PERSIST_OK" e2e/pr06b-persist.log
+          ( cd e2e && npx playwright test core-product-ux.spec.ts --grep @persist | tee core-persist.log )
+          grep -q "CORE_UX_PERSIST_OK" e2e/core-persist.log
       - name: 失败时上传脱敏证据（trace/截图/报告；不含 .env/key/endpoint）
         if: failure()
         uses: actions/upload-artifact@v4

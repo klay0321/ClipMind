@@ -16,6 +16,7 @@ from app.schemas.search import (
     DescriptionMatchResponse,
     IndexStatusResponse,
     RebuildAcceptedResponse,
+    ShotCompletenessResponse,
     ShotSearchRequest,
     ShotSearchResponse,
     SuggestionsResponse,
@@ -65,6 +66,14 @@ async def search_suggestions(
 ) -> SuggestionsResponse:
     """搜索建议：来自产品/别名/品牌/有效标签（不实现 SearchHistory）。"""
     return await search_index_service.get_suggestions(db, q, limit)
+
+
+@router.get("/stats/completeness", response_model=ShotCompletenessResponse)
+async def shot_completeness(
+    db: AsyncSession = Depends(get_db),
+) -> ShotCompletenessResponse:
+    """全库镜头拆解完整度（只读聚合）：素材/镜头/AI已分析/待确认/已确认/可搜索/风险/失败。"""
+    return await search_index_service.get_shot_completeness(db)
 
 
 @router.get("/search/index/status", response_model=IndexStatusResponse)

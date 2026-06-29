@@ -12,6 +12,8 @@ import logging
 
 from clipmind_shared.ai.embedding import EmbeddingProvider
 from clipmind_shared.models import (
+    AIShotAnalysis,
+    Asset,
     Product,
     ProductAlias,
     Shot,
@@ -21,7 +23,9 @@ from clipmind_shared.models import (
     Tag,
 )
 from clipmind_shared.models.enums import (
+    AIShotAnalysisStatus,
     ProductStatus,
+    ReviewStatus,
     SearchDocumentStatus,
     SearchEmbeddingStatus,
     ShotStatus,
@@ -35,6 +39,7 @@ from app.schemas.search import (
     IndexStatusResponse,
     RebuildAcceptedResponse,
     SearchSuggestion,
+    ShotCompletenessResponse,
     SuggestionsResponse,
 )
 from app.tasks_client import (
@@ -127,6 +132,86 @@ async def get_index_status(
         last_indexed_at=last_indexed_at,
         provider_healthy=bool(health.ok),
         provider_detail=health.detail or "",
+    )
+
+
+async def get_shot_completeness(db: AsyncSession) -> ShotCompletenessResponse:
+    """全库镜头拆解完整度（只读聚合）。所有计数均来自真实表统计，绝不估算/伪造。"""
+    total_assets = int(
+        (await db.execute(select(func.count()).select_from(Asset))).scalar() or 0
+    )
+    total_shots = int(
+        (
+            await db.execute(
+                select(func.count()).select_from(Shot).where(Shot.status == ShotStatus.READY)
+            )
+        ).scalar()
+        or 0
+    )
+    ai_analyzed_shots = int(
+        (
+            await db.execute(
+                select(func.count(func.distinct(AIShotAnalysis.shot_id))).where(
+                    AIShotAnalysis.status == AIShotAnalysisStatus.COMPLETED
+                )
+            )
+        ).scalar()
+        or 0
+    )
+    ai_failed_shots = int(
+        (
+            await db.execute(
+                select(func.count(func.distinct(AIShotAnalysis.shot_id))).where(
+                    AIShotAnalysis.status == AIShotAnalysisStatus.FAILED
+                )
+            )
+        ).scalar()
+        or 0
+    )
+    review_counts = {
+        k: int(v)
+        for k, v in (
+            await db.execute(
+                select(ShotReviewState.review_status, func.count()).group_by(
+                    ShotReviewState.review_status
+                )
+            )
+        ).all()
+    }
+    pending_review_shots = review_counts.get(ReviewStatus.PENDING_REVIEW, 0)
+    confirmed_shots = review_counts.get(ReviewStatus.CONFIRMED, 0) + review_counts.get(
+        ReviewStatus.MODIFIED, 0
+    )
+    searchable_shots = int(
+        (
+            await db.execute(
+                select(func.count())
+                .select_from(ShotSearchDocument)
+                .where(ShotSearchDocument.is_searchable.is_(True))
+            )
+        ).scalar()
+        or 0
+    )
+    risk_shots = int(
+        (
+            await db.execute(
+                select(func.count(func.distinct(ShotTag.shot_id)))
+                .select_from(ShotTag)
+                .join(Tag, Tag.id == ShotTag.tag_id)
+                .where(ShotTag.active.is_(True), Tag.tag_type == TagType.RISK)
+            )
+        ).scalar()
+        or 0
+    )
+    return ShotCompletenessResponse(
+        total_assets=total_assets,
+        total_shots=total_shots,
+        ai_analyzed_shots=ai_analyzed_shots,
+        ai_failed_shots=ai_failed_shots,
+        pending_review_shots=pending_review_shots,
+        confirmed_shots=confirmed_shots,
+        searchable_shots=searchable_shots,
+        risk_shots=risk_shots,
     )
 
 

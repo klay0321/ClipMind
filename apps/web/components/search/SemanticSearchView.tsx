@@ -11,15 +11,19 @@ import {
   SORT_LABELS,
   buildSearchRequest,
   hasSearchSignal,
+  requestToForm,
 } from "@/lib/search";
 import type { SearchFormState } from "@/lib/search";
-import type { SearchResultItem, SearchSort, ShotSearchRequest } from "@/lib/types";
+import type { SavedSearch, SearchResultItem, SearchSort, ShotSearchRequest } from "@/lib/types";
 import { Empty } from "@/components/states/Empty";
 import { ErrorState } from "@/components/states/ErrorState";
 import { Loading } from "@/components/states/Loading";
 
+import { BundleBar } from "@/components/exports/BundleBar";
+
 import { AdvancedFilters } from "./AdvancedFilters";
 import { DegradedNotice } from "./DegradedNotice";
+import { SavedSearchPanel } from "./SavedSearchPanel";
 import { SearchBar } from "./SearchBar";
 import { SearchResultCard } from "./SearchResultCard";
 
@@ -43,6 +47,10 @@ export function SemanticSearchView({
 }) {
   const [form, setForm] = useState<SearchFormState>(initialForm);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  // 已保存搜索默认收起，不抢占结果区首屏
+  const [savedOpen, setSavedOpen] = useState(false);
+  // ZIP 打包多选（仅当前页选择；换页/换条件后清空，绝不跨页打包）
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   // committed：已提交的搜索条件（与 form 草稿分离，避免输入即搜索）
   const [committed, setCommitted] = useState<{ form: SearchFormState; page: number } | null>(
     hasSearchSignal(initialForm) ? { form: initialForm, page: initialPage } : null,
@@ -56,6 +64,8 @@ export function SemanticSearchView({
   const data = q.data;
 
   const commit = (next: SearchFormState, page: number) => {
+    // 任何新提交/换页/换序都清空打包选择，保证只对当前结果集操作
+    setSelectedIds(new Set());
     if (!hasSearchSignal(next)) {
       setCommitted(null);
       return;
@@ -66,6 +76,26 @@ export function SemanticSearchView({
 
   const patch = (p: Partial<SearchFormState>) => setForm((f) => ({ ...f, ...p }));
   const submit = () => commit(form, 1);
+
+  // 加载保存的搜索：用 requestToForm 还原真实条件 → 填表单 → 立即重跑（第 1 页）。
+  const loadSaved = (saved: SavedSearch) => {
+    const restored = requestToForm(saved.query as Partial<ShotSearchRequest>);
+    setForm(restored);
+    commit(restored, 1);
+  };
+
+  // 当前可保存的搜索请求（已提交条件；剥离分页，后端也会剥离）。
+  const savedQuery: Record<string, unknown> | null = committed
+    ? (() => {
+        const r = buildSearchRequest(committed.form, 1, PAGE_SIZE) as unknown as Record<
+          string,
+          unknown
+        >;
+        delete r.page;
+        delete r.page_size;
+        return r;
+      })()
+    : null;
   const clear = () => {
     setForm(EMPTY_SEARCH_FORM);
     setCommitted(null);
@@ -87,6 +117,21 @@ export function SemanticSearchView({
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
   const curPage = committed?.page ?? 1;
+
+  // 仅统计当前页里仍被选中的镜头（换页后 selectedIds 已清空）
+  const pageItems = data?.items ?? [];
+  const selectedList = pageItems.filter((it) => selectedIds.has(it.shot_id));
+  const bundleSelected = selectedList.map((it) => it.shot_id);
+  const bundleDuration = selectedList.reduce((sum, it) => sum + (it.duration ?? 0), 0);
+
+  const toggleSelect = (shotId: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(shotId)) next.delete(shotId);
+      else next.add(shotId);
+      return next;
+    });
+  };
 
   return (
     <div className="space-y-3">
@@ -111,6 +156,26 @@ export function SemanticSearchView({
         open={filtersOpen}
         onToggle={() => setFiltersOpen((v) => !v)}
       />
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          data-testid="toggle-saved-search"
+          aria-expanded={savedOpen}
+          onClick={() => setSavedOpen((v) => !v)}
+          className="rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+        >
+          {savedOpen ? "收起已保存搜索 ▴" : "已保存搜索 / 保存搜索 ▾"}
+        </button>
+      </div>
+      {savedOpen ? (
+        <SavedSearchPanel
+          searchKind="shot_search"
+          currentQuery={savedQuery}
+          canSave={committed != null}
+          onLoad={loadSaved}
+        />
+      ) : null}
 
       {/* 降级提示（真实可见） */}
       {data ? (
@@ -188,19 +253,38 @@ export function SemanticSearchView({
         )
       ) : data ? (
         <>
+          <BundleBar
+            selected={bundleSelected}
+            totalDuration={bundleDuration}
+            onClear={() => setSelectedIds(new Set())}
+          />
           <div
             data-testid="results-grid"
             className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
             aria-busy={q.isFetching}
           >
             {data.items.map((item) => (
-              <SearchResultCard
-                key={item.shot_id}
-                item={item}
-                selected={selectedShotId === item.shot_id}
-                onSelect={() => onOpenItem(item)}
-                onPreview={onPreview}
-              />
+              <div key={item.shot_id} className="relative">
+                <label
+                  className="absolute left-1 top-1 z-10 flex items-center gap-1 rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-medium text-gray-700 shadow-sm"
+                  title="选择以加入 ZIP 打包"
+                >
+                  <input
+                    type="checkbox"
+                    data-testid={`bundle-select-${item.shot_id}`}
+                    checked={selectedIds.has(item.shot_id)}
+                    onChange={() => toggleSelect(item.shot_id)}
+                    aria-label={`选择镜头 #${item.sequence_no} 加入打包`}
+                  />
+                  打包
+                </label>
+                <SearchResultCard
+                  item={item}
+                  selected={selectedShotId === item.shot_id}
+                  onSelect={() => onOpenItem(item)}
+                  onPreview={onPreview}
+                />
+              </div>
             ))}
           </div>
 

@@ -66,6 +66,11 @@ def script_export_dir(root_real: str, export_uuid: str) -> str:
     return _join(root_real, "script_exports", export_uuid)
 
 
+def bundle_export_dir(root_real: str, export_uuid: str) -> str:
+    """多镜头 ZIP 打包导出目录（PR-06B，与 exports/ / script_exports/ 分离）。"""
+    return _join(root_real, "bundle_exports", export_uuid)
+
+
 def ensure_dir(path: str) -> str:
     os.makedirs(path, exist_ok=True)
     return path

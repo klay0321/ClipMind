@@ -23,17 +23,56 @@ from clipmind_shared.models import (
     ProductAlias,
     ProductImage,
     Shot,
+    ShotReviewState,
 )
-from clipmind_shared.models.enums import ProductStatus, TagSource
+from clipmind_shared.models.enums import ProductStatus, ReviewStatus, TagSource
 from clipmind_shared.review import ProductLike, match_products, normalize_name
 from clipmind_shared.security import safe_join_within_root
-from sqlalchemy import select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+async def get_product_stats(db: AsyncSession) -> list[dict[str, int]]:
+    """每产品绑定计数（只读聚合，单查询 GROUP BY，避免 N+1）。
+
+    asset_count = active 绑定素材数；shot_count = 这些素材派生镜头数；
+    confirmed_shot_count = 其中已人工确认（confirmed/modified）的镜头数。
+    """
+    stmt = (
+        select(
+            AssetProduct.product_id.label("product_id"),
+            func.count(distinct(AssetProduct.asset_id)).label("asset_count"),
+            func.count(distinct(Shot.id)).label("shot_count"),
+            func.count(distinct(Shot.id))
+            .filter(
+                ShotReviewState.review_status.in_(
+                    [ReviewStatus.CONFIRMED, ReviewStatus.MODIFIED]
+                )
+            )
+            .label("confirmed_shot_count"),
+        )
+        .select_from(AssetProduct)
+        .where(AssetProduct.active.is_(True))
+        .outerjoin(Shot, Shot.asset_id == AssetProduct.asset_id)
+        .outerjoin(ShotReviewState, ShotReviewState.shot_id == Shot.id)
+        .group_by(AssetProduct.product_id)
+    )
+    rows = (await db.execute(stmt)).all()
+    return [
+        {
+            "product_id": int(r.product_id),
+            "asset_count": int(r.asset_count or 0),
+            "shot_count": int(r.shot_count or 0),
+            "confirmed_shot_count": int(r.confirmed_shot_count or 0),
+        }
+        for r in rows
+    ]
+
 
 # 允许的参考图类型（扩展名 -> 魔数前缀）
 _IMAGE_MAGIC = {

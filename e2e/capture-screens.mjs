@@ -34,7 +34,7 @@ const main = async () => {
 
   // 01 搜索工作台总览
   await page.goto(`${WEB}/search`, { waitUntil: "networkidle" });
-  await page.getByRole("heading", { name: "智能搜索" }).waitFor();
+  await page.getByRole("heading", { name: "智能匹配" }).waitFor();
   await shot(page, "01-search-overview");
 
   // 02 自然语言搜索结果

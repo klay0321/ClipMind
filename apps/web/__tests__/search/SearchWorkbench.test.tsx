@@ -20,6 +20,14 @@ vi.mock("@/lib/hooks", () => ({
   useSourceDirectories: vi.fn(),
   useSearchSuggestions: vi.fn(),
   useSearchIndexStatus: vi.fn(),
+  // PR-06B：SavedSearchPanel / BundleBar / FavoriteButton 依赖
+  useSavedSearches: vi.fn(() => ({ data: { items: [], total: 0, page: 1, page_size: 50 } })),
+  useCreateSavedSearch: vi.fn(() => ({ mutate: vi.fn(), isPending: false, error: null })),
+  useUpdateSavedSearch: vi.fn(() => ({ mutate: vi.fn(), isPending: false, error: null })),
+  useDeleteSavedSearch: vi.fn(() => ({ mutate: vi.fn(), isPending: false, error: null })),
+  useCreateBundle: vi.fn(() => ({ mutate: vi.fn(), isPending: false, error: null })),
+  useBundleStatus: vi.fn(() => ({ data: undefined })),
+  useCreateFavorite: vi.fn(() => ({ mutate: vi.fn(), isPending: false, error: null })),
 }));
 
 const INITIAL: SearchUrlState = {
@@ -42,9 +50,9 @@ beforeEach(() => {
 });
 
 describe("SearchWorkbench", () => {
-  it("默认素材语义搜索模式，含智能搜索标题与两个标签", () => {
+  it("默认素材语义搜索模式，含智能匹配标题与两个标签", () => {
     render(<SearchWorkbench initial={INITIAL} />);
-    expect(screen.getByRole("heading", { name: "智能搜索" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "智能匹配" })).toBeInTheDocument();
     expect(screen.getByTestId("tab-search")).toHaveAttribute("aria-selected", "true");
     expect(screen.getByTestId("tab-description")).toHaveAttribute("aria-selected", "false");
   });

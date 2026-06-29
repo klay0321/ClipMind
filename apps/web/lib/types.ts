@@ -290,6 +290,18 @@ export interface Product {
   updated_at: string;
 }
 
+// 每产品绑定计数（只读聚合，/products/stats）。
+export interface ProductStats {
+  product_id: number;
+  asset_count: number;
+  shot_count: number;
+  confirmed_shot_count: number;
+}
+
+export interface ProductStatsListResponse {
+  items: ProductStats[];
+}
+
 export interface TagDict {
   id: number;
   tag_type: TagType;
@@ -629,6 +641,18 @@ export interface SearchSuggestion {
 
 export interface SuggestionsResponse {
   items: SearchSuggestion[];
+}
+
+// 全库镜头拆解完整度（只读聚合，/stats/completeness）。真实计数，前端不估算。
+export interface ShotCompleteness {
+  total_assets: number;
+  total_shots: number;
+  ai_analyzed_shots: number;
+  ai_failed_shots: number;
+  pending_review_shots: number;
+  confirmed_shots: number;
+  searchable_shots: number;
+  risk_shots: number;
 }
 
 export interface SearchIndexStatus {
@@ -1054,4 +1078,188 @@ export interface ProjectShotsQuery {
   include_excluded?: boolean;
   page: number;
   page_size: number;
+}
+
+// ===== PR-06B 导出中心 / 多格式脚本导出 / ZIP 打包 / 保存搜索 / 收藏 / 动态集合 =====
+//
+// 与后端 schemas（export_center.py / saved_search.py / favorite.py /
+// dynamic_collection.py）对齐。所有匹配度/分项分仍只读后端，不在前端重算。
+
+// 导出种类：clip 单镜头片段 / script 脚本剪辑清单 / bundle 多镜头 ZIP 打包
+export type ExportKind = "clip" | "script" | "bundle";
+
+// 脚本多格式导出（与后端受控白名单一致）
+export type ScriptExportFormat = "csv" | "xlsx" | "json" | "markdown" | "printable";
+export const SCRIPT_EXPORT_FORMATS: ScriptExportFormat[] = [
+  "csv",
+  "xlsx",
+  "json",
+  "markdown",
+  "printable",
+];
+
+// 导出中心统一行（合并 clip / script / bundle 三类导出记录）
+export interface ExportCenterItem {
+  kind: ExportKind;
+  id: number;
+  export_uuid: string;
+  project_id: number | null;
+  status: ExportStatus;
+  format: string;
+  filename: string | null;
+  has_file: boolean;
+  row_count: number | null;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  download_url: string;
+  download_count: number;
+  source: Record<string, unknown>;
+}
+
+export interface ExportCenterListResponse {
+  items: ExportCenterItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface ExportCenterQuery {
+  kind?: ExportKind;
+  status?: ExportStatus;
+  project_id?: number;
+  created_from?: string;
+  created_to?: string;
+  page: number;
+  page_size: number;
+}
+
+export interface ExportRetryResponse {
+  kind: ExportKind;
+  id: number;
+  status: string;
+  detail: string;
+}
+
+// ZIP 打包多镜头导出
+export type BundleMode = "reencode" | "copy";
+
+export interface BundleCreateRequest {
+  shot_ids: number[];
+  mode?: BundleMode;
+  project_id?: number;
+}
+
+export interface BundleAcceptedResponse {
+  export_id: number;
+  status: ExportStatus;
+  celery_task_id: string | null;
+  shot_count: number;
+  detail: string;
+}
+
+// 保存搜索：query 为序列化的搜索请求（后端剥离 page/page_size）
+export type SavedSearchKind = "shot_search" | "description_match";
+
+export interface SavedSearch {
+  id: number;
+  project_id: number | null;
+  name: string;
+  search_kind: SavedSearchKind;
+  query: Record<string, unknown>;
+  lock_version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SavedSearchListResponse {
+  items: SavedSearch[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface SavedSearchCreateRequest {
+  name: string;
+  search_kind: SavedSearchKind;
+  query: Record<string, unknown>;
+  project_id?: number;
+}
+
+export interface SavedSearchUpdateRequest {
+  lock_version: number;
+  name?: string;
+  query?: Record<string, unknown>;
+}
+
+// 收藏：四种目标类型
+export type FavoriteTargetType = "asset" | "shot" | "search_result" | "script_match_result";
+
+export interface FavoriteAssetBrief {
+  id: number;
+  filename: string;
+  duration: number | null;
+  width: number | null;
+  height: number | null;
+}
+
+export interface FavoriteOut {
+  id: number;
+  target_type: FavoriteTargetType;
+  asset_id: number | null;
+  shot_id: number | null;
+  context: Record<string, unknown> | null;
+  created_at: string;
+  shot?: Shot | null;
+  asset?: FavoriteAssetBrief | null;
+}
+
+export interface FavoriteListResponse {
+  items: FavoriteOut[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface FavoriteCreateRequest {
+  target_type: FavoriteTargetType;
+  asset_id?: number;
+  shot_id?: number;
+  context?: Record<string, unknown>;
+}
+
+// 动态集合：随当前素材/搜索索引实时更新，不保存固定镜头成员
+export interface DynamicCollection {
+  id: number;
+  project_id: number;
+  name: string;
+  description: string | null;
+  search_kind: SavedSearchKind;
+  query: Record<string, unknown>;
+  lock_version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DynamicCollectionListResponse {
+  items: DynamicCollection[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface DynamicCollectionCreateRequest {
+  name: string;
+  description?: string | null;
+  search_kind: SavedSearchKind;
+  query: Record<string, unknown>;
+}
+
+export interface DynamicCollectionUpdateRequest {
+  lock_version: number;
+  name?: string;
+  description?: string | null;
+  search_kind?: SavedSearchKind;
+  query?: Record<string, unknown>;
 }

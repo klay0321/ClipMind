@@ -21,6 +21,7 @@ celery_app = Celery(
     include=[
         "clipmind_worker.tasks.scan",
         "clipmind_worker.media.tasks",  # PR-02 拆镜头/派生/导出
+        "clipmind_worker.media.bundle",  # PR-06B 多镜头 ZIP 打包导出
         "clipmind_worker.ai.tasks",  # PR-03A AI 理解分析
         "clipmind_worker.search.tasks",  # PR-04 检索文档索引/嵌入
         "clipmind_worker.exports.tasks",  # PR-05 Gate B 脚本剪辑清单 CSV 导出

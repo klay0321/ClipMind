@@ -86,7 +86,7 @@ export function SearchWorkbench({ initial }: { initial: SearchUrlState }) {
         {/* 顶部：标题 + 模式切换 + 索引状态 */}
         <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">智能搜索</h1>
+            <h1 className="text-xl font-semibold text-gray-900">智能匹配</h1>
             <p className="text-sm text-gray-500">
               用自然语言检索镜头素材，或输入一句画面需求快速找到可用镜头。
             </p>

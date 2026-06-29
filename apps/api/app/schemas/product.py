@@ -38,6 +38,17 @@ class ProductOut(BaseModel):
     updated_at: datetime
 
 
+class ProductStatsOut(BaseModel):
+    product_id: int
+    asset_count: int
+    shot_count: int
+    confirmed_shot_count: int
+
+
+class ProductStatsListResponse(BaseModel):
+    items: list[ProductStatsOut]
+
+
 class AliasIn(BaseModel):
     alias: str = Field(..., min_length=1, max_length=255)
 

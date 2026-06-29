@@ -2,6 +2,7 @@
 // 所有分数与理由直读后端，缺失通道显示「未参与」（绝不当 0），推荐≠人工已确认。
 "use client";
 
+import { FavoriteButton } from "@/components/favorites/FavoriteButton";
 import { formatDuration } from "@/lib/format";
 import { scorePercent } from "@/lib/script";
 import type { ScriptCandidate } from "@/lib/types";
@@ -118,6 +119,11 @@ export function CandidateCard({
         >
           预览
         </button>
+        <FavoriteButton
+          targetType="script_match_result"
+          shotId={candidate.shot_id}
+          context={{ source: "script_candidate", final_score: candidate.final_score }}
+        />
       </div>
     </div>
   );

@@ -1,0 +1,219 @@
+name: clipmind
+
+# ClipMind —— NAS 通用生产部署 Compose（公司 NAS 自托管）。
+#
+# 与开发 compose.yml 的差异（生产取向）：
+# - 持久化全部落在可配置的数据根 ${CLIPMIND_DATA_ROOT}（绑定挂载，不硬编码 /volume1）：
+#     postgres / redis / 派生数据(data) / 上传(uploads) / embedder 模型(models) / 备份(backups)。
+# - 源素材目录 ${CLIPMIND_SOURCE_DIR} **只读**挂载到 /app/source（绝不写源）。
+# - 所有服务 restart: unless-stopped + json-file 日志轮转（10m × 5）。
+# - 端口默认仅绑定 ${CLIPMIND_BIND_ADDR:-127.0.0.1}（无应用级鉴权，默认仅可信内网/VPN，
+#   不建议裸露公网；对外暴露请置于反向代理 + HTTPS 之后，见 docs/NAS_DEPLOYMENT.md）。
+# - migrate 一次性服务自动把数据库迁到最新（升级见 scripts/nas/update.sh，先备份再迁移）。
+# - 已内置 embedder（真实语义检索）；首次构建会下载 torch + 多语模型，模型缓存持久化。
+#
+# 安装/启动：bash scripts/nas/install.sh（首次）/ bash scripts/nas/start.sh。
+# 平台：x86_64 已验证；arm64 未验证（见 docs/NAS_DEPLOYMENT.md「架构兼容」）。
+
+x-app-env: &app-env
+  env_file:
+    - .env
+  environment:
+    PYTHONUTF8: "1"
+    LANG: C.UTF-8
+
+x-logging: &default-logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    <<: *default-logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-clipmind}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?须在 .env 设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-clipmind}
+    volumes:
+      - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clipmind} -d ${POSTGRES_DB:-clipmind}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    <<: *default-logging
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # 一次性迁移到最新 schema；完成即退出（绝不删库重建）。升级用 scripts/nas/update.sh（先备份）。
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/api.Dockerfile
+    <<: *app-env
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/api.Dockerfile
+    <<: [*app-env, *default-logging]
+    ports:
+      - "${CLIPMIND_BIND_ADDR:-127.0.0.1}:${API_PORT:-8000}:8000"
+    volumes:
+      - ${CLIPMIND_SOURCE_DIR:?须在 .env 设置 CLIPMIND_SOURCE_DIR（NAS 素材只读目录）}:/app/source:ro
+      - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/data:/app/data
+      - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/uploads:/app/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/health/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/worker.Dockerfile
+    <<: [*app-env, *default-logging]
+    command: ["celery", "-A", "clipmind_worker.celery_app", "worker", "-Q", "default,scan", "-c", "2", "-l", "INFO"]
+    volumes:
+      - ${CLIPMIND_SOURCE_DIR}:/app/source:ro
+      - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/data:/app/data
+      - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/uploads:/app/uploads:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  media-worker:
+    build:
+      context: .
+      dockerfile: infra/worker.Dockerfile
+    <<: [*app-env, *default-logging]
+    command: ["celery", "-A", "clipmind_worker.celery_app", "worker", "-Q", "media", "-c", "${MEDIA_WORKER_CONCURRENCY:-1}", "-l", "INFO"]
+    volumes:
+      - ${CLIPMIND_SOURCE_DIR}:/app/source:ro
+      - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/data:/app/data
+      - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/uploads:/app/uploads:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ai-worker:
+    build:
+      context: .
+      dockerfile: infra/worker.Dockerfile
+    <<: [*app-env, *default-logging]
+    command: ["celery", "-A", "clipmind_worker.celery_app", "worker", "-Q", "ai", "-c", "${AI_WORKER_CONCURRENCY:-2}", "-l", "INFO"]
+    volumes:
+      - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/data:/app/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  search-worker:
+    build:
+      context: .
+      dockerfile: infra/worker.Dockerfile
+    <<: [*app-env, *default-logging]
+    command: ["celery", "-A", "clipmind_worker.celery_app", "worker", "-Q", "search", "-c", "${SEARCH_WORKER_CONCURRENCY:-2}", "-l", "INFO"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # PR-05/PR-06B：导出 worker，消费 export 队列（脚本剪辑清单多格式导出 csv/xlsx/json/markdown/printable）。
+  export-worker:
+    build:
+      context: .
+      dockerfile: infra/worker.Dockerfile
+    <<: [*app-env, *default-logging]
+    command: ["celery", "-A", "clipmind_worker.celery_app", "worker", "-Q", "export", "-c", "${EXPORT_WORKER_CONCURRENCY:-1}", "-l", "INFO"]
+    volumes:
+      - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/data:/app/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # 本地 Embedding 微服务（真实多语义检索）。模型缓存持久化，支持离线启动。
+  embedder:
+    build:
+      context: .
+      dockerfile: infra/embedder.Dockerfile
+    env_file:
+      - .env
+    <<: *default-logging
+    environment:
+      EMBEDDER_MODEL: ${EMBEDDER_MODEL:-intfloat/multilingual-e5-small}
+      EMBEDDER_MODEL_REVISION: ${EMBEDDER_MODEL_REVISION:-614241f622f53c4eeff9890bdc4f31cfecc418b3}
+      EMBEDDER_DIMENSION: ${EMBEDDER_DIMENSION:-384}
+      EMBEDDER_DEVICE: ${EMBEDDER_DEVICE:-cpu}
+    volumes:
+      - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/models:/models
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8100/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/web.Dockerfile
+    <<: *default-logging
+    environment:
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:8000}
+      NODE_ENV: production
+    ports:
+      - "${CLIPMIND_BIND_ADDR:-127.0.0.1}:${WEB_PORT:-3000}:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+# 备份卷由 scripts/nas/backup.sh 写入 ${CLIPMIND_DATA_ROOT}/backups（宿主机目录，便于异机保存）。
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${CLIPMIND_DOCKER_SUBNET:-172.28.10.0/24}

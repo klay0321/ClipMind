@@ -14,6 +14,8 @@ vi.mock("@/lib/hooks", () => ({
   useSelectCandidate: vi.fn(),
   useLockCandidate: vi.fn(),
   useUnlockSegment: vi.fn(),
+  // PR-06B：CandidateCard 内 FavoriteButton 依赖
+  useCreateFavorite: vi.fn(() => ({ mutate: vi.fn(), isPending: false, error: null })),
 }));
 
 const matchMut = mutation();

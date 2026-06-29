@@ -29,7 +29,7 @@ async function pickTerm(request: APIRequestContext): Promise<string> {
 test("素材语义搜索：真实页面 + 真实 API", async ({ page, request }) => {
   const term = await pickTerm(request);
   await page.goto("/search");
-  await expect(page.getByRole("heading", { name: "智能搜索" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "智能匹配" })).toBeVisible();
 
   await page.getByTestId("search-input").fill(term);
   await page.getByTestId("search-submit").click();

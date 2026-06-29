@@ -10,12 +10,15 @@ vi.mock("@/lib/hooks", () => ({
   useScriptEditList: vi.fn(),
   useCreateScriptCsvExport: vi.fn(),
   useScriptExportStatus: vi.fn(),
+  // PR-06B：ScriptMultiExportPanel 依赖
+  useCreateScriptExport: vi.fn(),
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(hooks.useCreateScriptCsvExport).mockReturnValue(mutation());
   vi.mocked(hooks.useScriptExportStatus).mockReturnValue(query());
+  vi.mocked(hooks.useCreateScriptExport).mockReturnValue(mutation());
 });
 
 function renderTab(rows = [makeEditRow()]) {

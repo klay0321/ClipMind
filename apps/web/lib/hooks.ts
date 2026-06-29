@@ -27,6 +27,21 @@ import type {
   ProjectStatus,
   ProjectUpdateRequest,
 } from "./types";
+import type {
+  BundleCreateRequest,
+  DescriptionMatchResponse,
+  DynamicCollectionCreateRequest,
+  DynamicCollectionUpdateRequest,
+  ExportCenterQuery,
+  ExportKind,
+  FavoriteCreateRequest,
+  FavoriteTargetType,
+  SavedSearchCreateRequest,
+  SavedSearchKind,
+  SavedSearchUpdateRequest,
+  ScriptExportFormat,
+  ShotSearchResponse,
+} from "./types";
 
 const ACTIVE_SCAN: ScanStatus[] = ["queued", "scanning"];
 const ACTIVE_RUN: MediaRunStatus[] = ["queued", "running"];
@@ -291,6 +306,26 @@ export function useProducts(q?: string) {
   });
 }
 
+// 每产品绑定计数（绑定素材/镜头/已确认），由 ProductsView 合并到行。
+export function useProductStats() {
+  return useQuery({
+    queryKey: ["product-stats"],
+    queryFn: () => api.productStats(),
+    staleTime: 30_000,
+    select: (data) => {
+      const map: Record<number, { asset_count: number; shot_count: number; confirmed_shot_count: number }> = {};
+      for (const s of data.items) {
+        map[s.product_id] = {
+          asset_count: s.asset_count,
+          shot_count: s.shot_count,
+          confirmed_shot_count: s.confirmed_shot_count,
+        };
+      }
+      return map;
+    },
+  });
+}
+
 // ===== PR-04 Gate B 语义搜索 / 画面描述匹配 =====
 //
 // 注意：与已有 useShotSearch（/shot-search，PR-03B 结构化筛选）不同，这里是 Gate B
@@ -324,6 +359,31 @@ export function useSearchSuggestions(q: string, enabled = true) {
     // 建议变化频繁但服务端开销小：短缓存避免重复请求，组件侧再做 debounce
     staleTime: 60_000,
     placeholderData: keepPreviousData,
+  });
+}
+
+export function useShotCompleteness() {
+  return useQuery({
+    queryKey: ["shot-completeness"],
+    queryFn: () => api.shotCompleteness(),
+    staleTime: 15_000,
+  });
+}
+
+// 镜头筛选下拉选项：来自真实 /search/suggestions（产品/场景/动作/镜头类型/营销），按 type 分组。
+export function useShotFilterOptions() {
+  return useQuery({
+    queryKey: ["shot-filter-options"],
+    queryFn: () => api.searchSuggestions("", 60),
+    staleTime: 60_000,
+    select: (data): Record<string, string[]> => {
+      const groups: Record<string, string[]> = {};
+      for (const it of data.items) {
+        const arr = (groups[it.type] ??= []);
+        if (!arr.includes(it.value)) arr.push(it.value);
+      }
+      return groups;
+    },
   });
 }
 
@@ -877,5 +937,224 @@ export function useReorderCollectionShots(id: number) {
       qc.invalidateQueries({ queryKey: ["collection-shots", id] });
       qc.invalidateQueries({ queryKey: ["collection", id] });
     },
+  });
+}
+
+// ===== PR-06B 导出中心 / 多格式脚本导出 / ZIP 打包 / 保存搜索 / 收藏 / 动态集合 =====
+//
+// 失效策略：导出记录列表/单条精确失效；重试/删除后失效列表；保存搜索/收藏/动态集合各自
+// 列表 + 单条失效；轮询有界（导出完成/失败即停）。所有匹配度/分项分仍只读后端。
+
+// ---- 导出中心 ----
+
+export function useExportCenter(query: ExportCenterQuery) {
+  return useQuery({
+    queryKey: ["export-center", query],
+    queryFn: () => api.exportCenter(query),
+    placeholderData: keepPreviousData,
+    // 有任意行排队/运行时轮询，全部结束后停止
+    refetchInterval: (q) => {
+      const items = q.state.data?.items ?? [];
+      const active = items.some((it) => ACTIVE_EXPORT.includes(it.status));
+      return active ? 2000 : false;
+    },
+  });
+}
+
+export function useRetryExport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kind, id }: { kind: ExportKind; id: number }) => api.retryExportCenter(kind, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["export-center"] }),
+  });
+}
+
+export function useDeleteExport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ kind, id }: { kind: ExportKind; id: number }) =>
+      api.deleteExportCenter(kind, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["export-center"] }),
+  });
+}
+
+// ---- ZIP 打包导出 ----
+
+export function useCreateBundle() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: BundleCreateRequest) => api.createBundle(req),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["export-center"] }),
+  });
+}
+
+export function useBundleStatus(bundleId: number | null) {
+  return useQuery({
+    queryKey: ["bundle", bundleId],
+    queryFn: () => api.getBundle(bundleId as number),
+    enabled: bundleId != null,
+    refetchInterval: (q) => {
+      const status = q.state.data?.status;
+      return status && ACTIVE_EXPORT.includes(status) ? 1500 : false;
+    },
+  });
+}
+
+// ---- 多格式脚本导出（创建；状态复用 useScriptExportStatus）----
+
+export function useCreateScriptExport(scriptId: number) {
+  return useMutation({
+    mutationFn: (format: ScriptExportFormat) => api.createScriptExport(scriptId, format),
+  });
+}
+
+// ---- 保存搜索 ----
+
+export function useSavedSearches(
+  projectId?: number,
+  searchKind?: SavedSearchKind,
+  page = 1,
+  pageSize = 20,
+) {
+  return useQuery({
+    queryKey: ["saved-searches", projectId ?? null, searchKind ?? "all", page, pageSize],
+    queryFn: () => api.listSavedSearches(projectId, searchKind, page, pageSize),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useSavedSearch(id: number | null) {
+  return useQuery({
+    queryKey: ["saved-search", id],
+    queryFn: () => api.getSavedSearch(id as number),
+    enabled: id != null,
+  });
+}
+
+export function useCreateSavedSearch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: SavedSearchCreateRequest) => api.createSavedSearch(req),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["saved-searches"] }),
+  });
+}
+
+export function useUpdateSavedSearch(id: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: SavedSearchUpdateRequest) => api.updateSavedSearch(id, req),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["saved-searches"] });
+      qc.invalidateQueries({ queryKey: ["saved-search", id] });
+    },
+  });
+}
+
+export function useDeleteSavedSearch() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.deleteSavedSearch(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["saved-searches"] }),
+  });
+}
+
+// run 返回 ShotSearchResponse 或 DescriptionMatchResponse（按 search_kind）。
+export function useRunSavedSearch() {
+  return useMutation({
+    mutationFn: ({ id, page, pageSize }: { id: number; page?: number; pageSize?: number }) =>
+      api.runSavedSearch<ShotSearchResponse | DescriptionMatchResponse>(id, page, pageSize),
+  });
+}
+
+// ---- 收藏 ----
+
+export function useFavorites(targetType?: FavoriteTargetType, page = 1, pageSize = 24) {
+  return useQuery({
+    queryKey: ["favorites", targetType ?? "all", page, pageSize],
+    queryFn: () => api.listFavorites(targetType, page, pageSize),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useCreateFavorite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: FavoriteCreateRequest) => api.createFavorite(req),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["favorites"] }),
+  });
+}
+
+export function useDeleteFavorite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.deleteFavorite(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["favorites"] }),
+  });
+}
+
+// ---- 动态集合 ----
+
+export function useDynamicCollections(projectId: number | null, page = 1, pageSize = 20) {
+  return useQuery({
+    queryKey: ["dynamic-collections", projectId, page, pageSize],
+    queryFn: () => api.listDynamicCollections(projectId as number, page, pageSize),
+    enabled: projectId != null,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useDynamicCollection(id: number | null) {
+  return useQuery({
+    queryKey: ["dynamic-collection", id],
+    queryFn: () => api.getDynamicCollection(id as number),
+    enabled: id != null,
+  });
+}
+
+export function useCreateDynamicCollection(projectId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: DynamicCollectionCreateRequest) =>
+      api.createDynamicCollection(projectId, req),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["dynamic-collections", projectId] });
+      qc.invalidateQueries({ queryKey: ["project-stats", projectId] });
+    },
+  });
+}
+
+export function useUpdateDynamicCollection(id: number, projectId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: DynamicCollectionUpdateRequest) => api.updateDynamicCollection(id, req),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["dynamic-collection", id] });
+      qc.invalidateQueries({ queryKey: ["dynamic-collections", projectId] });
+    },
+  });
+}
+
+export function useDeleteDynamicCollection(projectId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.deleteDynamicCollection(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["dynamic-collections", projectId] });
+      qc.invalidateQueries({ queryKey: ["project-stats", projectId] });
+    },
+  });
+}
+
+export function useDynamicCollectionShots(id: number | null, page = 1, pageSize = 24) {
+  return useQuery({
+    queryKey: ["dynamic-collection-shots", id, page, pageSize],
+    queryFn: () =>
+      api.dynamicCollectionShots<ShotSearchResponse | DescriptionMatchResponse>(
+        id as number,
+        page,
+        pageSize,
+      ),
+    enabled: id != null,
+    placeholderData: keepPreviousData,
   });
 }

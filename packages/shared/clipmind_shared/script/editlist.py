@@ -13,7 +13,10 @@
 from __future__ import annotations
 
 import csv
+import dataclasses as _dc
+import html as _html
 import io
+import json as _json
 from dataclasses import dataclass, field
 
 # 候选数量约定（每段）
@@ -648,3 +651,207 @@ def to_csv(rows: list[EditListRow]) -> bytes:
 
 def csv_headers() -> list[str]:
     return [h for h, _kind in _COLUMNS]
+
+
+# ============================ PR-06B 多格式序列化（XLSX / JSON / Markdown / Printable HTML） ============================
+#
+# 全部复用 build_edit_list 的 rows/summary 与同一套防注入/转义；纯逻辑、确定性、无 DB/网络。
+# 磁盘名固定 ASCII；内容绝不含本机绝对路径 / Key / Endpoint（仅 shot/asset/时间码/段落文本等业务字段）。
+
+SCRIPT_EXPORT_DISK_NAMES: dict[str, str] = {
+    "csv": "edit_list.csv",
+    "xlsx": "edit_list.xlsx",
+    "json": "edit_list.json",
+    "markdown": "edit_list.md",
+    "printable": "edit_list.html",
+}
+SCRIPT_EXPORT_CONTENT_TYPES: dict[str, str] = {
+    "csv": "text/csv; charset=utf-8",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "json": "application/json; charset=utf-8",
+    "markdown": "text/markdown; charset=utf-8",
+    "printable": "text/html; charset=utf-8",
+}
+SCRIPT_EXPORT_NAME_SUFFIX: dict[str, str] = {
+    "csv": ".csv",
+    "xlsx": ".xlsx",
+    "json": ".json",
+    "markdown": ".md",
+    "printable": ".html",
+}
+
+
+def build_meta(
+    *, project_name: str | None, project_id: int, row_count: int, generated_at: str
+) -> dict:
+    """导出元数据（无路径/Key/Endpoint）。generated_at 由调用方注入（ISO 字符串），保持确定性。"""
+    return {
+        "kind": "script_edit_list",
+        "schema_version": 1,
+        "project_id": int(project_id),
+        "project_name": project_name or f"script_{project_id}",
+        "row_count": int(row_count),
+        "generated_at": generated_at,
+    }
+
+
+def to_json(rows: list[EditListRow], summary: EditListSummary, *, meta: dict) -> bytes:
+    """剪辑清单 → JSON 字节（UTF-8；固定 schema；含 metadata + summary + segments；缺口段保留）。"""
+    payload = {
+        "metadata": meta,
+        "summary": _dc.asdict(summary),
+        "segments": [_dc.asdict(r) for r in rows],
+    }
+    return _json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def to_xlsx(rows: list[EditListRow], summary: EditListSummary, *, meta: dict) -> bytes:
+    """剪辑清单 → XLSX 字节（openpyxl；中文正常；数值列写为数值，文本/列表列防注入）。"""
+    from openpyxl import Workbook  # 延迟导入，仅多格式导出路径需要
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "剪辑清单"
+    ws.append([h for h, _kind in _COLUMNS])
+    for row in rows:
+        cells = row_to_cells(row)  # 已按列格式化 + 防注入
+        out: list = []
+        for (_, kind), value in zip(_COLUMNS, cells, strict=True):
+            if kind == "num" and value != "":
+                try:
+                    num = float(value)
+                    out.append(int(num) if num.is_integer() else num)
+                    continue
+                except ValueError:
+                    pass
+            out.append(value)
+        ws.append(out)
+
+    # 摘要页（数值，安全）
+    ws2 = wb.create_sheet("摘要")
+    for k, v in _dc.asdict(summary).items():
+        ws2.append([k, v if not isinstance(v, list) else " | ".join(map(str, v))])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _md_cell(value: str) -> str:
+    """Markdown 表格单元格转义：竖线/换行不破坏表格（value 已经过 _guard 防注入）。"""
+    return value.replace("\\", "\\\\").replace("|", "\\|").replace("\n", " ").replace("\r", " ")
+
+
+def to_markdown(rows: list[EditListRow], summary: EditListSummary, *, meta: dict) -> bytes:
+    """剪辑清单 → Markdown 字节（标题 + 摘要 + 表格 + 缺口/补拍可读段；特殊字符正确转义）。"""
+    lines: list[str] = []
+    name = _md_cell(_guard(str(meta.get("project_name", ""))))
+    lines.append(f"# 剪辑清单：{name}")
+    lines.append("")
+    lines.append(
+        f"- 段落总数：{summary.total_segments} ｜ 已匹配：{summary.matched_segments} "
+        f"｜ 锁定：{summary.locked_segments} ｜ 缺口：{summary.gap_segments} "
+        f"｜ 风险段：{summary.risk_segments}"
+    )
+    if summary.suggested_total_duration:
+        lines.append(f"- 建议总时长：约 {summary.suggested_total_duration:.2f}s")
+    lines.append(f"- 生成时间：{meta.get('generated_at', '')}")
+    lines.append("")
+
+    headers = [h for h, _kind in _COLUMNS]
+    lines.append("| " + " | ".join(headers) + " |")
+    lines.append("| " + " | ".join("---" for _ in headers) + " |")
+    for row in rows:
+        cells = [_md_cell(c) for c in row_to_cells(row)]
+        lines.append("| " + " | ".join(cells) + " |")
+    lines.append("")
+
+    gap_rows = [r for r in rows if r.gap_reasons or r.reshoot_recommendation]
+    if gap_rows:
+        lines.append("## 缺口与补拍建议")
+        lines.append("")
+        for r in gap_rows:
+            lines.append(f"### 段落 {r.segment_order}")
+            if r.gap_reasons:
+                lines.append("- 缺口原因：")
+                lines.extend(f"  - {_md_cell(_guard(g))}" for g in r.gap_reasons)
+            if r.reshoot_recommendation:
+                lines.append("- 补拍建议：")
+                lines.extend(f"  - {_md_cell(_guard(s))}" for s in r.reshoot_recommendation)
+            lines.append("")
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+_PRINTABLE_CSS = """
+* { box-sizing: border-box; }
+body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", Arial, sans-serif;
+       color: #1a1a1a; margin: 24px; }
+h1 { font-size: 20px; margin: 0 0 8px; }
+.meta { color: #555; font-size: 13px; margin-bottom: 16px; }
+.summary { background: #f5f5f5; border: 1px solid #ddd; border-radius: 6px;
+           padding: 10px 14px; margin-bottom: 16px; font-size: 13px; }
+table { border-collapse: collapse; width: 100%; font-size: 12px; }
+th, td { border: 1px solid #ccc; padding: 4px 6px; text-align: left; vertical-align: top; }
+th { background: #efefef; position: sticky; top: 0; }
+.gap { color: #b00; }
+@media print {
+  body { margin: 8mm; }
+  th { position: static; }
+  tr { break-inside: avoid; }
+  .no-print { display: none; }
+}
+""".strip()
+
+
+def to_printable_html(
+    rows: list[EditListRow], summary: EditListSummary, *, meta: dict
+) -> bytes:
+    """剪辑清单 → 自包含可打印 HTML 字节（内联样式 + 打印样式，无外部 CDN；用户文本 HTML escape）。"""
+
+    def esc(value: str) -> str:
+        return _html.escape(str(value), quote=True)
+
+    name = esc(meta.get("project_name", ""))
+    headers = "".join(f"<th>{esc(h)}</th>" for h, _kind in _COLUMNS)
+    body_rows = "".join(
+        "<tr>" + "".join(f"<td>{esc(c)}</td>" for c in row_to_cells(row)) + "</tr>"
+        for row in rows
+    )
+    summary_html = esc(
+        f"段落总数 {summary.total_segments} ｜ 已匹配 {summary.matched_segments} "
+        f"｜ 锁定 {summary.locked_segments} ｜ 缺口 {summary.gap_segments} "
+        f"｜ 风险段 {summary.risk_segments} ｜ 建议总时长约 "
+        f"{summary.suggested_total_duration:.2f}s"
+    )
+    doc = (
+        "<!DOCTYPE html>\n"
+        '<html lang="zh-CN"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>剪辑清单：{name}</title>"
+        f"<style>{_PRINTABLE_CSS}</style></head><body>"
+        f"<h1>剪辑清单：{name}</h1>"
+        f'<div class="meta">生成时间：{esc(meta.get("generated_at", ""))}'
+        f' ｜ 段落数：{summary.total_segments}</div>'
+        f'<div class="summary">{summary_html}</div>'
+        '<button class="no-print" onclick="window.print()">打印</button>'
+        f"<table><thead><tr>{headers}</tr></thead><tbody>{body_rows}</tbody></table>"
+        "</body></html>"
+    )
+    return doc.encode("utf-8")
+
+
+def serialize_edit_list(
+    fmt: str, rows: list[EditListRow], summary: EditListSummary, *, meta: dict
+) -> bytes:
+    """按格式分派序列化（csv/xlsx/json/markdown/printable）。"""
+    if fmt == "csv":
+        return to_csv(rows)
+    if fmt == "xlsx":
+        return to_xlsx(rows, summary, meta=meta)
+    if fmt == "json":
+        return to_json(rows, summary, meta=meta)
+    if fmt == "markdown":
+        return to_markdown(rows, summary, meta=meta)
+    if fmt == "printable":
+        return to_printable_html(rows, summary, meta=meta)
+    raise ValueError(f"unsupported export format: {fmt}")

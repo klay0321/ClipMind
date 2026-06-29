@@ -2,6 +2,7 @@
 // 主要匹配理由与 degraded 标记。所有数据只读后端 item，不在前端推测或重算。
 "use client";
 
+import { FavoriteButton } from "@/components/favorites/FavoriteButton";
 import { formatAspect } from "@/lib/search";
 import { formatDuration } from "@/lib/format";
 import type { SearchResultItem } from "@/lib/types";
@@ -51,6 +52,14 @@ export function SearchResultCard({
         <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
           #{item.sequence_no}
         </span>
+        <div className="absolute bottom-1 right-1">
+          <FavoriteButton
+            targetType="search_result"
+            shotId={item.shot_id}
+            size="icon"
+            context={{ source: "search", match_percent: item.match_percent }}
+          />
+        </div>
       </div>
       <div className="flex flex-1 flex-col gap-1.5 p-2.5">
         <div className="flex items-center justify-between text-[11px] text-gray-500">

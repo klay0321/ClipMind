@@ -11,7 +11,10 @@ from clipmind_shared.models.ai_analysis import (
     AIShotAnalysis,
 )
 from clipmind_shared.models.asset import Asset
+from clipmind_shared.models.bundle_export import BundleExport
 from clipmind_shared.models.collection import Collection, CollectionShot
+from clipmind_shared.models.download_log import DownloadLog
+from clipmind_shared.models.dynamic_collection import DynamicCollection
 from clipmind_shared.models.enums import (
     ACTIVE_AI_RUN_STATUSES,
     ACTIVE_MEDIA_RUN_STATUSES,
@@ -20,11 +23,14 @@ from clipmind_shared.models.enums import (
     HUMAN_EFFECTIVE_STATUSES,
     SEARCHABLE_DOCUMENT_STATUS,
     VECTOR_READY_EMBEDDING_STATUS,
+    SCRIPT_EXPORT_FORMATS,
+    SHOT_BASED_FAVORITE_TYPES,
     AICallStatus,
     AIRunStatus,
     AIShotAnalysisStatus,
     AssetStatus,
     ExportStatus,
+    FavoriteTargetType,
     MediaRunStatus,
     ProductStatus,
     ProjectStatus,
@@ -36,11 +42,13 @@ from clipmind_shared.models.enums import (
     ScriptStatus,
     SearchDocumentStatus,
     SearchEmbeddingStatus,
+    SearchKind,
     ShotStatus,
     TagSource,
     TagType,
 )
 from clipmind_shared.models.export import Export
+from clipmind_shared.models.favorite import Favorite
 from clipmind_shared.models.media_run import MediaProcessingRun
 from clipmind_shared.models.product import (
     AssetProduct,
@@ -66,6 +74,7 @@ from clipmind_shared.models.script import (
     ScriptSegment,
     ScriptShotCandidate,
 )
+from clipmind_shared.models.saved_search import SavedSearch
 from clipmind_shared.models.script_export import ScriptExport
 from clipmind_shared.models.search import EMBEDDING_DIM, ShotSearchDocument
 from clipmind_shared.models.shot import Shot
@@ -133,4 +142,14 @@ __all__ = [
     "Collection",
     "CollectionShot",
     "ProjectStatus",
+    # PR-06B 导出中心 / 保存搜索 / 收藏 / 动态集合 / Bundle
+    "BundleExport",
+    "DownloadLog",
+    "SavedSearch",
+    "Favorite",
+    "DynamicCollection",
+    "SearchKind",
+    "FavoriteTargetType",
+    "SHOT_BASED_FAVORITE_TYPES",
+    "SCRIPT_EXPORT_FORMATS",
 ]

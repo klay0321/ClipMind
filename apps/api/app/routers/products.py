@@ -22,6 +22,7 @@ from app.schemas.product import (
     ProductImageOut,
     ProductIn,
     ProductOut,
+    ProductStatsListResponse,
     ProductUpdateIn,
 )
 from app.services import files, product_service
@@ -54,6 +55,13 @@ async def list_products(
 ) -> list[ProductOut]:
     rows = await product_service.list_products(db, q=q, status=status_filter)
     return [ProductOut.model_validate(p) for p in rows]
+
+
+# 注意：/products/stats 必须在 /products/{product_id} 之前声明，避免被 {product_id} 截获。
+@router.get("/products/stats", response_model=ProductStatsListResponse)
+async def product_stats(db: AsyncSession = Depends(get_db)) -> ProductStatsListResponse:
+    """每产品绑定计数（只读聚合）：绑定素材数 / 镜头数 / 已确认镜头数。"""
+    return ProductStatsListResponse(items=await product_service.get_product_stats(db))
 
 
 @router.post("/products", response_model=ProductOut, status_code=status.HTTP_201_CREATED)

@@ -42,6 +42,10 @@ class Export(Base):
     shot_id: Mapped[int | None] = mapped_column(
         ForeignKey("shot.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # PR-06B：可选项目归属（导出中心按项目聚合）。项目删除时 SET NULL，导出记录保留。
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("project.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     celery_task_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     status: Mapped[ExportStatus] = mapped_column(

@@ -478,7 +478,7 @@ async def test_match_status_endpoint(client, session, match_settings):
 
 async def test_csv_export_row_created(client, session, match_settings, monkeypatch):
     monkeypatch.setattr(
-        "app.services.script_export_service.enqueue_export_script_csv",
+        "app.services.script_export_service.enqueue_export_script",
         lambda eid: f"csvtask-{eid}",
     )
     ids = await _seed(session, match_settings)

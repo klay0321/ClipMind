@@ -18,12 +18,22 @@ if [ "${2:-}" != "--yes" ]; then
 fi
 
 STAGE="$(mktemp -d)"
-tar -C "$STAGE" -xzf "$BACKUP"
+# --force-local：备份路径可能带盘符(如 C:/...)，避免 GNU tar 误判为远程 host:path。
+tar --force-local -C "$STAGE" -xzf "$BACKUP"
 [ -f "$STAGE/db.sql" ] || { echo "ERROR: 备份缺少 db.sql" >&2; rm -rf "$STAGE"; exit 1; }
 
 echo "==> 确保数据库容器运行"
 $COMPOSE up -d postgres
-sleep 5
+echo "==> 等待 postgres 就绪（轮询 pg_isready，避免固定 sleep 在冷启动时不足）"
+ready=0
+for _ in $(seq 1 60); do
+  if $COMPOSE exec -T postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
+  sleep 2
+done
+[ "$ready" = "1" ] || { echo "ERROR: postgres 未在预期时间内就绪。" >&2; rm -rf "$STAGE"; exit 1; }
 
 echo "==> 重置并恢复库 schema"
 $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
@@ -32,7 +42,7 @@ $COMPOSE exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" < "$STAGE/d
 
 if [ -f "$STAGE/derived.tar.gz" ]; then
   echo "==> 恢复派生数据"
-  tar -C "${CLIPMIND_DATA_ROOT}" -xzf "$STAGE/derived.tar.gz"
+  tar --force-local -C "${CLIPMIND_DATA_ROOT}" -xzf "$STAGE/derived.tar.gz"
 fi
 
 rm -rf "$STAGE"

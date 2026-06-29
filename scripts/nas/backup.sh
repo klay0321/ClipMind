@@ -23,11 +23,12 @@ echo "backup_created_at=$TS" > "$STAGE/MANIFEST.txt"
 
 if [ "$WITH_DATA" -eq 1 ]; then
   echo "==> 打包派生数据 (data/uploads，可能较大)"
-  tar -C "${CLIPMIND_DATA_ROOT}" -czf "$STAGE/derived.tar.gz" data uploads 2>/dev/null || true
+  # --force-local：当 CLIPMIND_DATA_ROOT 为带盘符路径(如 C:/...)时，避免 GNU tar 误判为远程 host:path。
+  tar --force-local -C "${CLIPMIND_DATA_ROOT}" -czf "$STAGE/derived.tar.gz" data uploads 2>/dev/null || true
 fi
 
 OUT="${BACKUP_DIR}/clipmind-backup-${TS}.tar.gz"
-tar -C "$STAGE" -czf "$OUT" .
+tar --force-local -C "$STAGE" -czf "$OUT" .
 rm -rf "$STAGE"
 echo "==> 备份完成：$OUT"
 echo "NAS_BACKUP_OK $OUT"

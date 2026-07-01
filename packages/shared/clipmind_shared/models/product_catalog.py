@@ -4,9 +4,12 @@
 - 四级层级全部动态创建；新增产品/别名只是插入数据行，**无需迁移、无产品名枚举/CHECK**。
 - **Family 是核心产品实体**；Category 建议必填（service 校验，允许 draft 暂缺）；Variant / SKU 可选。
 - 稳定身份：`id` 为 PK，`code` 为稳定业务码（更名不变）；更名只改 `name_*`。
+- **code 唯一性作用域（大小写/首尾空白无关，存 `normalized_code`）**：
+  Category / Family 全局唯一；Variant / SKU 在**同一 Family 内**唯一；
+  SKU 的 `sku_code`（货号）非空时**公司目录全局唯一**（存 `normalized_sku_code`）。
 - 生命周期：draft/active/paused/archived/merged；archived/merged **不物理删除**。
-- 合并：`merged_into_id` 自引用指向 canonical 目标（SET NULL）；CHECK 防自合并；防环在 service 层。
-- 兼容桥：`product_family.legacy_product_id` 软引用既有 `product`（SET NULL，空初始，运营/后续 PR 填，绝不猜层级）。
+- 合并：`merged_into_id` 自引用指向 canonical 目标（SET NULL）；CHECK 防自合并；防环/子级保护在 service 层。
+- 兼容桥：`product_family.legacy_product_id` 软引用既有 `product`（SET NULL，空初始，绝不猜层级）。
 - 别名：单表多目标，CHECK 恰好一个目标非空 + 每目标 `normalized_alias` partial-unique。
 """
 
@@ -41,6 +44,7 @@ class ProductCategory(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(64))
+    normalized_code: Mapped[str] = mapped_column(String(64))
     name_zh: Mapped[str] = mapped_column(String(255))
     name_en: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -53,7 +57,7 @@ class ProductCategory(Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
-        UniqueConstraint("code", name="uq_product_category_code"),
+        UniqueConstraint("normalized_code", name="uq_product_category_ncode"),
         Index("ix_product_category_status", "status"),
     )
 
@@ -68,6 +72,7 @@ class ProductFamily(Base):
         ForeignKey("product_category.id", ondelete="SET NULL"), nullable=True
     )
     code: Mapped[str] = mapped_column(String(64))
+    normalized_code: Mapped[str] = mapped_column(String(64))
     name_zh: Mapped[str] = mapped_column(String(255))
     name_en: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -86,14 +91,13 @@ class ProductFamily(Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
-        UniqueConstraint("code", name="uq_product_family_code"),
+        UniqueConstraint("normalized_code", name="uq_product_family_ncode"),
         CheckConstraint(
             "merged_into_id IS NULL OR merged_into_id <> id", name="no_self_merge"
         ),
         Index("ix_product_family_category_id", "category_id"),
         Index("ix_product_family_status", "status"),
         Index("ix_product_family_merged_into_id", "merged_into_id"),
-        # 一个 legacy product 至多桥接一个 family
         Index(
             "uq_product_family_legacy_product",
             "legacy_product_id",
@@ -104,7 +108,7 @@ class ProductFamily(Base):
 
 
 class ProductVariant(Base):
-    """产品变体（族下可区分版本，可选，动态创建）。"""
+    """产品变体（族下可区分版本，可选，动态创建）。code 在同一 family 内唯一。"""
 
     __tablename__ = "product_variant"
 
@@ -113,6 +117,7 @@ class ProductVariant(Base):
         ForeignKey("product_family.id", ondelete="CASCADE"), index=True
     )
     code: Mapped[str] = mapped_column(String(64))
+    normalized_code: Mapped[str] = mapped_column(String(64), index=True)
     name_zh: Mapped[str] = mapped_column(String(255))
     name_en: Mapped[str | None] = mapped_column(String(255), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -127,7 +132,7 @@ class ProductVariant(Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
-        UniqueConstraint("code", name="uq_product_variant_code"),
+        UniqueConstraint("family_id", "normalized_code", name="uq_product_variant_family_ncode"),
         CheckConstraint(
             "merged_into_id IS NULL OR merged_into_id <> id", name="no_self_merge"
         ),
@@ -137,7 +142,10 @@ class ProductVariant(Base):
 
 
 class ProductSKU(Base):
-    """产品 SKU / 货号（可选，可直接属于 Family 或 Variant，动态创建）。"""
+    """产品 SKU / 货号（可选，可直接属于 Family 或 Variant，动态创建）。
+
+    `code` 在同一 family 内唯一；`sku_code`（货号）非空时公司目录全局唯一。
+    """
 
     __tablename__ = "product_sku"
 
@@ -149,7 +157,9 @@ class ProductSKU(Base):
         ForeignKey("product_variant.id", ondelete="SET NULL"), nullable=True
     )
     code: Mapped[str] = mapped_column(String(64))
+    normalized_code: Mapped[str] = mapped_column(String(64), index=True)
     sku_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    normalized_sku_code: Mapped[str | None] = mapped_column(String(128), nullable=True)
     name_zh: Mapped[str] = mapped_column(String(255))
     name_en: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[CatalogStatus] = mapped_column(_CATALOG_STATUS, default=CatalogStatus.DRAFT)
@@ -163,19 +173,19 @@ class ProductSKU(Base):
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
-        UniqueConstraint("code", name="uq_product_sku_code"),
+        UniqueConstraint("family_id", "normalized_code", name="uq_product_sku_family_ncode"),
         CheckConstraint(
             "merged_into_id IS NULL OR merged_into_id <> id", name="no_self_merge"
         ),
         Index("ix_product_sku_variant_id", "variant_id"),
         Index("ix_product_sku_status", "status"),
         Index("ix_product_sku_merged_into_id", "merged_into_id"),
-        # sku_code 非空时全局唯一
+        # 货号非空时全局唯一（大小写/空白无关）
         Index(
-            "uq_product_sku_sku_code",
-            "sku_code",
+            "uq_product_sku_norm_sku_code",
+            "normalized_sku_code",
             unique=True,
-            postgresql_where=text("sku_code IS NOT NULL"),
+            postgresql_where=text("normalized_sku_code IS NOT NULL"),
         ),
     )
 
@@ -220,7 +230,6 @@ class ProductCatalogAlias(Base):
             " + CASE WHEN sku_id IS NULL THEN 0 ELSE 1 END) = 1",
             name="exactly_one_target",
         ),
-        # 每个目标下 normalized_alias 唯一（partial unique per target）
         Index(
             "uq_catalog_alias_category_norm",
             "category_id",

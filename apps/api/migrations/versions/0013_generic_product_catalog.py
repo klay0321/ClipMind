@@ -48,6 +48,7 @@ def upgrade() -> None:
         "product_category",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("code", sa.String(length=64), nullable=False),
+        sa.Column("normalized_code", sa.String(length=64), nullable=False),
         sa.Column("name_zh", sa.String(length=255), nullable=False),
         sa.Column("name_en", sa.String(length=255), nullable=True),
         sa.Column("description", sa.Text(), nullable=True),
@@ -57,7 +58,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("archived_at", sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_product_category")),
-        sa.UniqueConstraint("code", name="uq_product_category_code"),
+        sa.UniqueConstraint("normalized_code", name="uq_product_category_ncode"),
     )
     op.create_index(
         "ix_product_category_status", "product_category", ["status"], unique=False
@@ -68,6 +69,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("category_id", sa.Integer(), nullable=True),
         sa.Column("code", sa.String(length=64), nullable=False),
+        sa.Column("normalized_code", sa.String(length=64), nullable=False),
         sa.Column("name_zh", sa.String(length=255), nullable=False),
         sa.Column("name_en", sa.String(length=255), nullable=True),
         sa.Column("description", sa.Text(), nullable=True),
@@ -97,7 +99,7 @@ def upgrade() -> None:
             ondelete="SET NULL",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_product_family")),
-        sa.UniqueConstraint("code", name="uq_product_family_code"),
+        sa.UniqueConstraint("normalized_code", name="uq_product_family_ncode"),
     )
     op.create_index(
         "ix_product_family_category_id", "product_family", ["category_id"], unique=False
@@ -119,6 +121,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("family_id", sa.Integer(), nullable=False),
         sa.Column("code", sa.String(length=64), nullable=False),
+        sa.Column("normalized_code", sa.String(length=64), nullable=False),
         sa.Column("name_zh", sa.String(length=255), nullable=False),
         sa.Column("name_en", sa.String(length=255), nullable=True),
         sa.Column("description", sa.Text(), nullable=True),
@@ -142,11 +145,17 @@ def upgrade() -> None:
             ondelete="SET NULL",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_product_variant")),
-        sa.UniqueConstraint("code", name="uq_product_variant_code"),
+        sa.UniqueConstraint(
+            "family_id", "normalized_code", name="uq_product_variant_family_ncode"
+        ),
     )
     op.create_index(
         op.f("ix_product_variant_family_id"), "product_variant", ["family_id"],
         unique=False,
+    )
+    op.create_index(
+        op.f("ix_product_variant_normalized_code"), "product_variant",
+        ["normalized_code"], unique=False,
     )
     op.create_index(
         "ix_product_variant_merged_into_id", "product_variant", ["merged_into_id"],
@@ -162,7 +171,9 @@ def upgrade() -> None:
         sa.Column("family_id", sa.Integer(), nullable=False),
         sa.Column("variant_id", sa.Integer(), nullable=True),
         sa.Column("code", sa.String(length=64), nullable=False),
+        sa.Column("normalized_code", sa.String(length=64), nullable=False),
         sa.Column("sku_code", sa.String(length=128), nullable=True),
+        sa.Column("normalized_sku_code", sa.String(length=128), nullable=True),
         sa.Column("name_zh", sa.String(length=255), nullable=False),
         sa.Column("name_en", sa.String(length=255), nullable=True),
         _status_col(),
@@ -187,10 +198,16 @@ def upgrade() -> None:
             name=op.f("fk_product_sku_variant_id_product_variant"), ondelete="SET NULL",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_product_sku")),
-        sa.UniqueConstraint("code", name="uq_product_sku_code"),
+        sa.UniqueConstraint(
+            "family_id", "normalized_code", name="uq_product_sku_family_ncode"
+        ),
     )
     op.create_index(
         op.f("ix_product_sku_family_id"), "product_sku", ["family_id"], unique=False
+    )
+    op.create_index(
+        op.f("ix_product_sku_normalized_code"), "product_sku", ["normalized_code"],
+        unique=False,
     )
     op.create_index(
         "ix_product_sku_merged_into_id", "product_sku", ["merged_into_id"], unique=False
@@ -200,8 +217,8 @@ def upgrade() -> None:
         "ix_product_sku_variant_id", "product_sku", ["variant_id"], unique=False
     )
     op.create_index(
-        "uq_product_sku_sku_code", "product_sku", ["sku_code"], unique=True,
-        postgresql_where=sa.text("sku_code IS NOT NULL"),
+        "uq_product_sku_norm_sku_code", "product_sku", ["normalized_sku_code"],
+        unique=True, postgresql_where=sa.text("normalized_sku_code IS NOT NULL"),
     )
 
     op.create_table(
@@ -296,17 +313,19 @@ def downgrade() -> None:
     op.drop_table("product_catalog_alias")
 
     op.drop_index(
-        "uq_product_sku_sku_code", table_name="product_sku",
-        postgresql_where=sa.text("sku_code IS NOT NULL"),
+        "uq_product_sku_norm_sku_code", table_name="product_sku",
+        postgresql_where=sa.text("normalized_sku_code IS NOT NULL"),
     )
     op.drop_index("ix_product_sku_variant_id", table_name="product_sku")
     op.drop_index("ix_product_sku_status", table_name="product_sku")
     op.drop_index("ix_product_sku_merged_into_id", table_name="product_sku")
+    op.drop_index(op.f("ix_product_sku_normalized_code"), table_name="product_sku")
     op.drop_index(op.f("ix_product_sku_family_id"), table_name="product_sku")
     op.drop_table("product_sku")
 
     op.drop_index("ix_product_variant_status", table_name="product_variant")
     op.drop_index("ix_product_variant_merged_into_id", table_name="product_variant")
+    op.drop_index(op.f("ix_product_variant_normalized_code"), table_name="product_variant")
     op.drop_index(op.f("ix_product_variant_family_id"), table_name="product_variant")
     op.drop_table("product_variant")
 

@@ -24,6 +24,7 @@ from app.schemas.product_catalog import (
     FamilyOut,
     FamilyUpdateIn,
     MergeIn,
+    ResolveResult,
     SkuIn,
     SkuListResponse,
     SkuOut,
@@ -340,7 +341,18 @@ async def merge_sku(sid: int, body: MergeIn, db: AsyncSession = Depends(get_db))
         raise _err(exc) from exc
 
 
-# ============================ Status（通用） ============================
+# ============================ Status（四层统一） ============================
+
+
+@router.post("/product-categories/{cid}/status", response_model=CategoryOut)
+async def set_category_status(
+    cid: int, body: StatusIn, db: AsyncSession = Depends(get_db)
+) -> CategoryOut:
+    obj = await _fetch(db, "category", cid)
+    try:
+        return CategoryOut.model_validate(await svc.set_status(db, "category", obj, body.status))
+    except CatalogError as exc:
+        raise _err(exc) from exc
 
 
 @router.post("/product-families/{fid}/status", response_model=FamilyOut)
@@ -350,6 +362,28 @@ async def set_family_status(
     obj = await _fetch(db, "family", fid)
     try:
         return FamilyOut.model_validate(await svc.set_status(db, "family", obj, body.status))
+    except CatalogError as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/product-variants/{vid}/status", response_model=VariantOut)
+async def set_variant_status(
+    vid: int, body: StatusIn, db: AsyncSession = Depends(get_db)
+) -> VariantOut:
+    obj = await _fetch(db, "variant", vid)
+    try:
+        return VariantOut.model_validate(await svc.set_status(db, "variant", obj, body.status))
+    except CatalogError as exc:
+        raise _err(exc) from exc
+
+
+@router.post("/product-skus/{sid}/status", response_model=SkuOut)
+async def set_sku_status(
+    sid: int, body: StatusIn, db: AsyncSession = Depends(get_db)
+) -> SkuOut:
+    obj = await _fetch(db, "sku", sid)
+    try:
+        return SkuOut.model_validate(await svc.set_status(db, "sku", obj, body.status))
     except CatalogError as exc:
         raise _err(exc) from exc
 
@@ -413,9 +447,8 @@ async def catalog_search(
     return [CatalogNode.model_validate(n) for n in await svc.search_catalog(db, q)]
 
 
-@router.get("/product-catalog/resolve", response_model=CatalogNode | None)
+@router.get("/product-catalog/resolve", response_model=ResolveResult)
 async def catalog_resolve(
     value: str = Query(..., min_length=1), db: AsyncSession = Depends(get_db)
-) -> CatalogNode | None:
-    node = await svc.resolve(db, value)
-    return CatalogNode.model_validate(node) if node else None
+) -> ResolveResult:
+    return ResolveResult.model_validate(await svc.resolve(db, value))

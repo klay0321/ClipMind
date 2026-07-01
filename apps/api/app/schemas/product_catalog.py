@@ -184,6 +184,14 @@ class CatalogNode(BaseModel):
     redirected: bool | None = None
 
 
+class ResolveResult(BaseModel):
+    """歧义安全解析结果。status ∈ resolved / ambiguous / not_found。"""
+
+    status: str
+    canonical: CatalogNode | None = None
+    candidates: list[CatalogNode] = []
+
+
 class TreeNode(BaseModel):
     level: str
     id: int | None

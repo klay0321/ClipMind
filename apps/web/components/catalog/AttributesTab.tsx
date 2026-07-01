@@ -474,10 +474,11 @@ export function AttributesTab({
 }) {
   const [showCreate, setShowCreate] = useState(false);
 
+  // 展示该分类（+全局）下所有**非归档**定义（含刚创建的 draft），供运营即时填值；
+  // 不按 active 过滤，避免新建定义因处于 draft 而在编辑面板「消失」。完整度统计另按 active 计（见 profile）。
   const defsQ = useAttributeDefinitions({
     category_id: categoryId ?? undefined,
     include_global: true,
-    status_filter: "active",
   });
   const valuesQ = useAttributeValues(level, targetId);
 

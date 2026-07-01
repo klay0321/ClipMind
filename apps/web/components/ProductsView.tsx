@@ -10,7 +10,9 @@ import { Loading } from "@/components/states/Loading";
 import { useProducts, useProductStats } from "@/lib/hooks";
 
 // 产品库：真实读取 /products + /products/stats（绑定计数）；可查看产品对应镜头。
-export function ProductsView() {
+// embedded=true 时（如嵌入产品目录页的「产品列表」Tab）不渲染自带 TopNav 与外层 main，
+// 只输出内容区，避免与外层页面框架重复；默认行为不变（保持独立路由使用）。
+export function ProductsView({ embedded = false }: { embedded?: boolean } = {}) {
   const [q, setQ] = useState("");
   const productsQ = useProducts(q || undefined);
   const statsQ = useProductStats();
@@ -104,27 +106,35 @@ export function ProductsView() {
     );
   }
 
+  const inner = (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-3">
+          <h1 className="text-base font-semibold">产品库</h1>
+          {productsQ.data ? (
+            <span className="text-xs text-gray-400">共 {items.length} 个产品</span>
+          ) : null}
+        </div>
+        <input
+          data-testid="product-search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="搜索品牌 / 名称 / 型号 / SKU"
+          className="w-64 rounded-md border border-gray-200 px-3 py-1.5 text-sm"
+        />
+      </div>
+      {body}
+    </>
+  );
+
+  if (embedded) {
+    return <div className="space-y-4">{inner}</div>;
+  }
+
   return (
     <div>
       <TopNav active="products" />
-      <main className="mx-auto max-w-7xl space-y-4 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-3">
-            <h1 className="text-base font-semibold">产品库</h1>
-            {productsQ.data ? (
-              <span className="text-xs text-gray-400">共 {items.length} 个产品</span>
-            ) : null}
-          </div>
-          <input
-            data-testid="product-search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="搜索品牌 / 名称 / 型号 / SKU"
-            className="w-64 rounded-md border border-gray-200 px-3 py-1.5 text-sm"
-          />
-        </div>
-        {body}
-      </main>
+      <main className="mx-auto max-w-7xl space-y-4 p-4">{inner}</main>
     </div>
   );
 }

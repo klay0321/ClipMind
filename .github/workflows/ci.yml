@@ -196,6 +196,16 @@ jobs:
           for flag in PROJECTS_GATE_A_E2E_OK PROJECTS_ARCHIVE_GUARD_OK COLLECTIONS_GATE_A_E2E_OK PROJECTS_DELETE_SAFETY_OK; do
             grep -q "$flag" projects_gate_a.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: 通用产品目录核心 端到端（PR-A1；纯 API/中性合成名；层级/更名/合并重定向/旧 /api/products 兼容）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_pr_a1_catalog_e2e.py --mode full | tee catalog_a1.log
+          for flag in GENERIC_CATALOG_COMPAT_OK GENERIC_CATALOG_CRUD_OK GENERIC_CATALOG_RENAME_OK \
+                      GENERIC_CATALOG_MERGE_REDIRECT_OK GENERIC_CATALOG_MIGRATION_OK GENERIC_CATALOG_E2E_OK; do
+            grep -q "$flag" catalog_a1.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: 导出中心/多格式/Bundle/保存搜索/收藏/动态集合 端到端（PR-06B；FakeProvider；export+media worker）
         env:
           API_BASE: http://localhost:8000
@@ -207,13 +217,14 @@ jobs:
                       DYNAMIC_COLLECTION_E2E_OK PR06B_E2E_OK; do
             grep -q "$flag" pr06b.log || { echo "缺少标志 $flag"; exit 1; }
           done
-      - name: 已有数据库升级路径端到端（0008→head 含 0009/0010/0011/0012 + 幂等；独立测试库，不碰业务库）
+      - name: 已有数据库升级路径端到端（0008→head 含 0009/0010/0011/0012/0013 + 幂等；独立测试库，不碰业务库）
         run: |
           set -o pipefail
           python scripts/ci_db_upgrade_e2e.py | tee db_upgrade.log
           grep -q "SCRIPT_DB_UPGRADE_OK" db_upgrade.log
           grep -q "PROJECTS_DB_UPGRADE_OK" db_upgrade.log
           grep -q "EXPORT_CENTER_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "CATALOG_DB_UPGRADE_OK" db_upgrade.log
           grep -q "SCRIPT_DB_UPGRADE_IDEMPOTENT_OK" db_upgrade.log
       - name: AI 链路 DB 级持久化断言（不以 Celery task 自报成功为准）
         run: |
@@ -251,6 +262,8 @@ jobs:
           grep -q "PROJECTS_GATE_A_PERSIST_OK" projects_gate_a_persist.log
           python scripts/ci_pr06b_e2e.py --mode check-persist | tee pr06b_persist.log
           grep -q "PR06B_PERSIST_OK" pr06b_persist.log
+          python scripts/ci_pr_a1_catalog_e2e.py --mode check-persist | tee catalog_a1_persist.log
+          grep -q "GENERIC_CATALOG_PERSIST_OK" catalog_a1_persist.log
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |
@@ -393,6 +406,17 @@ jobs:
           for flag in CORE_UX_ASSETS_E2E_OK CORE_UX_SHOTS_E2E_OK CORE_UX_DESCRIPTION_MATCH_E2E_OK CORE_UX_SCRIPT_E2E_OK CORE_UX_AUXILIARY_PAGES_E2E_OK CORE_UX_NAV_E2E_OK CORE_UX_RESPONSIVE_E2E_OK CORE_UX_MEDIA_FALLBACK_E2E_OK; do
             grep -q "$flag" core-ux.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: PR-A1 通用产品目录 UI E2E（真实页面：四层创建/激活/别名/更名/旧名/归档恢复/子级合并守卫）
+        working-directory: e2e
+        env:
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          npx playwright test pr-a1-product-catalog.spec.ts --grep-invert @persist | tee pr-a1-ui.log
+          for flag in PR_A1_UI_ALL_LEVEL_ACTIVATE_OK PR_A1_UI_RENAME_OLDNAME_OK PR_A1_UI_CHILD_MERGE_GUARD_OK PR_A1_UI_SCOPED_CODE_OK PR_A1_UI_E2E_OK; do
+            grep -q "$flag" pr-a1-ui.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: 重启 API/web/search-worker/export-worker 后持久化
         env:
           WEB_BASE: http://localhost:3000
@@ -418,6 +442,8 @@ jobs:
           grep -q "PR06B_UI_PERSIST_OK" e2e/pr06b-persist.log
           ( cd e2e && npx playwright test core-product-ux.spec.ts --grep @persist | tee core-persist.log )
           grep -q "CORE_UX_PERSIST_OK" e2e/core-persist.log
+          ( cd e2e && npx playwright test pr-a1-product-catalog.spec.ts --grep @persist | tee pr-a1-persist.log )
+          grep -q "PR_A1_UI_PERSIST_OK" e2e/pr-a1-persist.log
       - name: 失败时上传脱敏证据（trace/截图/报告；不含 .env/key/endpoint）
         if: failure()
         uses: actions/upload-artifact@v4

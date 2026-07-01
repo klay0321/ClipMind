@@ -128,7 +128,7 @@ ClipMind 面向短视频运营与剪辑团队，解决以下痛点：
 ```
 
 - **前端**：Next.js + React + TypeScript + Tailwind CSS + TanStack Query
-- **后端**：FastAPI + Pydantic + SQLAlchemy(async) + Alembic（当前迁移 head：`0012_library_export_features`）
+- **后端**：FastAPI + Pydantic + SQLAlchemy(async) + Alembic（当前迁移 head：`0013_generic_product_catalog`）
 - **数据库**：PostgreSQL 16 + **pgvector**（`vector(384)` 语义检索）+ pg_trgm
 - **异步任务**：Redis + **Celery**（worker=default/scan、media-worker=media、ai-worker=ai、search-worker=search、export-worker=export）
 - **视频处理**：FFmpeg / FFprobe + PySceneDetect（`opencv-python-headless` 后端）

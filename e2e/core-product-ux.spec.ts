@@ -59,10 +59,13 @@ test("脚本剪辑：列表页 + 新建脚本 Modal", async ({ page }) => {
   console.log("CORE_UX_SCRIPT_E2E_OK");
 });
 
-test("辅助页面：产品库 / 项目 / 导出 / 收藏 可达且成形", async ({ page }) => {
+test("辅助页面：产品目录 / 项目 / 导出 / 收藏 可达且成形", async ({ page }) => {
   await page.goto("/products");
-  await expect(page.getByRole("heading", { name: "产品库" })).toBeVisible();
+  // PR-A1 起 /products 为「产品目录」（层级）；既有扁平产品列表经 Tab 仍可达
+  await expect(page.getByRole("heading", { name: "产品目录" })).toBeVisible();
+  await page.getByTestId("tab-flat").click();
   await expect(page.getByTestId("product-search")).toBeVisible();
+  await page.getByTestId("tab-catalog").click();
 
   await page.goto("/projects");
   await expect(page.getByTestId("nav-projects")).toHaveAttribute("aria-current", "page");

@@ -42,6 +42,26 @@ import type {
   ScriptExportFormat,
   ShotSearchResponse,
 } from "./types";
+import type {
+  CatalogAliasCreateRequest,
+  CatalogAliasUpdateRequest,
+  CatalogLevel,
+  CatalogMergeRequest,
+  CatalogNode,
+  CatalogStatus,
+  CategoryCreateRequest,
+  CategoryListQuery,
+  CategoryUpdateRequest,
+  FamilyCreateRequest,
+  FamilyListQuery,
+  FamilyUpdateRequest,
+  SkuCreateRequest,
+  SkuListQuery,
+  SkuUpdateRequest,
+  VariantCreateRequest,
+  VariantListQuery,
+  VariantUpdateRequest,
+} from "./types";
 
 const ACTIVE_SCAN: ScanStatus[] = ["queued", "scanning"];
 const ACTIVE_RUN: MediaRunStatus[] = ["queued", "running"];
@@ -1156,5 +1176,326 @@ export function useDynamicCollectionShots(id: number | null, page = 1, pageSize 
       ),
     enabled: id != null,
     placeholderData: keepPreviousData,
+  });
+}
+
+// ===== PR-A1 通用产品目录（Category / Family / Variant / SKU / Alias + tree/search）=====
+//
+// 失效策略：任一实体的创建/更名/状态/归档/恢复/合并/别名变更后，统一失效 catalog 相关查询
+// （tree + 各层列表 + 该实体别名）。这样左侧树与右侧详情/子级列表都能拿到最新数据，
+// 不整页刷新、不在前端重算任何产品信息。
+
+// 广谱失效：任一目录写操作后刷新树 + 全部层列表 + 搜索/解析。
+function invalidateCatalog(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ["catalog-tree"] });
+  qc.invalidateQueries({ queryKey: ["catalog-categories"] });
+  qc.invalidateQueries({ queryKey: ["catalog-families"] });
+  qc.invalidateQueries({ queryKey: ["catalog-variants"] });
+  qc.invalidateQueries({ queryKey: ["catalog-skus"] });
+  qc.invalidateQueries({ queryKey: ["catalog-search"] });
+  qc.invalidateQueries({ queryKey: ["catalog-node"] });
+}
+
+// ---- 树 / 搜索 ----
+
+export function useCatalogTree(includeArchived = false) {
+  return useQuery({
+    queryKey: ["catalog-tree", includeArchived],
+    queryFn: () => api.catalogTree(includeArchived),
+  });
+}
+
+export function useCatalogSearch(q: string, enabled = true) {
+  const term = q.trim();
+  return useQuery({
+    queryKey: ["catalog-search", term],
+    queryFn: () => api.catalogSearch(term),
+    enabled: enabled && term.length > 0,
+    placeholderData: keepPreviousData,
+  });
+}
+
+// 歧义安全解析（§四）：精确 sku_code/code/名/别名 → resolved / ambiguous / not_found。
+// 绝不在前端任取第一条；ambiguous 时提示用户人工选择。
+export function useCatalogResolve(value: string, enabled = true) {
+  const v = value.trim();
+  return useQuery({
+    queryKey: ["catalog-resolve", v],
+    queryFn: () => api.catalogResolve(v),
+    enabled: enabled && v.length > 0,
+    placeholderData: keepPreviousData,
+  });
+}
+
+// ---- 列表（各层）----
+
+export function useCategories(query: CategoryListQuery = {}) {
+  return useQuery({
+    queryKey: ["catalog-categories", query],
+    queryFn: () => api.listCategories(query),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useFamilies(query: FamilyListQuery = {}, enabled = true) {
+  return useQuery({
+    queryKey: ["catalog-families", query],
+    queryFn: () => api.listFamilies(query),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useVariants(query: VariantListQuery = {}, enabled = true) {
+  return useQuery({
+    queryKey: ["catalog-variants", query],
+    queryFn: () => api.listVariants(query),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useSkus(query: SkuListQuery = {}, enabled = true) {
+  return useQuery({
+    queryKey: ["catalog-skus", query],
+    queryFn: () => api.listSkus(query),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+// ---- 单实体详情（按 level 分派）----
+
+export function useCatalogNode(level: CatalogLevel | null, id: number | null) {
+  return useQuery<CatalogNode>({
+    queryKey: ["catalog-node", level, id],
+    queryFn: (): Promise<CatalogNode> => {
+      switch (level) {
+        case "category":
+          return api.getCategory(id as number);
+        case "family":
+          return api.getFamily(id as number);
+        case "variant":
+          return api.getVariant(id as number);
+        case "sku":
+          return api.getSku(id as number);
+        default:
+          return Promise.reject(new Error("未知层级"));
+      }
+    },
+    enabled: level != null && id != null,
+  });
+}
+
+// ---- 别名（按目标实体）----
+
+export function useCatalogAliases(level: CatalogLevel | null, targetId: number | null) {
+  return useQuery({
+    queryKey: ["catalog-aliases", level, targetId],
+    queryFn: () => api.listCatalogAliases(level as CatalogLevel, targetId as number),
+    enabled: level != null && targetId != null,
+  });
+}
+
+// ---- 创建 ----
+
+export function useCreateCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: CategoryCreateRequest) => api.createCategory(req),
+    onSuccess: () => invalidateCatalog(qc),
+  });
+}
+
+export function useCreateFamily() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: FamilyCreateRequest) => api.createFamily(req),
+    onSuccess: () => invalidateCatalog(qc),
+  });
+}
+
+export function useCreateVariant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: VariantCreateRequest) => api.createVariant(req),
+    onSuccess: () => invalidateCatalog(qc),
+  });
+}
+
+export function useCreateSku() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: SkuCreateRequest) => api.createSku(req),
+    onSuccess: () => invalidateCatalog(qc),
+  });
+}
+
+// ---- 更新 / 更名 ----
+
+export function useUpdateCategory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, req }: { id: number; req: CategoryUpdateRequest }) =>
+      api.updateCategory(id, req),
+    onSuccess: () => invalidateCatalog(qc),
+  });
+}
+
+export function useUpdateFamily() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, req }: { id: number; req: FamilyUpdateRequest }) =>
+      api.updateFamily(id, req),
+    onSuccess: () => invalidateCatalog(qc),
+  });
+}
+
+export function useUpdateVariant() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, req }: { id: number; req: VariantUpdateRequest }) =>
+      api.updateVariant(id, req),
+    onSuccess: () => invalidateCatalog(qc),
+  });
+}
+
+export function useUpdateSku() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, req }: { id: number; req: SkuUpdateRequest }) => api.updateSku(id, req),
+    onSuccess: () => invalidateCatalog(qc),
+  });
+}
+
+// ---- 生命周期：状态 / 归档 / 恢复 / 合并 ----
+//
+// 各层参数化：以 level 分派到对应 api 方法，避免为每层重复 8 个 hook。
+
+type LevelMut = { level: CatalogLevel; id: number };
+
+export function useSetFamilyStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: number; status: CatalogStatus }) =>
+      api.setFamilyStatus(id, status),
+    onSuccess: () => invalidateCatalog(qc),
+  });
+}
+
+// 四层统一状态切换：按 level 分派到对应 setXxxStatus（§二 全层生命周期）
+export function useSetCatalogStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ level, id, status }: LevelMut & { status: CatalogStatus }): Promise<CatalogNode> => {
+      switch (level) {
+        case "category":
+          return api.setCategoryStatus(id, status);
+        case "family":
+          return api.setFamilyStatus(id, status);
+        case "variant":
+          return api.setVariantStatus(id, status);
+        case "sku":
+          return api.setSkuStatus(id, status);
+        default:
+          return Promise.reject(new Error("未知层级"));
+      }
+    },
+    onSuccess: () => invalidateCatalog(qc),
+  });
+}
+
+export function useArchiveCatalogNode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ level, id }: LevelMut): Promise<CatalogNode> => {
+      switch (level) {
+        case "category":
+          return api.archiveCategory(id);
+        case "family":
+          return api.archiveFamily(id);
+        case "variant":
+          return api.archiveVariant(id);
+        case "sku":
+          return api.archiveSku(id);
+        default:
+          return Promise.reject(new Error("未知层级"));
+      }
+    },
+    onSuccess: () => invalidateCatalog(qc),
+  });
+}
+
+export function useRestoreCatalogNode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ level, id }: LevelMut): Promise<CatalogNode> => {
+      switch (level) {
+        case "category":
+          return api.restoreCategory(id);
+        case "family":
+          return api.restoreFamily(id);
+        case "variant":
+          return api.restoreVariant(id);
+        case "sku":
+          return api.restoreSku(id);
+        default:
+          return Promise.reject(new Error("未知层级"));
+      }
+    },
+    onSuccess: () => invalidateCatalog(qc),
+  });
+}
+
+// 合并仅 family / variant / sku 支持（category 无 merge）
+export function useMergeCatalogNode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ level, id, req }: LevelMut & { req: CatalogMergeRequest }): Promise<CatalogNode> => {
+      switch (level) {
+        case "family":
+          return api.mergeFamily(id, req);
+        case "variant":
+          return api.mergeVariant(id, req);
+        case "sku":
+          return api.mergeSku(id, req);
+        default:
+          return Promise.reject(new Error("该层级不支持合并"));
+      }
+    },
+    onSuccess: () => invalidateCatalog(qc),
+  });
+}
+
+// ---- 别名写操作 ----
+
+export function useCreateCatalogAlias() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: CatalogAliasCreateRequest) => api.createCatalogAlias(req),
+    onSuccess: (_data, req) => {
+      qc.invalidateQueries({ queryKey: ["catalog-aliases", req.target_level, req.target_id] });
+    },
+  });
+}
+
+export function useUpdateCatalogAlias(level: CatalogLevel, targetId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, req }: { id: number; req: CatalogAliasUpdateRequest }) =>
+      api.updateCatalogAlias(id, req),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["catalog-aliases", level, targetId] });
+    },
+  });
+}
+
+export function useDeleteCatalogAlias(level: CatalogLevel, targetId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.deleteCatalogAlias(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["catalog-aliases", level, targetId] });
+    },
   });
 }

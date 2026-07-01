@@ -64,6 +64,11 @@ from clipmind_shared.models.product_catalog import (
     ProductSKU,
     ProductVariant,
 )
+from clipmind_shared.models.product_attributes import (
+    ProductAttributeDefinition,
+    ProductAttributeValue,
+)
+from clipmind_shared.models.product_reference import ProductReferenceAsset
 from clipmind_shared.models.project import (
     Project,
     ProjectAsset,
@@ -123,6 +128,9 @@ __all__ = [
     "ProductVariant",
     "ProductSKU",
     "ProductCatalogAlias",
+    "ProductAttributeDefinition",
+    "ProductAttributeValue",
+    "ProductReferenceAsset",
     "CatalogStatus",
     # PR-03B 标签/审核
     "Tag",

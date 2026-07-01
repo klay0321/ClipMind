@@ -71,6 +71,9 @@ def run_full() -> None:
     cat, _ = jreq("POST", "/api/product-categories", {"name_zh": _name("类别")})
     assert cat["status"] == "draft" and cat["code"], cat
     cid = cat["id"]
+    # 激活 Category（四层层级激活：Family/子级激活前须其 Category active）
+    cat_active, _ = jreq("POST", f"/api/product-categories/{cid}/status", {"status": "active"})
+    assert cat_active["status"] == "active", cat_active
 
     # 2. Family（核心实体，挂 category；兼容桥引用旧产品）
     fam, _ = jreq(
@@ -136,6 +139,12 @@ def run_full() -> None:
     fam_b, _ = jreq("POST", "/api/product-families", {"name_zh": _name("目标产品"), "category_id": cid})
     bid = fam_b["id"]
     jreq("POST", f"/api/product-families/{bid}/status", {"status": "active"})
+    # §六 子级守卫：fid 仍有活跃 variant/sku → 合并被拒（409），不静默隐藏子级
+    _, code = jreq("POST", f"/api/product-families/{fid}/merge", {"target_id": bid}, expect=(200, 409))
+    assert code == 409, "有活跃子级的产品系列不应可合并"
+    # 归档子级（sku→variant）后方可合并
+    jreq("POST", f"/api/product-skus/{sku['id']}/archive")
+    jreq("POST", f"/api/product-variants/{vid}/archive")
     m, _ = jreq("POST", f"/api/product-families/{fid}/merge", {"target_id": bid})
     assert m["status"] == "merged" and m["merged_into_id"] == bid
     rr, _ = jreq("GET", f"/api/product-catalog/resolve?value={_url(hist)}")

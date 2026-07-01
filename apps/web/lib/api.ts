@@ -94,6 +94,7 @@ import type {
   CatalogLevel,
   CatalogListResponse,
   CatalogMergeRequest,
+  CatalogResolveResult,
   CatalogSearchNode,
   CatalogStatus,
   CatalogTreeNode,
@@ -806,6 +807,12 @@ export const api = {
   restoreCategory(id: number): Promise<Category> {
     return http<Category>(`/product-categories/${id}/restore`, { method: "POST" });
   },
+  setCategoryStatus(id: number, status: CatalogStatus): Promise<Category> {
+    return http<Category>(`/product-categories/${id}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    });
+  },
 
   // ---- Family ----
   listFamilies(query: FamilyListQuery = {}): Promise<CatalogListResponse<Family>> {
@@ -867,6 +874,12 @@ export const api = {
       body: JSON.stringify(req),
     });
   },
+  setVariantStatus(id: number, status: CatalogStatus): Promise<Variant> {
+    return http<Variant>(`/product-variants/${id}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    });
+  },
 
   // ---- SKU ----
   listSkus(query: SkuListQuery = {}): Promise<CatalogListResponse<Sku>> {
@@ -891,6 +904,12 @@ export const api = {
     return http<Sku>(`/product-skus/${id}/merge`, {
       method: "POST",
       body: JSON.stringify(req),
+    });
+  },
+  setSkuStatus(id: number, status: CatalogStatus): Promise<Sku> {
+    return http<Sku>(`/product-skus/${id}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
     });
   },
 
@@ -925,10 +944,10 @@ export const api = {
     p.set("q", q);
     return http<CatalogSearchNode[]>(`/product-catalog/search?${p.toString()}`);
   },
-  catalogResolve(value: string): Promise<CatalogSearchNode | null> {
+  catalogResolve(value: string): Promise<CatalogResolveResult> {
     const p = new URLSearchParams();
     p.set("value", value);
-    return http<CatalogSearchNode | null>(`/product-catalog/resolve?${p.toString()}`);
+    return http<CatalogResolveResult>(`/product-catalog/resolve?${p.toString()}`);
   },
 };
 

@@ -9,7 +9,7 @@ import { Loading } from "@/components/states/Loading";
 import { TopNav } from "@/components/TopNav";
 import { Button } from "@/components/ui";
 import { cn } from "@/lib/cn";
-import { useCatalogSearch, useCatalogTree } from "@/lib/hooks";
+import { useCatalogResolve, useCatalogSearch, useCatalogTree } from "@/lib/hooks";
 import { CATALOG_STATUSES, type CatalogStatus, type CatalogTreeNode } from "@/lib/types";
 
 import { CatalogTree, type SelectedNode } from "./CatalogTree";
@@ -62,12 +62,15 @@ export function CatalogView() {
 
   const treeQ = useCatalogTree(includeArchived);
   const searchQ = useCatalogSearch(searchTerm, searchTerm.trim().length > 0);
+  const resolveQ = useCatalogResolve(searchTerm, searchTerm.trim().length > 0);
 
   const tree = useMemo(() => treeQ.data ?? [], [treeQ.data]);
   const counts = useMemo(() => countStatuses(tree), [tree]);
   const visibleTree = useMemo(() => filterTree(tree, statusFilter), [tree, statusFilter]);
 
   const searchResults = searchQ.data ?? [];
+  // §四：精确输入命中多个不同实体时提示人工选择，绝不自动绑定第一条
+  const isAmbiguous = resolveQ.data?.status === "ambiguous";
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -135,6 +138,14 @@ export function CatalogView() {
                     data-testid="catalog-search-results"
                     className="absolute z-10 mt-1 max-h-72 w-72 overflow-auto rounded-md border border-gray-200 bg-white py-1 shadow-lg"
                   >
+                    {isAmbiguous ? (
+                      <li
+                        data-testid="catalog-ambiguous-hint"
+                        className="border-b border-amber-100 bg-amber-50 px-3 py-1.5 text-[11px] text-amber-800"
+                      >
+                        找到多个可能产品，请选择
+                      </li>
+                    ) : null}
                     {searchResults.map((r) => (
                       <li key={`${r.level}-${r.id}`}>
                         <button

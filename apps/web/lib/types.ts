@@ -1399,6 +1399,16 @@ export interface CatalogSearchNode {
   redirected: boolean | null;
 }
 
+// 歧义安全解析结果（/product-catalog/resolve）。
+// resolved：唯一命中 canonical；ambiguous：多个候选需人工选择；not_found：无命中。
+export type CatalogResolveStatus = "resolved" | "ambiguous" | "not_found";
+
+export interface CatalogResolveResult {
+  status: CatalogResolveStatus;
+  canonical: CatalogSearchNode | null;
+  candidates: CatalogSearchNode[];
+}
+
 // ---- 列表响应（各层 { items, total } 分页）----
 export interface CatalogListResponse<T> {
   items: T[];

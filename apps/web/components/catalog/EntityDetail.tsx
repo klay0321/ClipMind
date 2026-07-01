@@ -8,7 +8,7 @@ import {
   useCatalogNode,
   useFamilies,
   useRestoreCatalogNode,
-  useSetFamilyStatus,
+  useSetCatalogStatus,
   useSkus,
   useUpdateCategory,
   useUpdateFamily,
@@ -99,7 +99,7 @@ function DetailBody({
   const updateFamily = useUpdateFamily();
   const updateVariant = useUpdateVariant();
   const updateSku = useUpdateSku();
-  const setFamilyStatus = useSetFamilyStatus();
+  const setStatus = useSetCatalogStatus();
   const archive = useArchiveCatalogNode();
   const restore = useRestoreCatalogNode();
 
@@ -108,7 +108,7 @@ function DetailBody({
     updateFamily.error ??
     updateVariant.error ??
     updateSku.error ??
-    setFamilyStatus.error ??
+    setStatus.error ??
     archive.error ??
     restore.error;
 
@@ -136,16 +136,15 @@ function DetailBody({
   };
 
   const doStatus = (to: CatalogStatus) => {
-    if (level === "family") {
-      setFamilyStatus.mutate({ id: node.id, status: to });
-    }
+    setStatus.mutate({ level, id: node.id, status: to });
   };
 
   // family_id 用于 variant/sku 合并候选约束
   const familyId =
     level === "variant" || level === "sku" ? (node.family_id ?? null) : null;
 
-  const statusActions = level === "family" ? STATUS_ACTIONS[node.status] : [];
+  // 四层统一：draft→active / active→paused / paused→active（archive/restore 走各自按钮）
+  const statusActions = STATUS_ACTIONS[node.status];
   const savingRename =
     updateCategory.isPending ||
     updateFamily.isPending ||
@@ -184,7 +183,7 @@ function DetailBody({
                 size="sm"
                 variant="outline"
                 onClick={() => doStatus(a.to)}
-                loading={setFamilyStatus.isPending}
+                loading={setStatus.isPending}
                 data-testid={`status-to-${a.to}`}
               >
                 {a.label}

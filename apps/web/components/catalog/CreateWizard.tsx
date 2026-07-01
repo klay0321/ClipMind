@@ -10,7 +10,7 @@ import {
   useCreateFamily,
   useCreateSku,
   useCreateVariant,
-  useSetFamilyStatus,
+  useSetCatalogStatus,
 } from "@/lib/hooks";
 import type { Family, Sku, Variant } from "@/lib/types";
 
@@ -62,7 +62,7 @@ export function CreateWizard({
   const createVariant = useCreateVariant();
   const createSku = useCreateSku();
   const createAlias = useCreateCatalogAlias();
-  const setFamilyStatus = useSetFamilyStatus();
+  const setStatus = useSetCatalogStatus();
 
   const reset = () => {
     setStep(1);
@@ -153,21 +153,33 @@ export function CreateWizard({
 
   const finish = (enable: boolean) => {
     if (!family) return;
+    const fam = family;
     const done = () => {
-      onCreated?.(family.id);
+      onCreated?.(fam.id);
       close();
     };
+    // §二 层级激活：启用 Family 前须 Category active，故先激活分类链再激活 family。
+    const activateFamily = () =>
+      setStatus.mutate({ level: "family", id: fam.id, status: "active" }, { onSuccess: done });
     const afterAlias = () => {
-      if (enable) {
-        setFamilyStatus.mutate({ id: family.id, status: "active" }, { onSuccess: done });
+      if (!enable) {
+        done();
+        return;
+      }
+      if (categoryId != null) {
+        setStatus.mutate(
+          { level: "category", id: categoryId, status: "active" },
+          { onSuccess: activateFamily },
+        );
       } else {
+        // 无分类无法启用（§二），退回草稿保存，绝不伪造 active 状态。
         done();
       }
     };
     const value = aliasValue.trim();
     if (value) {
       createAlias.mutate(
-        { target_level: "family", target_id: family.id, alias: value, alias_type: "zh_name" },
+        { target_level: "family", target_id: fam.id, alias: value, alias_type: "zh_name" },
         { onSuccess: afterAlias },
       );
     } else {
@@ -176,7 +188,8 @@ export function CreateWizard({
   };
 
   const categories = categoriesQ.data?.items ?? [];
-  const finishing = createAlias.isPending || setFamilyStatus.isPending;
+  const finishing = createAlias.isPending || setStatus.isPending;
+  const canEnable = categoryMode !== "none"; // 启用须归属分类（§二 层级激活校验）
 
   return (
     <Drawer open={open} onClose={close} title="新建产品" widthClass="max-w-md">
@@ -375,8 +388,13 @@ export function CreateWizard({
               data-testid="wizard-alias"
             />
             <CatalogFutureNotice />
+            {!canEnable ? (
+              <p className="text-[11px] text-amber-700" data-testid="wizard-enable-hint">
+                未归属分类的产品需先分类后才能启用，此处可先保存为草稿。
+              </p>
+            ) : null}
             <CatalogError error={createAlias.error} />
-            <CatalogError error={setFamilyStatus.error} />
+            <CatalogError error={setStatus.error} />
             <div className="flex flex-wrap justify-end gap-2">
               <Button
                 variant="secondary"
@@ -390,6 +408,7 @@ export function CreateWizard({
                 variant="primary"
                 onClick={() => finish(true)}
                 loading={finishing}
+                disabled={!canEnable}
                 data-testid="wizard-save-active"
               >
                 保存并启用

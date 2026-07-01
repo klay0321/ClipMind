@@ -1215,6 +1215,18 @@ export function useCatalogSearch(q: string, enabled = true) {
   });
 }
 
+// 歧义安全解析（§四）：精确 sku_code/code/名/别名 → resolved / ambiguous / not_found。
+// 绝不在前端任取第一条；ambiguous 时提示用户人工选择。
+export function useCatalogResolve(value: string, enabled = true) {
+  const v = value.trim();
+  return useQuery({
+    queryKey: ["catalog-resolve", v],
+    queryFn: () => api.catalogResolve(v),
+    enabled: enabled && v.length > 0,
+    placeholderData: keepPreviousData,
+  });
+}
+
 // ---- 列表（各层）----
 
 export function useCategories(query: CategoryListQuery = {}) {
@@ -1367,6 +1379,28 @@ export function useSetFamilyStatus() {
   return useMutation({
     mutationFn: ({ id, status }: { id: number; status: CatalogStatus }) =>
       api.setFamilyStatus(id, status),
+    onSuccess: () => invalidateCatalog(qc),
+  });
+}
+
+// 四层统一状态切换：按 level 分派到对应 setXxxStatus（§二 全层生命周期）
+export function useSetCatalogStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ level, id, status }: LevelMut & { status: CatalogStatus }): Promise<CatalogNode> => {
+      switch (level) {
+        case "category":
+          return api.setCategoryStatus(id, status);
+        case "family":
+          return api.setFamilyStatus(id, status);
+        case "variant":
+          return api.setVariantStatus(id, status);
+        case "sku":
+          return api.setSkuStatus(id, status);
+        default:
+          return Promise.reject(new Error("未知层级"));
+      }
+    },
     onSuccess: () => invalidateCatalog(qc),
   });
 }

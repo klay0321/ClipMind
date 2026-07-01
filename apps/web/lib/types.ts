@@ -1263,3 +1263,251 @@ export interface DynamicCollectionUpdateRequest {
   search_kind?: SavedSearchKind;
   query?: Record<string, unknown>;
 }
+
+// ===== PR-A1 通用产品目录（Category → Family → Variant → SKU + Alias）=====
+//
+// 与后端 schemas/product_catalog.py 对齐。与既有扁平 `Product`（/api/products）**并存**。
+// 关键约束：产品名/层级/别名值全部来自 API，前端绝不硬编码任何具体产品；
+// 仅生命周期状态与别名类型是受控枚举常量（非产品值）。
+
+// 目录节点层级
+export type CatalogLevel = "category" | "family" | "variant" | "sku";
+
+// 生命周期状态（与后端 CatalogStatus 一致）
+export type CatalogStatus = "draft" | "active" | "paused" | "archived" | "merged";
+
+// 别名类型（受控枚举常量，非产品值；与后端 CATALOG_ALIAS_TYPES 一致）
+export type CatalogAliasType =
+  | "zh_name"
+  | "en_name"
+  | "short_name"
+  | "folder_alias"
+  | "historical_name"
+  | "sku_alias";
+
+export const CATALOG_ALIAS_TYPES: CatalogAliasType[] = [
+  "zh_name",
+  "en_name",
+  "short_name",
+  "folder_alias",
+  "historical_name",
+  "sku_alias",
+];
+
+// 生命周期状态下拉/筛选可用值（非产品值，受控枚举）
+export const CATALOG_STATUSES: CatalogStatus[] = [
+  "draft",
+  "active",
+  "paused",
+  "archived",
+  "merged",
+];
+
+export interface Category {
+  id: number;
+  code: string;
+  name_zh: string;
+  name_en: string | null;
+  description: string | null;
+  status: CatalogStatus;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+export interface Family {
+  id: number;
+  code: string;
+  category_id: number | null;
+  name_zh: string;
+  name_en: string | null;
+  description: string | null;
+  status: CatalogStatus;
+  merged_into_id: number | null;
+  legacy_product_id: number | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+export interface Variant {
+  id: number;
+  code: string;
+  family_id: number;
+  name_zh: string;
+  name_en: string | null;
+  description: string | null;
+  status: CatalogStatus;
+  merged_into_id: number | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+export interface Sku {
+  id: number;
+  code: string;
+  family_id: number;
+  variant_id: number | null;
+  sku_code: string | null;
+  name_zh: string;
+  name_en: string | null;
+  status: CatalogStatus;
+  merged_into_id: number | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+// 任意目录实体的联合（各层字段的宽松超集，供跨层泛型 hook/详情复用）
+export type CatalogNode = Category | Family | Variant | Sku;
+
+export interface CatalogAlias {
+  id: number;
+  category_id: number | null;
+  family_id: number | null;
+  variant_id: number | null;
+  sku_id: number | null;
+  alias: string;
+  normalized_alias: string;
+  language: string | null;
+  alias_type: string;
+  is_primary: boolean;
+}
+
+// 只读层级树节点（/product-catalog/tree）
+export interface CatalogTreeNode {
+  level: CatalogLevel;
+  id: number | null;
+  code: string;
+  name_zh: string;
+  name_en: string | null;
+  status: CatalogStatus;
+  children: CatalogTreeNode[];
+}
+
+// 跨层级搜索 / 解析节点（/product-catalog/search、/resolve）
+export interface CatalogSearchNode {
+  level: CatalogLevel;
+  id: number | null;
+  code: string;
+  name_zh: string;
+  name_en: string | null;
+  sku_code: string | null;
+  status: CatalogStatus;
+  redirected: boolean | null;
+}
+
+// ---- 列表响应（各层 { items, total } 分页）----
+export interface CatalogListResponse<T> {
+  items: T[];
+  total: number;
+}
+
+// ---- 列表查询参数 ----
+export interface CategoryListQuery {
+  q?: string;
+  status_filter?: CatalogStatus;
+  include_archived?: boolean;
+  limit?: number;
+  offset?: number;
+}
+
+export interface FamilyListQuery extends CategoryListQuery {
+  category_id?: number;
+}
+
+export interface VariantListQuery extends CategoryListQuery {
+  family_id?: number;
+}
+
+export interface SkuListQuery extends CategoryListQuery {
+  family_id?: number;
+  variant_id?: number;
+}
+
+// ---- 请求体 ----
+export interface CategoryCreateRequest {
+  code?: string;
+  name_zh: string;
+  name_en?: string;
+  description?: string;
+  sort_order?: number;
+}
+
+export interface CategoryUpdateRequest {
+  name_zh?: string;
+  name_en?: string | null;
+  description?: string | null;
+  sort_order?: number;
+}
+
+export interface FamilyCreateRequest {
+  code?: string;
+  category_id?: number | null;
+  name_zh: string;
+  name_en?: string;
+  description?: string;
+  legacy_product_id?: number | null;
+}
+
+export interface FamilyUpdateRequest {
+  name_zh?: string;
+  name_en?: string | null;
+  description?: string | null;
+  category_id?: number | null;
+}
+
+export interface VariantCreateRequest {
+  code?: string;
+  family_id: number;
+  name_zh: string;
+  name_en?: string;
+  description?: string;
+}
+
+export interface VariantUpdateRequest {
+  name_zh?: string;
+  name_en?: string | null;
+  description?: string | null;
+}
+
+export interface SkuCreateRequest {
+  code?: string;
+  family_id: number;
+  variant_id?: number | null;
+  sku_code?: string;
+  name_zh: string;
+  name_en?: string;
+}
+
+export interface SkuUpdateRequest {
+  name_zh?: string;
+  name_en?: string | null;
+  sku_code?: string;
+}
+
+export interface CatalogAliasCreateRequest {
+  target_level: CatalogLevel;
+  target_id: number;
+  alias: string;
+  language?: string;
+  alias_type?: CatalogAliasType;
+  is_primary?: boolean;
+}
+
+export interface CatalogAliasUpdateRequest {
+  alias?: string;
+  language?: string | null;
+  alias_type?: CatalogAliasType;
+  is_primary?: boolean;
+}
+
+export interface CatalogStatusRequest {
+  status: CatalogStatus;
+}
+
+export interface CatalogMergeRequest {
+  target_id: number;
+}

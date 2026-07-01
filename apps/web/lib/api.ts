@@ -87,6 +87,33 @@ import type {
   SavedSearchUpdateRequest,
   ScriptExportFormat,
 } from "./types";
+import type {
+  CatalogAlias,
+  CatalogAliasCreateRequest,
+  CatalogAliasUpdateRequest,
+  CatalogLevel,
+  CatalogListResponse,
+  CatalogMergeRequest,
+  CatalogSearchNode,
+  CatalogStatus,
+  CatalogTreeNode,
+  Category,
+  CategoryCreateRequest,
+  CategoryListQuery,
+  CategoryUpdateRequest,
+  Family,
+  FamilyCreateRequest,
+  FamilyListQuery,
+  FamilyUpdateRequest,
+  Sku,
+  SkuCreateRequest,
+  SkuListQuery,
+  SkuUpdateRequest,
+  Variant,
+  VariantCreateRequest,
+  VariantListQuery,
+  VariantUpdateRequest,
+} from "./types";
 
 export interface ShotSearchQuery {
   asset_id?: number;
@@ -752,4 +779,171 @@ export const api = {
   dynamicCollectionShots<T>(id: number, page = 1, pageSize = 24): Promise<T> {
     return http<T>(`/dynamic-collections/${id}/shots?page=${page}&page_size=${pageSize}`);
   },
+
+  // ===== PR-A1 通用产品目录（Category / Family / Variant / SKU / Alias + tree/search/resolve）=====
+  //
+  // 与既有 /products（扁平业务产品）并存。列表 query 全部可选；产品值全部来自后端。
+
+  // ---- Category ----
+  listCategories(query: CategoryListQuery = {}): Promise<CatalogListResponse<Category>> {
+    return http<CatalogListResponse<Category>>(`/product-categories?${buildCatalogQuery(query)}`);
+  },
+  createCategory(req: CategoryCreateRequest): Promise<Category> {
+    return http<Category>(`/product-categories`, { method: "POST", body: JSON.stringify(req) });
+  },
+  getCategory(id: number): Promise<Category> {
+    return http<Category>(`/product-categories/${id}`);
+  },
+  updateCategory(id: number, req: CategoryUpdateRequest): Promise<Category> {
+    return http<Category>(`/product-categories/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(req),
+    });
+  },
+  archiveCategory(id: number): Promise<Category> {
+    return http<Category>(`/product-categories/${id}/archive`, { method: "POST" });
+  },
+  restoreCategory(id: number): Promise<Category> {
+    return http<Category>(`/product-categories/${id}/restore`, { method: "POST" });
+  },
+
+  // ---- Family ----
+  listFamilies(query: FamilyListQuery = {}): Promise<CatalogListResponse<Family>> {
+    return http<CatalogListResponse<Family>>(`/product-families?${buildCatalogQuery(query)}`);
+  },
+  createFamily(req: FamilyCreateRequest): Promise<Family> {
+    return http<Family>(`/product-families`, { method: "POST", body: JSON.stringify(req) });
+  },
+  getFamily(id: number): Promise<Family> {
+    return http<Family>(`/product-families/${id}`);
+  },
+  updateFamily(id: number, req: FamilyUpdateRequest): Promise<Family> {
+    return http<Family>(`/product-families/${id}`, { method: "PATCH", body: JSON.stringify(req) });
+  },
+  archiveFamily(id: number): Promise<Family> {
+    return http<Family>(`/product-families/${id}/archive`, { method: "POST" });
+  },
+  restoreFamily(id: number): Promise<Family> {
+    return http<Family>(`/product-families/${id}/restore`, { method: "POST" });
+  },
+  mergeFamily(id: number, req: CatalogMergeRequest): Promise<Family> {
+    return http<Family>(`/product-families/${id}/merge`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  },
+  setFamilyStatus(id: number, status: CatalogStatus): Promise<Family> {
+    return http<Family>(`/product-families/${id}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  // ---- Variant ----
+  listVariants(query: VariantListQuery = {}): Promise<CatalogListResponse<Variant>> {
+    return http<CatalogListResponse<Variant>>(`/product-variants?${buildCatalogQuery(query)}`);
+  },
+  createVariant(req: VariantCreateRequest): Promise<Variant> {
+    return http<Variant>(`/product-variants`, { method: "POST", body: JSON.stringify(req) });
+  },
+  getVariant(id: number): Promise<Variant> {
+    return http<Variant>(`/product-variants/${id}`);
+  },
+  updateVariant(id: number, req: VariantUpdateRequest): Promise<Variant> {
+    return http<Variant>(`/product-variants/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(req),
+    });
+  },
+  archiveVariant(id: number): Promise<Variant> {
+    return http<Variant>(`/product-variants/${id}/archive`, { method: "POST" });
+  },
+  restoreVariant(id: number): Promise<Variant> {
+    return http<Variant>(`/product-variants/${id}/restore`, { method: "POST" });
+  },
+  mergeVariant(id: number, req: CatalogMergeRequest): Promise<Variant> {
+    return http<Variant>(`/product-variants/${id}/merge`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  },
+
+  // ---- SKU ----
+  listSkus(query: SkuListQuery = {}): Promise<CatalogListResponse<Sku>> {
+    return http<CatalogListResponse<Sku>>(`/product-skus?${buildCatalogQuery(query)}`);
+  },
+  createSku(req: SkuCreateRequest): Promise<Sku> {
+    return http<Sku>(`/product-skus`, { method: "POST", body: JSON.stringify(req) });
+  },
+  getSku(id: number): Promise<Sku> {
+    return http<Sku>(`/product-skus/${id}`);
+  },
+  updateSku(id: number, req: SkuUpdateRequest): Promise<Sku> {
+    return http<Sku>(`/product-skus/${id}`, { method: "PATCH", body: JSON.stringify(req) });
+  },
+  archiveSku(id: number): Promise<Sku> {
+    return http<Sku>(`/product-skus/${id}/archive`, { method: "POST" });
+  },
+  restoreSku(id: number): Promise<Sku> {
+    return http<Sku>(`/product-skus/${id}/restore`, { method: "POST" });
+  },
+  mergeSku(id: number, req: CatalogMergeRequest): Promise<Sku> {
+    return http<Sku>(`/product-skus/${id}/merge`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  },
+
+  // ---- Alias ----
+  listCatalogAliases(targetLevel: CatalogLevel, targetId: number): Promise<CatalogAlias[]> {
+    const p = new URLSearchParams();
+    p.set("target_level", targetLevel);
+    p.set("target_id", String(targetId));
+    return http<CatalogAlias[]>(`/product-aliases?${p.toString()}`);
+  },
+  createCatalogAlias(req: CatalogAliasCreateRequest): Promise<CatalogAlias> {
+    return http<CatalogAlias>(`/product-aliases`, { method: "POST", body: JSON.stringify(req) });
+  },
+  updateCatalogAlias(id: number, req: CatalogAliasUpdateRequest): Promise<CatalogAlias> {
+    return http<CatalogAlias>(`/product-aliases/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(req),
+    });
+  },
+  deleteCatalogAlias(id: number): Promise<void> {
+    return http<void>(`/product-aliases/${id}`, { method: "DELETE" });
+  },
+
+  // ---- Catalog tree / search / resolve ----
+  catalogTree(includeArchived = false): Promise<CatalogTreeNode[]> {
+    const p = new URLSearchParams();
+    if (includeArchived) p.set("include_archived", "true");
+    return http<CatalogTreeNode[]>(`/product-catalog/tree?${p.toString()}`);
+  },
+  catalogSearch(q: string): Promise<CatalogSearchNode[]> {
+    const p = new URLSearchParams();
+    p.set("q", q);
+    return http<CatalogSearchNode[]>(`/product-catalog/search?${p.toString()}`);
+  },
+  catalogResolve(value: string): Promise<CatalogSearchNode | null> {
+    const p = new URLSearchParams();
+    p.set("value", value);
+    return http<CatalogSearchNode | null>(`/product-catalog/resolve?${p.toString()}`);
+  },
 };
+
+// 目录列表 query → search params（跳过 undefined/空，产品值不进代码）
+function buildCatalogQuery(
+  query: CategoryListQuery & { category_id?: number; family_id?: number; variant_id?: number },
+): string {
+  const p = new URLSearchParams();
+  if (query.q) p.set("q", query.q);
+  if (query.status_filter) p.set("status_filter", query.status_filter);
+  if (query.include_archived) p.set("include_archived", "true");
+  if (query.category_id != null) p.set("category_id", String(query.category_id));
+  if (query.family_id != null) p.set("family_id", String(query.family_id));
+  if (query.variant_id != null) p.set("variant_id", String(query.variant_id));
+  if (query.limit != null) p.set("limit", String(query.limit));
+  if (query.offset != null) p.set("offset", String(query.offset));
+  return p.toString();
+}

@@ -115,6 +115,22 @@ import type {
   VariantListQuery,
   VariantUpdateRequest,
 } from "./types";
+import type {
+  AttributeDefinition,
+  AttributeDefinitionCreateRequest,
+  AttributeDefinitionListQuery,
+  AttributeDefinitionListResponse,
+  AttributeDefinitionUpdateRequest,
+  AttributeTargetLevel,
+  AttributeValue,
+  AttributeValueListQuery,
+  AttributeValueUpsertRequest,
+  CatalogProfile,
+  ReferenceAsset,
+  ReferenceListQuery,
+  ReferenceUpdateRequest,
+  ReferenceUploadResponse,
+} from "./types";
 
 export interface ShotSearchQuery {
   asset_id?: number;
@@ -200,6 +216,10 @@ export const scriptExportDownloadUrl = (scriptId: number, exportId: number) =>
   `/api/scripts/${scriptId}/exports/${exportId}/download`;
 // PR-06B ZIP 打包导出下载直链
 export const bundleDownloadUrl = (id: number) => `/api/exports/bundle/${id}/download`;
+// PR-A2 参考图文件直链（<img> 直接用，按 id 引用；缩略缺失后端回退原图）
+export const referenceFileUrl = (id: number) => `/api/product-reference-assets/${id}/file`;
+export const referenceThumbnailUrl = (id: number) =>
+  `/api/product-reference-assets/${id}/thumbnail`;
 
 export const api = {
   listAssets(query: AssetQuery): Promise<PageResult<Asset>> {
@@ -949,6 +969,164 @@ export const api = {
     p.set("value", value);
     return http<CatalogResolveResult>(`/product-catalog/resolve?${p.toString()}`);
   },
+
+  // ===== PR-A2 动态产品属性（定义 + 值）+ 参考图库 + profile =====
+  //
+  // 属性定义、允许值、单位、参考图角度/状态全部来自后端；上传用 FormData（不手动设
+  // Content-Type，让浏览器自动带 multipart boundary）。文件按 id 引用，绝不用路径。
+
+  // ---- 属性定义 ----
+  listAttributeDefinitions(
+    query: AttributeDefinitionListQuery = {},
+  ): Promise<AttributeDefinitionListResponse> {
+    return http<AttributeDefinitionListResponse>(
+      `/product-attribute-definitions?${buildAttributeDefQuery(query)}`,
+    );
+  },
+  createAttributeDefinition(
+    req: AttributeDefinitionCreateRequest,
+  ): Promise<AttributeDefinition> {
+    return http<AttributeDefinition>(`/product-attribute-definitions`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  },
+  getAttributeDefinition(id: number): Promise<AttributeDefinition> {
+    return http<AttributeDefinition>(`/product-attribute-definitions/${id}`);
+  },
+  updateAttributeDefinition(
+    id: number,
+    req: AttributeDefinitionUpdateRequest,
+  ): Promise<AttributeDefinition> {
+    return http<AttributeDefinition>(`/product-attribute-definitions/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(req),
+    });
+  },
+  archiveAttributeDefinition(id: number): Promise<AttributeDefinition> {
+    return http<AttributeDefinition>(`/product-attribute-definitions/${id}/archive`, {
+      method: "POST",
+    });
+  },
+  restoreAttributeDefinition(id: number): Promise<AttributeDefinition> {
+    return http<AttributeDefinition>(`/product-attribute-definitions/${id}/restore`, {
+      method: "POST",
+    });
+  },
+  setAttributeDefinitionStatus(
+    id: number,
+    status: CatalogStatus,
+  ): Promise<AttributeDefinition> {
+    return http<AttributeDefinition>(`/product-attribute-definitions/${id}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    });
+  },
+
+  // ---- 属性值 ----
+  listAttributeValues(query: AttributeValueListQuery): Promise<AttributeValue[]> {
+    const p = new URLSearchParams();
+    p.set("target_level", query.target_level);
+    p.set("target_id", String(query.target_id));
+    if (query.include_archived) p.set("include_archived", "true");
+    return http<AttributeValue[]>(`/product-attribute-values?${p.toString()}`);
+  },
+  setAttributeValue(req: AttributeValueUpsertRequest): Promise<AttributeValue> {
+    return http<AttributeValue>(`/product-attribute-values`, {
+      method: "PUT",
+      body: JSON.stringify(req),
+    });
+  },
+  deleteAttributeValue(id: number): Promise<void> {
+    return http<void>(`/product-attribute-values/${id}`, { method: "DELETE" });
+  },
+
+  // ---- 参考图 ----
+  listReferences(query: ReferenceListQuery): Promise<ReferenceAsset[]> {
+    const p = new URLSearchParams();
+    p.set("target_level", query.target_level);
+    p.set("target_id", String(query.target_id));
+    if (query.include_archived) p.set("include_archived", "true");
+    return http<ReferenceAsset[]>(`/product-reference-assets?${p.toString()}`);
+  },
+  async uploadReferences(input: {
+    targetLevel: AttributeTargetLevel;
+    targetId: number;
+    files: File[];
+    angle?: string;
+    state?: string;
+    description?: string;
+    isPrimary?: boolean;
+  }): Promise<ReferenceUploadResponse> {
+    const fd = new FormData();
+    fd.append("target_level", input.targetLevel);
+    fd.append("target_id", String(input.targetId));
+    if (input.angle) fd.append("angle", input.angle);
+    if (input.state) fd.append("state", input.state);
+    if (input.description) fd.append("description", input.description);
+    if (input.isPrimary != null) fd.append("is_primary", String(input.isPrimary));
+    for (const f of input.files) fd.append("files", f);
+    // 不手动设 Content-Type，浏览器自动带 multipart boundary
+    const res = await fetch(`${BASE}/product-reference-assets`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const body = await res.json();
+        detail = body?.detail ?? detail;
+      } catch {
+        // 忽略非 JSON 错误体
+      }
+      throw new ApiError(res.status, typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
+    return res.json();
+  },
+  getReference(id: number): Promise<ReferenceAsset> {
+    return http<ReferenceAsset>(`/product-reference-assets/${id}`);
+  },
+  updateReference(id: number, req: ReferenceUpdateRequest): Promise<ReferenceAsset> {
+    return http<ReferenceAsset>(`/product-reference-assets/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(req),
+    });
+  },
+  setReferencePrimary(id: number): Promise<ReferenceAsset> {
+    return http<ReferenceAsset>(`/product-reference-assets/${id}/primary`, {
+      method: "POST",
+    });
+  },
+  archiveReference(id: number): Promise<ReferenceAsset> {
+    return http<ReferenceAsset>(`/product-reference-assets/${id}/archive`, {
+      method: "POST",
+    });
+  },
+  restoreReference(id: number): Promise<ReferenceAsset> {
+    return http<ReferenceAsset>(`/product-reference-assets/${id}/restore`, {
+      method: "POST",
+    });
+  },
+  deleteReference(id: number): Promise<void> {
+    return http<void>(`/product-reference-assets/${id}`, { method: "DELETE" });
+  },
+  batchAngleReferences(ids: number[], angle: string): Promise<ReferenceAsset[]> {
+    return http<ReferenceAsset[]>(`/product-reference-assets/batch-angle`, {
+      method: "POST",
+      body: JSON.stringify({ ids, angle }),
+    });
+  },
+  batchArchiveReferences(ids: number[]): Promise<ReferenceAsset[]> {
+    return http<ReferenceAsset[]>(`/product-reference-assets/batch-archive`, {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+  },
+
+  // ---- 目录资料完整度 profile ----
+  catalogProfile(level: CatalogLevel, id: number): Promise<CatalogProfile> {
+    return http<CatalogProfile>(`/product-catalog/${level}/${id}/profile`);
+  },
 };
 
 // 目录列表 query → search params（跳过 undefined/空，产品值不进代码）
@@ -962,6 +1140,22 @@ function buildCatalogQuery(
   if (query.category_id != null) p.set("category_id", String(query.category_id));
   if (query.family_id != null) p.set("family_id", String(query.family_id));
   if (query.variant_id != null) p.set("variant_id", String(query.variant_id));
+  if (query.limit != null) p.set("limit", String(query.limit));
+  if (query.offset != null) p.set("offset", String(query.offset));
+  return p.toString();
+}
+
+// 属性定义列表 query → search params（布尔仅在显式提供时进参，避免误覆盖后端默认）
+function buildAttributeDefQuery(query: AttributeDefinitionListQuery): string {
+  const p = new URLSearchParams();
+  if (query.category_id != null) p.set("category_id", String(query.category_id));
+  if (query.include_global != null) p.set("include_global", String(query.include_global));
+  if (query.status_filter) p.set("status_filter", query.status_filter);
+  if (query.searchable != null) p.set("searchable", String(query.searchable));
+  if (query.identity_relevant != null)
+    p.set("identity_relevant", String(query.identity_relevant));
+  if (query.include_archived) p.set("include_archived", "true");
+  if (query.q) p.set("q", query.q);
   if (query.limit != null) p.set("limit", String(query.limit));
   if (query.offset != null) p.set("offset", String(query.offset));
   return p.toString();

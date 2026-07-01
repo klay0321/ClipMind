@@ -335,3 +335,39 @@ EXPORT_KINDS: tuple[str, ...] = (EXPORT_KIND_CLIP, EXPORT_KIND_SCRIPT, EXPORT_KI
 
 # 脚本导出支持的格式（PRD §7.12.7）
 SCRIPT_EXPORT_FORMATS: tuple[str, ...] = ("csv", "xlsx", "json", "markdown", "printable")
+
+
+# ============================================================
+# PR-A1 通用产品目录（Category → Family → Variant → SKU）
+# ============================================================
+
+
+class CatalogStatus(StrEnum):
+    """通用产品目录节点生命周期（Category/Family/Variant/SKU 共用）。
+
+    这是**节点状态**枚举（系统能力，稳定），**不是产品名称枚举**——
+    新增任意产品只是插入数据行，绝不改动此枚举。
+    """
+
+    DRAFT = "draft"          # 草稿：运营录入中，不参与业务消费
+    ACTIVE = "active"        # 已启用
+    PAUSED = "paused"        # 暂停使用（保留关系）
+    ARCHIVED = "archived"    # 归档（默认不出现在 active 列表，可恢复）
+    MERGED = "merged"        # 已合并到另一节点（merged_into_id 指向 canonical，原节点保留）
+
+
+# 默认从 active 列表中隐藏的目录状态
+CATALOG_HIDDEN_STATUSES: tuple[CatalogStatus, ...] = (
+    CatalogStatus.ARCHIVED,
+    CatalogStatus.MERGED,
+)
+# 通用产品目录别名类型（受控业务集合）。存 String 列而非 pg_enum，
+# 便于将来新增别名类型时免迁移；service 层按此集合校验。
+CATALOG_ALIAS_TYPES: tuple[str, ...] = (
+    "zh_name",         # 中文别名
+    "en_name",         # 英文别名
+    "short_name",      # 运营简称
+    "folder_alias",    # 文件夹别名（仅候选线索，绝不作判定真值）
+    "historical_name", # 历史名称（更名保留）
+    "sku_alias",       # SKU 别名
+)

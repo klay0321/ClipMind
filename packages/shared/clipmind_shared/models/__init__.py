@@ -29,6 +29,7 @@ from clipmind_shared.models.enums import (
     AIRunStatus,
     AIShotAnalysisStatus,
     AssetStatus,
+    CatalogStatus,
     ExportStatus,
     FavoriteTargetType,
     MediaRunStatus,
@@ -55,6 +56,13 @@ from clipmind_shared.models.product import (
     Product,
     ProductAlias,
     ProductImage,
+)
+from clipmind_shared.models.product_catalog import (
+    ProductCatalogAlias,
+    ProductCategory,
+    ProductFamily,
+    ProductSKU,
+    ProductVariant,
 )
 from clipmind_shared.models.project import (
     Project,
@@ -109,6 +117,13 @@ __all__ = [
     "ProductImage",
     "AssetProduct",
     "ProductStatus",
+    # PR-A1 通用产品目录
+    "ProductCategory",
+    "ProductFamily",
+    "ProductVariant",
+    "ProductSKU",
+    "ProductCatalogAlias",
+    "CatalogStatus",
     # PR-03B 标签/审核
     "Tag",
     "ShotTag",

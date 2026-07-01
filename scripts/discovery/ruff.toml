@@ -1,0 +1,12 @@
+# scripts/discovery 的 ruff 配置，与项目主标准（apps/api）保持一致。
+line-length = 100
+target-version = "py313"
+
+[lint]
+select = ["E", "F", "I", "B", "UP", "S"]
+# S101: 测试与脚本使用 assert；B008: 与 FastAPI 无关此处不触发，保留与主仓一致
+ignore = ["S101", "B008"]
+
+[lint.per-file-ignores]
+# 测试可用 assert / subprocess
+"test_*.py" = ["S101", "S603", "S607"]

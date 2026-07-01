@@ -196,6 +196,16 @@ jobs:
           for flag in PROJECTS_GATE_A_E2E_OK PROJECTS_ARCHIVE_GUARD_OK COLLECTIONS_GATE_A_E2E_OK PROJECTS_DELETE_SAFETY_OK; do
             grep -q "$flag" projects_gate_a.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: 通用产品目录核心 端到端（PR-A1；纯 API/中性合成名；层级/更名/合并重定向/旧 /api/products 兼容）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_pr_a1_catalog_e2e.py --mode full | tee catalog_a1.log
+          for flag in GENERIC_CATALOG_COMPAT_OK GENERIC_CATALOG_CRUD_OK GENERIC_CATALOG_RENAME_OK \
+                      GENERIC_CATALOG_MERGE_REDIRECT_OK GENERIC_CATALOG_MIGRATION_OK GENERIC_CATALOG_E2E_OK; do
+            grep -q "$flag" catalog_a1.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: 导出中心/多格式/Bundle/保存搜索/收藏/动态集合 端到端（PR-06B；FakeProvider；export+media worker）
         env:
           API_BASE: http://localhost:8000
@@ -251,6 +261,8 @@ jobs:
           grep -q "PROJECTS_GATE_A_PERSIST_OK" projects_gate_a_persist.log
           python scripts/ci_pr06b_e2e.py --mode check-persist | tee pr06b_persist.log
           grep -q "PR06B_PERSIST_OK" pr06b_persist.log
+          python scripts/ci_pr_a1_catalog_e2e.py --mode check-persist | tee catalog_a1_persist.log
+          grep -q "GENERIC_CATALOG_PERSIST_OK" catalog_a1_persist.log
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |

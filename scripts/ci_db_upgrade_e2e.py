@@ -104,9 +104,9 @@ def main() -> None:
     assert up.stdout and "SCRIPT_DB_UPGRADE_OK" in up.stdout, "db_upgrade.sh 未输出 OK 标志"
     print("  db_upgrade.sh ran: SCRIPT_DB_UPGRADE_OK emitted by official command")
 
-    # 4. 自动到 head（0012）：0009 Gate B + 0010 项目/集合 + 0011/0012 导出中心 表/列出现 + 旧数据不丢
+    # 4. 自动到 head（0013）：0009 Gate B + 0010 项目/集合 + 0011/0012 导出中心 + 0013 通用目录 + 旧数据不丢
     rev2 = psql(TEST_DB, "select version_num from alembic_version")
-    assert rev2 == "0012_library_export_features", f"应到 head 0012，实际 {rev2}"
+    assert rev2 == "0013_generic_product_catalog", f"应到 head 0013，实际 {rev2}"
     # 0009 Gate B 仍在
     has_export = psql(TEST_DB, "select to_regclass('public.script_export')")
     assert has_export == "script_export", "应有 script_export 表（0009）"
@@ -170,12 +170,21 @@ def main() -> None:
           "0012 saved_search/favorite/dynamic_collection/bundle_export present; data intact")
     print("EXPORT_CENTER_DB_UPGRADE_OK")
 
-    # 5. 再次升级幂等（仍 head 0012，无错误，数据不变）
+    # 4e. 0013 通用产品目录表出现；既有扁平 product 及 script_segment 业务数据不丢
+    for tbl in ("product_category", "product_family", "product_variant", "product_sku",
+                "product_catalog_alias"):
+        assert psql(TEST_DB, f"select to_regclass('public.{tbl}')") == tbl, f"应有 {tbl} 表（0013）"
+    seg_a1 = psql(TEST_DB, f"select count(*) from script_segment where script_project_id={pid}")
+    assert seg_a1 == seg_before, "0013 升级后业务数据丢失"
+    print("  0013 product_category/family/variant/sku/product_catalog_alias present; data intact")
+    print("CATALOG_DB_UPGRADE_OK")
+
+    # 5. 再次升级幂等（仍 head 0013，无错误，数据不变）
     up2 = db_upgrade_script(ASYNC_URL)
     assert up2.returncode == 0, f"幂等升级失败: {up2.stderr}"
     rev3 = psql(TEST_DB, "select version_num from alembic_version")
     seg_final = psql(TEST_DB, f"select count(*) from script_segment where script_project_id={pid}")
-    assert rev3 == "0012_library_export_features" and seg_final == seg_before, "幂等升级破坏状态"
+    assert rev3 == "0013_generic_product_catalog" and seg_final == seg_before, "幂等升级破坏状态"
     print(f"  idempotent re-run: still {rev3}, data intact (segments={seg_final})")
     print("SCRIPT_DB_UPGRADE_IDEMPOTENT_OK")
 

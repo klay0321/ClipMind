@@ -14,7 +14,7 @@ vi.mock("@/lib/hooks", () => ({
   useCreateVariant: vi.fn(),
   useCreateSku: vi.fn(),
   useCreateCatalogAlias: vi.fn(),
-  useSetFamilyStatus: vi.fn(),
+  useSetCatalogStatus: vi.fn(),
 }));
 
 const createCategory = mutation();
@@ -45,7 +45,7 @@ beforeEach(() => {
   vi.mocked(hooks.useCreateVariant).mockReturnValue(createVariant);
   vi.mocked(hooks.useCreateSku).mockReturnValue(createSku);
   vi.mocked(hooks.useCreateCatalogAlias).mockReturnValue(createAlias);
-  vi.mocked(hooks.useSetFamilyStatus).mockReturnValue(setStatus);
+  vi.mocked(hooks.useSetCatalogStatus).mockReturnValue(setStatus);
   wireSuccess(createCategory, makeCategory({ id: 7 }));
   wireSuccess(createFamily, makeFamily({ id: 10 }));
   wireSuccess(createVariant, makeVariant({ id: 20 }));
@@ -123,9 +123,12 @@ describe("CreateWizard", () => {
     );
   });
 
-  it("保存并启用会把 family 状态置为 active", async () => {
+  it("保存并启用先激活分类再激活 family（§二 层级激活）", async () => {
     const user = userEvent.setup();
     render(<CreateWizard open onClose={vi.fn()} />);
+    // 新建分类（id=7），family 归属其下，方可启用
+    await user.click(screen.getByTestId("cat-mode-new"));
+    await user.type(screen.getByTestId("wizard-new-category"), "分类C");
     await user.click(screen.getByTestId("wizard-next-category"));
     await user.type(screen.getByTestId("wizard-family-name"), "产品C");
     await user.click(screen.getByTestId("wizard-next-family"));
@@ -133,9 +136,25 @@ describe("CreateWizard", () => {
     await user.click(screen.getByTestId("wizard-skip-sku"));
     await user.click(screen.getByTestId("wizard-save-active"));
     expect(setStatus.mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 10, status: "active" }),
+      { level: "category", id: 7, status: "active" },
       expect.anything(),
     );
+    expect(setStatus.mutate).toHaveBeenCalledWith(
+      { level: "family", id: 10, status: "active" },
+      expect.anything(),
+    );
+  });
+
+  it("暂不分类时「保存并启用」禁用（启用须先归属分类）", async () => {
+    const user = userEvent.setup();
+    render(<CreateWizard open onClose={vi.fn()} />);
+    await user.click(screen.getByTestId("wizard-next-category"));
+    await user.type(screen.getByTestId("wizard-family-name"), "产品D");
+    await user.click(screen.getByTestId("wizard-next-family"));
+    await user.click(screen.getByTestId("wizard-skip-variant"));
+    await user.click(screen.getByTestId("wizard-skip-sku"));
+    expect(screen.getByTestId("wizard-save-active")).toBeDisabled();
+    expect(screen.getByTestId("wizard-enable-hint")).toBeInTheDocument();
   });
 
   it("产品名为空时创建按钮禁用", async () => {

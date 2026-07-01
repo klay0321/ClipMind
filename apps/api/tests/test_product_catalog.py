@@ -122,7 +122,10 @@ async def test_rename_preserves_id_and_code(client):
 
 @pytest.mark.asyncio
 async def test_lifecycle_archive_restore(client):
-    fam = await _mk_family(client)
+    # Family 激活需归属 active Category（§二 层级激活校验）
+    cat = await _mk_category(client)
+    await client.post(f"/api/product-categories/{cat['id']}/status", json={"status": "active"})
+    fam = await _mk_family(client, cat["id"])
     fid = fam["id"]
     # draft -> active
     r = await client.post(f"/api/product-families/{fid}/status", json={"status": "active"})
@@ -184,8 +187,9 @@ async def test_merge_and_redirect_resolve(client):
     # resolve 历史别名 -> 重定向到 b
     rr = await client.get("/api/product-catalog/resolve", params={"value": alias_name})
     assert rr.status_code == 200
-    node = rr.json()
-    assert node is not None and node["id"] == b["id"] and node["redirected"] is True
+    body = rr.json()
+    assert body["status"] == "resolved"
+    assert body["canonical"]["id"] == b["id"] and body["canonical"]["redirected"] is True
 
 
 @pytest.mark.asyncio
@@ -302,12 +306,12 @@ async def test_resolve_by_code_and_unknown(client):
     fam = await _mk_family(client)
     # by code
     r = await client.get("/api/product-catalog/resolve", params={"value": fam["code"]})
-    assert r.status_code == 200 and r.json()["id"] == fam["id"]
-    # unknown -> null（不强制猜测）
+    assert r.status_code == 200 and r.json()["canonical"]["id"] == fam["id"]
+    # unknown -> not_found（不强制猜测）
     r = await client.get(
         "/api/product-catalog/resolve", params={"value": f"根本不存在-{_u()}"}
     )
-    assert r.status_code == 200 and r.json() is None
+    assert r.status_code == 200 and r.json()["status"] == "not_found"
 
 
 @pytest.mark.asyncio

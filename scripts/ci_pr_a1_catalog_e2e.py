@@ -115,9 +115,9 @@ def run_full() -> None:
     tree, _ = jreq("GET", "/api/product-catalog/tree?include_archived=true")
     assert any(_code_in(n, fcode) for n in tree), "tree 未含新 family"
     res, _ = jreq("GET", f"/api/product-catalog/resolve?value={_url(fcode)}")
-    assert res and res["id"] == fid, "resolve by code 失败"
+    assert res["status"] == "resolved" and res["canonical"]["id"] == fid, "resolve by code 失败"
     res_unknown, _ = jreq("GET", f"/api/product-catalog/resolve?value={_url(_name('根本不存在'))}")
-    assert res_unknown is None, "未知值必须返回 null（不强制猜测）"
+    assert res_unknown["status"] == "not_found", "未知值必须 not_found（不强制猜测）"
 
     # 6. 更名保 id/code
     ren, _ = jreq("PATCH", f"/api/product-families/{fid}", {"name_zh": _name("改名后")})
@@ -139,7 +139,8 @@ def run_full() -> None:
     m, _ = jreq("POST", f"/api/product-families/{fid}/merge", {"target_id": bid})
     assert m["status"] == "merged" and m["merged_into_id"] == bid
     rr, _ = jreq("GET", f"/api/product-catalog/resolve?value={_url(hist)}")
-    assert rr and rr["id"] == bid and rr["redirected"] is True, "合并后历史别名应重定向到目标"
+    assert rr["status"] == "resolved" and rr["canonical"]["id"] == bid, "合并后应重定向到目标"
+    assert rr["canonical"]["redirected"] is True, "合并后 canonical 须标记 redirected"
     # 自合并 422
     _, code = jreq("POST", f"/api/product-families/{bid}/merge", {"target_id": bid}, expect=(200, 422))
     assert code == 422
@@ -164,7 +165,7 @@ def run_check_persist() -> None:
     # 重启后：目标产品（合并保留）与别名重定向仍在
     hist = _name("历史别名")
     rr, _ = jreq("GET", f"/api/product-catalog/resolve?value={_url(hist)}")
-    assert rr is not None and rr["redirected"] is True, "重启后合并重定向丢失"
+    assert rr["status"] == "resolved" and rr["canonical"]["redirected"] is True, "重启后重定向丢失"
     # 目标 family 仍 active
     lst, _ = jreq("GET", f"/api/product-families?q={_url(_name('目标产品'))}")
     assert any(it["status"] == "active" for it in lst["items"]), "重启后目标产品丢失"

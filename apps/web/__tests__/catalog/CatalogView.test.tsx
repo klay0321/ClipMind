@@ -11,6 +11,7 @@ import { makeTree, mutation, query } from "./fixtures";
 vi.mock("@/lib/hooks", () => ({
   useCatalogTree: vi.fn(),
   useCatalogSearch: vi.fn(),
+  useCatalogResolve: vi.fn(),
   // 详情/子级（CatalogView 本身不直接用，但 EntityDetail 在选中时会用；本测试不选中）
   useCatalogNode: vi.fn(),
   useCatalogAliases: vi.fn(),
@@ -24,7 +25,7 @@ vi.mock("@/lib/hooks", () => ({
   useCreateVariant: vi.fn(),
   useCreateSku: vi.fn(),
   useCreateCatalogAlias: vi.fn(),
-  useSetFamilyStatus: vi.fn(),
+  useSetCatalogStatus: vi.fn(),
   // 内嵌扁平产品视图
   useProducts: vi.fn(),
   useProductStats: vi.fn(),
@@ -32,6 +33,9 @@ vi.mock("@/lib/hooks", () => ({
 
 function stubCommon() {
   vi.mocked(hooks.useCatalogSearch).mockReturnValue(query({ data: [] }));
+  vi.mocked(hooks.useCatalogResolve).mockReturnValue(
+    query({ data: { status: "not_found", canonical: null, candidates: [] } }),
+  );
   vi.mocked(hooks.useCatalogNode).mockReturnValue(query({ data: undefined }));
   vi.mocked(hooks.useCatalogAliases).mockReturnValue(query({ data: [] }));
   vi.mocked(hooks.useFamilies).mockReturnValue(query({ data: { items: [], total: 0 } }));
@@ -43,7 +47,7 @@ function stubCommon() {
   vi.mocked(hooks.useCreateVariant).mockReturnValue(mutation());
   vi.mocked(hooks.useCreateSku).mockReturnValue(mutation());
   vi.mocked(hooks.useCreateCatalogAlias).mockReturnValue(mutation());
-  vi.mocked(hooks.useSetFamilyStatus).mockReturnValue(mutation());
+  vi.mocked(hooks.useSetCatalogStatus).mockReturnValue(mutation());
   vi.mocked(hooks.useProducts).mockReturnValue(query({ data: [] }));
   vi.mocked(hooks.useProductStats).mockReturnValue(query({ data: {} }));
 }
@@ -127,6 +131,24 @@ describe("CatalogView", () => {
     await user.click(screen.getByTestId("open-create-wizard"));
     expect(screen.getByTestId("create-wizard")).toBeInTheDocument();
     expect(screen.getByTestId("wizard-step-category")).toBeInTheDocument();
+  });
+
+  it("精确输入命中多个实体时提示人工选择（不自动绑定）", async () => {
+    const nodes = [
+      { level: "family", id: 10, code: "f10", name_zh: "候选甲", name_en: null, sku_code: null, status: "active", redirected: false },
+      { level: "family", id: 11, code: "f11", name_zh: "候选乙", name_en: null, sku_code: null, status: "active", redirected: false },
+    ];
+    vi.mocked(hooks.useCatalogSearch).mockReturnValue(query({ data: nodes }));
+    vi.mocked(hooks.useCatalogResolve).mockReturnValue(
+      query({ data: { status: "ambiguous", canonical: null, candidates: nodes } }),
+    );
+    const user = userEvent.setup();
+    render(<CatalogView />);
+    await user.type(screen.getByTestId("catalog-search-input"), "共享码");
+    expect(screen.getByTestId("catalog-ambiguous-hint")).toHaveTextContent("找到多个可能产品，请选择");
+    // 两个候选都列出，用户点击才绑定（无自动选择第一条）
+    expect(screen.getByTestId("search-result-family-10")).toBeInTheDocument();
+    expect(screen.getByTestId("search-result-family-11")).toBeInTheDocument();
   });
 
   it("超长中文名不破坏布局（truncate 类存在）", () => {

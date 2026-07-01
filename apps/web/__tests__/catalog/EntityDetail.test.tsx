@@ -18,7 +18,7 @@ vi.mock("@/lib/hooks", () => ({
   useUpdateFamily: vi.fn(),
   useUpdateVariant: vi.fn(),
   useUpdateSku: vi.fn(),
-  useSetFamilyStatus: vi.fn(),
+  useSetCatalogStatus: vi.fn(),
   useArchiveCatalogNode: vi.fn(),
   useRestoreCatalogNode: vi.fn(),
   useMergeCatalogNode: vi.fn(),
@@ -42,7 +42,7 @@ function stub() {
   vi.mocked(hooks.useUpdateFamily).mockReturnValue(updateFamily);
   vi.mocked(hooks.useUpdateVariant).mockReturnValue(mutation());
   vi.mocked(hooks.useUpdateSku).mockReturnValue(mutation());
-  vi.mocked(hooks.useSetFamilyStatus).mockReturnValue(setStatus);
+  vi.mocked(hooks.useSetCatalogStatus).mockReturnValue(setStatus);
   vi.mocked(hooks.useArchiveCatalogNode).mockReturnValue(archive);
   vi.mocked(hooks.useRestoreCatalogNode).mockReturnValue(restore);
   vi.mocked(hooks.useMergeCatalogNode).mockReturnValue(merge);
@@ -91,7 +91,15 @@ describe("EntityDetail", () => {
     const user = userEvent.setup();
     render(<EntityDetail selected={{ level: "family", id: 10 }} onSelect={vi.fn()} />);
     await user.click(screen.getByTestId("status-to-active"));
-    expect(setStatus.mutate).toHaveBeenCalledWith({ id: 10, status: "active" });
+    expect(setStatus.mutate).toHaveBeenCalledWith({ level: "family", id: 10, status: "active" });
+  });
+
+  it("draft variant 也可切换状态（四层统一生命周期）", async () => {
+    vi.mocked(hooks.useCatalogNode).mockReturnValue(query({ data: makeVariant({ status: "draft" }) }));
+    const user = userEvent.setup();
+    render(<EntityDetail selected={{ level: "variant", id: 20 }} onSelect={vi.fn()} />);
+    await user.click(screen.getByTestId("status-to-active"));
+    expect(setStatus.mutate).toHaveBeenCalledWith({ level: "variant", id: 20, status: "active" });
   });
 
   it("归档需确认后调用 archive", async () => {

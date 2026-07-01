@@ -82,9 +82,14 @@ class Settings(BaseSettings):
 
     # PR-03B：当前无登录体系，审核者用配置的本地标签（不伪造用户，PR-07 接入后平滑替换）
     review_default_reviewer: str = "local-reviewer"
-    # 产品参考图上传约束
+    # 产品参考图上传约束（旧扁平 product 的 product_image）
     product_image_max_mb: int = 10
     product_image_max_count: int = 20
+    # PR-A2 Gate A：通用目录参考图（ProductReferenceAsset）上传约束
+    reference_asset_max_mb: int = 15
+    reference_asset_max_count: int = 50
+    reference_asset_max_pixels: int = 60_000_000  # 单图最大像素数（防解压炸弹）
+    reference_thumbnail_max_dim: int = 320
 
     log_level: str = "INFO"
 

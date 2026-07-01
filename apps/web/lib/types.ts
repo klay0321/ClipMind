@@ -1521,3 +1521,270 @@ export interface CatalogStatusRequest {
 export interface CatalogMergeRequest {
   target_id: number;
 }
+
+// ===== PR-A2 动态产品属性 + 产品参考图库 =====
+//
+// 与后端 schemas（product_attribute.py / product_reference.py / catalog profile）对齐。
+// 关键约束：属性定义、允许值、单位、参考图角度/状态全部来自 API 或受控枚举常量，
+// 前端**绝不硬编码任何具体公司产品属性**；参考文件按 id 引用（/file、/thumbnail），绝不用路径。
+
+// 属性值类型（受控枚举常量，决定渲染控件与 value 序列化方式）
+export type AttributeValueType =
+  | "text"
+  | "number"
+  | "boolean"
+  | "enum"
+  | "multi_enum"
+  | "measurement"
+  | "date";
+
+export const ATTRIBUTE_VALUE_TYPES: AttributeValueType[] = [
+  "text",
+  "number",
+  "boolean",
+  "enum",
+  "multi_enum",
+  "measurement",
+  "date",
+];
+
+// 属性定义（category 级或全局 category_id=null；四态生命周期）
+export interface AttributeDefinition {
+  id: number;
+  category_id: number | null;
+  key: string;
+  name_zh: string;
+  name_en: string | null;
+  description: string | null;
+  value_type: AttributeValueType;
+  unit: string | null;
+  allowed_values: string[] | null;
+  validation_rules: Record<string, unknown> | null;
+  required: boolean;
+  searchable: boolean;
+  identity_relevant: boolean;
+  multi_value: boolean;
+  sort_order: number;
+  status: CatalogStatus;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+// 属性值（按 value_type 只有对应列非空；软删保留历史）
+export interface AttributeValue {
+  id: number;
+  definition_id: number;
+  family_id: number | null;
+  variant_id: number | null;
+  sku_id: number | null;
+  value_text: string | null;
+  value_number: number | null;
+  value_boolean: boolean | null;
+  value_json: string[] | null;
+  value_date: string | null;
+  unit: string | null;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// 目标层级（属性值 / 参考图共用；无 category —— category 层不承载属性值/参考图）
+export type AttributeTargetLevel = "family" | "variant" | "sku";
+
+// upsert 的 value 联合：类型由 definition.value_type 决定
+export type AttributeValueInput = string | number | boolean | string[] | null;
+
+export interface AttributeDefinitionListQuery {
+  category_id?: number;
+  include_global?: boolean;
+  status_filter?: CatalogStatus;
+  searchable?: boolean;
+  identity_relevant?: boolean;
+  include_archived?: boolean;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AttributeDefinitionListResponse {
+  items: AttributeDefinition[];
+  total: number;
+}
+
+export interface AttributeDefinitionCreateRequest {
+  category_id?: number | null;
+  key?: string;
+  name_zh: string;
+  name_en?: string;
+  description?: string;
+  value_type: AttributeValueType;
+  unit?: string;
+  allowed_values?: string[];
+  validation_rules?: Record<string, unknown>;
+  required?: boolean;
+  searchable?: boolean;
+  identity_relevant?: boolean;
+  multi_value?: boolean;
+  sort_order?: number;
+}
+
+export interface AttributeDefinitionUpdateRequest {
+  name_zh?: string;
+  name_en?: string | null;
+  description?: string | null;
+  unit?: string | null;
+  allowed_values?: string[];
+  validation_rules?: Record<string, unknown>;
+  required?: boolean;
+  searchable?: boolean;
+  identity_relevant?: boolean;
+  sort_order?: number;
+}
+
+export interface AttributeValueUpsertRequest {
+  definition_id: number;
+  target_level: AttributeTargetLevel;
+  target_id: number;
+  value: AttributeValueInput;
+}
+
+export interface AttributeValueListQuery {
+  target_level: AttributeTargetLevel;
+  target_id: number;
+  include_archived?: boolean;
+}
+
+// ---- 参考图库 ----
+
+// 角度白名单（受控枚举常量，非产品值）
+export type ReferenceAngle =
+  | "front"
+  | "back"
+  | "left"
+  | "right"
+  | "top"
+  | "bottom"
+  | "interface"
+  | "package"
+  | "installed"
+  | "powered_on"
+  | "powered_off"
+  | "detail"
+  | "other";
+
+export const REFERENCE_ANGLES: ReferenceAngle[] = [
+  "front",
+  "back",
+  "left",
+  "right",
+  "top",
+  "bottom",
+  "interface",
+  "package",
+  "installed",
+  "powered_on",
+  "powered_off",
+  "detail",
+  "other",
+];
+
+// 参考图状态白名单（rejected/archived 默认从列表隐藏）
+export type ReferenceState = "draft" | "active" | "rejected" | "archived";
+
+export const REFERENCE_STATES: ReferenceState[] = [
+  "draft",
+  "active",
+  "rejected",
+  "archived",
+];
+
+// 人工质量标记白名单（非 AI 判定；unchecked=未标记）
+export type QualityStatus =
+  | "unchecked"
+  | "qualified"
+  | "blurred"
+  | "occluded"
+  | "wrong_product"
+  | "duplicate"
+  | "low_resolution";
+
+export const QUALITY_STATUSES: QualityStatus[] = [
+  "unchecked",
+  "qualified",
+  "blurred",
+  "occluded",
+  "wrong_product",
+  "duplicate",
+  "low_resolution",
+];
+
+export interface ReferenceAsset {
+  id: number;
+  family_id: number | null;
+  variant_id: number | null;
+  sku_id: number | null;
+  media_type: string;
+  angle: ReferenceAngle | null;
+  state: ReferenceState;
+  quality_status: QualityStatus;
+  is_primary: boolean;
+  sort_order: number;
+  width: number | null;
+  height: number | null;
+  file_size: number | null;
+  sha256: string | null;
+  original_filename: string | null;
+  content_type: string | null;
+  description: string | null;
+  source_type: string | null;
+  has_thumbnail: boolean;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+// 多图上传结果：单张失败进 errors，不影响其它成功图
+export interface ReferenceUploadError {
+  filename: string;
+  detail: string;
+}
+
+export interface ReferenceUploadResponse {
+  created: ReferenceAsset[];
+  errors: ReferenceUploadError[];
+}
+
+export interface ReferenceListQuery {
+  target_level: AttributeTargetLevel;
+  target_id: number;
+  include_archived?: boolean;
+}
+
+export interface ReferenceUpdateRequest {
+  angle?: ReferenceAngle | null;
+  quality_status?: QualityStatus;
+  state?: ReferenceState;
+  description?: string | null;
+  sort_order?: number;
+}
+
+// ---- 目录资料完整度 profile（只读聚合）----
+// ai_recognition_enabled 恒为 false —— 自动识别尚未启用，前端绝不伪造识别结果。
+export interface CatalogProfile {
+  level: CatalogLevel;
+  id: number;
+  code: string;
+  name_zh: string;
+  category_id: number | null;
+  definition_count: number;
+  value_count: number;
+  required_total: number;
+  required_filled: number;
+  missing_required: { definition_id: number; key: string; name_zh: string }[];
+  completeness: number | null;
+  reference_total: number;
+  reference_by_angle: Record<string, number>;
+  reference_primary_id: number | null;
+  ai_recognition_enabled: boolean;
+}

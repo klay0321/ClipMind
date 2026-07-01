@@ -1,10 +1,14 @@
 import { vi } from "vitest";
 
 import type {
+  AttributeDefinition,
+  AttributeValue,
   CatalogAlias,
+  CatalogProfile,
   CatalogTreeNode,
   Category,
   Family,
+  ReferenceAsset,
   Sku,
   Variant,
 } from "@/lib/types";
@@ -109,6 +113,102 @@ export function makeAlias(o: Partial<CatalogAlias> = {}): CatalogAlias {
     language: null,
     alias_type: "zh_name",
     is_primary: false,
+    ...o,
+  };
+}
+
+// ===== PR-A2 属性定义 / 属性值 / 参考图 / profile 夹具 =====
+
+export function makeAttrDef(o: Partial<AttributeDefinition> = {}): AttributeDefinition {
+  return {
+    id: 200,
+    category_id: 1,
+    key: "attr_key",
+    name_zh: "示例属性",
+    name_en: null,
+    description: null,
+    value_type: "text",
+    unit: null,
+    allowed_values: null,
+    validation_rules: null,
+    required: false,
+    searchable: false,
+    identity_relevant: false,
+    multi_value: false,
+    sort_order: 0,
+    status: "active",
+    created_at: "2026-06-28T00:00:00Z",
+    updated_at: "2026-06-28T00:00:00Z",
+    archived_at: null,
+    ...o,
+  };
+}
+
+export function makeAttrValue(o: Partial<AttributeValue> = {}): AttributeValue {
+  return {
+    id: 300,
+    definition_id: 200,
+    family_id: 10,
+    variant_id: null,
+    sku_id: null,
+    value_text: null,
+    value_number: null,
+    value_boolean: null,
+    value_json: null,
+    value_date: null,
+    unit: null,
+    archived_at: null,
+    created_at: "2026-06-28T00:00:00Z",
+    updated_at: "2026-06-28T00:00:00Z",
+    ...o,
+  };
+}
+
+export function makeReference(o: Partial<ReferenceAsset> = {}): ReferenceAsset {
+  return {
+    id: 400,
+    family_id: 10,
+    variant_id: null,
+    sku_id: null,
+    media_type: "image",
+    angle: "front",
+    state: "active",
+    quality_status: "unchecked",
+    is_primary: false,
+    sort_order: 0,
+    width: 800,
+    height: 800,
+    file_size: 12345,
+    sha256: "abc",
+    original_filename: "ref.jpg",
+    content_type: "image/jpeg",
+    description: null,
+    source_type: "upload",
+    has_thumbnail: true,
+    created_at: "2026-06-28T00:00:00Z",
+    updated_at: "2026-06-28T00:00:00Z",
+    archived_at: null,
+    ...o,
+  };
+}
+
+export function makeProfile(o: Partial<CatalogProfile> = {}): CatalogProfile {
+  return {
+    level: "family",
+    id: 10,
+    code: "fam-10",
+    name_zh: "示例产品",
+    category_id: 1,
+    definition_count: 0,
+    value_count: 0,
+    required_total: 0,
+    required_filled: 0,
+    missing_required: [],
+    completeness: null,
+    reference_total: 0,
+    reference_by_angle: {},
+    reference_primary_id: null,
+    ai_recognition_enabled: false,
     ...o,
   };
 }

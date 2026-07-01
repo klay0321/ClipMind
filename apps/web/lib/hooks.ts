@@ -62,6 +62,15 @@ import type {
   VariantListQuery,
   VariantUpdateRequest,
 } from "./types";
+import type {
+  AttributeDefinitionCreateRequest,
+  AttributeDefinitionListQuery,
+  AttributeDefinitionUpdateRequest,
+  AttributeTargetLevel,
+  AttributeValueUpsertRequest,
+  ReferenceListQuery,
+  ReferenceUpdateRequest,
+} from "./types";
 
 const ACTIVE_SCAN: ScanStatus[] = ["queued", "scanning"];
 const ACTIVE_RUN: MediaRunStatus[] = ["queued", "running"];
@@ -1497,5 +1506,189 @@ export function useDeleteCatalogAlias(level: CatalogLevel, targetId: number) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["catalog-aliases", level, targetId] });
     },
+  });
+}
+
+// ===== PR-A2 动态产品属性（定义 + 值）+ 参考图库 + profile =====
+//
+// 失效策略：
+//   - 属性定义写操作 → 失效该 category 的定义列表（新定义会出现在该分类下所有节点的属性表单）。
+//   - 属性值 upsert/删除 → 失效该目标节点的值列表 + profile（完整度计数变化）。
+//   - 参考图上传/改角度/设主图/归档/恢复/删除/批量 → 失效该目标节点的参考图列表 + profile。
+// profile 用 (level, targetId) 作为 queryKey，属性值/参考图变化都要连带失效它。
+
+// 属性定义失效（按 category；null 归为 "global" 便于全局定义变更时也刷新）
+function invalidateAttributeDefs(
+  qc: ReturnType<typeof useQueryClient>,
+  categoryId: number | null | undefined,
+) {
+  qc.invalidateQueries({ queryKey: ["attribute-definitions", categoryId ?? "global"] });
+  // 广谱兜底：任一定义变更都刷新全部定义查询（不同筛选参数的键）
+  qc.invalidateQueries({ queryKey: ["attribute-definitions"] });
+}
+
+// 目标节点的属性值 + 参考图 + profile 一并失效
+function invalidateAttributeTarget(
+  qc: ReturnType<typeof useQueryClient>,
+  level: AttributeTargetLevel,
+  targetId: number,
+) {
+  qc.invalidateQueries({ queryKey: ["attribute-values", level, targetId] });
+  qc.invalidateQueries({ queryKey: ["catalog-profile", level, targetId] });
+}
+
+function invalidateReferenceTarget(
+  qc: ReturnType<typeof useQueryClient>,
+  level: AttributeTargetLevel,
+  targetId: number,
+) {
+  qc.invalidateQueries({ queryKey: ["references", level, targetId] });
+  qc.invalidateQueries({ queryKey: ["catalog-profile", level, targetId] });
+}
+
+// ---- 属性定义 ----
+
+export function useAttributeDefinitions(
+  query: AttributeDefinitionListQuery = {},
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ["attribute-definitions", query.category_id ?? "global", query],
+    queryFn: () => api.listAttributeDefinitions(query),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useCreateAttributeDefinition() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: AttributeDefinitionCreateRequest) => api.createAttributeDefinition(req),
+    onSuccess: (_data, req) => invalidateAttributeDefs(qc, req.category_id),
+  });
+}
+
+export function useUpdateAttributeDefinition(categoryId?: number | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, req }: { id: number; req: AttributeDefinitionUpdateRequest }) =>
+      api.updateAttributeDefinition(id, req),
+    onSuccess: () => invalidateAttributeDefs(qc, categoryId),
+  });
+}
+
+// ---- 属性值 ----
+
+export function useAttributeValues(level: AttributeTargetLevel | null, targetId: number | null) {
+  return useQuery({
+    queryKey: ["attribute-values", level, targetId],
+    queryFn: () =>
+      api.listAttributeValues({
+        target_level: level as AttributeTargetLevel,
+        target_id: targetId as number,
+      }),
+    enabled: level != null && targetId != null,
+  });
+}
+
+export function useSetAttributeValue(level: AttributeTargetLevel, targetId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: AttributeValueUpsertRequest) => api.setAttributeValue(req),
+    onSuccess: () => invalidateAttributeTarget(qc, level, targetId),
+  });
+}
+
+export function useDeleteAttributeValue(level: AttributeTargetLevel, targetId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.deleteAttributeValue(id),
+    onSuccess: () => invalidateAttributeTarget(qc, level, targetId),
+  });
+}
+
+// ---- 参考图 ----
+
+export function useReferences(level: AttributeTargetLevel | null, targetId: number | null) {
+  return useQuery({
+    queryKey: ["references", level, targetId],
+    queryFn: () =>
+      api.listReferences({
+        target_level: level as AttributeTargetLevel,
+        target_id: targetId as number,
+      } as ReferenceListQuery),
+    enabled: level != null && targetId != null,
+  });
+}
+
+export function useUploadReferences(level: AttributeTargetLevel, targetId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      files: File[];
+      angle?: string;
+      state?: string;
+      description?: string;
+      isPrimary?: boolean;
+    }) =>
+      api.uploadReferences({
+        targetLevel: level,
+        targetId,
+        files: input.files,
+        angle: input.angle,
+        state: input.state,
+        description: input.description,
+        isPrimary: input.isPrimary,
+      }),
+    onSuccess: () => invalidateReferenceTarget(qc, level, targetId),
+  });
+}
+
+// 参考图单张/批量写操作聚合（set-primary / archive / restore / update / delete / batch）
+export function useReferenceMutations(level: AttributeTargetLevel, targetId: number) {
+  const qc = useQueryClient();
+  const invalidate = () => invalidateReferenceTarget(qc, level, targetId);
+
+  const update = useMutation({
+    mutationFn: ({ id, req }: { id: number; req: ReferenceUpdateRequest }) =>
+      api.updateReference(id, req),
+    onSuccess: invalidate,
+  });
+  const setPrimary = useMutation({
+    mutationFn: (id: number) => api.setReferencePrimary(id),
+    onSuccess: invalidate,
+  });
+  const archive = useMutation({
+    mutationFn: (id: number) => api.archiveReference(id),
+    onSuccess: invalidate,
+  });
+  const restore = useMutation({
+    mutationFn: (id: number) => api.restoreReference(id),
+    onSuccess: invalidate,
+  });
+  const remove = useMutation({
+    mutationFn: (id: number) => api.deleteReference(id),
+    onSuccess: invalidate,
+  });
+  const batchAngle = useMutation({
+    mutationFn: ({ ids, angle }: { ids: number[]; angle: string }) =>
+      api.batchAngleReferences(ids, angle),
+    onSuccess: invalidate,
+  });
+  const batchArchive = useMutation({
+    mutationFn: (ids: number[]) => api.batchArchiveReferences(ids),
+    onSuccess: invalidate,
+  });
+
+  return { update, setPrimary, archive, restore, remove, batchAngle, batchArchive };
+}
+
+// ---- 目录资料完整度 profile ----
+
+export function useCatalogProfile(level: CatalogLevel | null, id: number | null) {
+  return useQuery({
+    queryKey: ["catalog-profile", level, id],
+    queryFn: () => api.catalogProfile(level as CatalogLevel, id as number),
+    enabled: level != null && id != null,
   });
 }

@@ -371,3 +371,41 @@ CATALOG_ALIAS_TYPES: tuple[str, ...] = (
     "historical_name", # 历史名称（更名保留）
     "sku_alias",       # SKU 别名
 )
+
+# ---------------------------------------------------------------------------
+# PR-A2 Gate A：动态属性与产品参考图（均存 String 列 + service 白名单，免迁移扩展）
+# 这些是**系统能力集合**（稳定），绝不是产品名称/属性值本身——
+# 新增任意产品的属性与图片只是插入数据行，不改这些常量、不加产品枚举。
+# ---------------------------------------------------------------------------
+
+# 动态属性定义支持的取值类型（§四）。具体属性由运营在 Category 下动态定义，
+# value_type 只能取此白名单；每种类型落到对应 typed column（见 ProductAttributeValue）。
+ATTRIBUTE_VALUE_TYPES: tuple[str, ...] = (
+    "text",        # 文本 → value_text
+    "number",      # 数值（整数/小数）→ value_number
+    "boolean",     # 布尔 → value_boolean
+    "enum",        # 单选（值须命中 definition.allowed_values）→ value_text
+    "multi_enum",  # 多选（值数组，均须命中 allowed_values）→ value_json
+    "measurement", # 度量（数值 + 单位，单位取 definition.unit）→ value_number
+    "date",        # 日期 → value_date
+)
+# 需要 allowed_values 约束的类型
+ATTRIBUTE_ENUM_TYPES: tuple[str, ...] = ("enum", "multi_enum")
+
+# 产品参考图角度（§六：参考图**视角**，非产品名称，稳定业务词表）
+REFERENCE_ANGLES: tuple[str, ...] = (
+    "front", "back", "left", "right", "top", "bottom",
+    "interface", "package", "installed", "powered_on", "powered_off",
+    "detail", "other",
+)
+# 参考图状态（§六）
+REFERENCE_ASSET_STATES: tuple[str, ...] = ("draft", "active", "rejected", "archived")
+# 参考图默认从 active 列表隐藏的状态
+REFERENCE_HIDDEN_STATES: tuple[str, ...] = ("rejected", "archived")
+# 参考图质量状态（§六：本阶段**人工标记**，不接视觉模型、不伪造 AI 检测）
+REFERENCE_QUALITY_STATUSES: tuple[str, ...] = (
+    "unchecked", "qualified", "blurred", "occluded",
+    "wrong_product", "duplicate", "low_resolution",
+)
+# 参考图允许的媒体类型（扩展名/后端魔数校验）
+REFERENCE_MEDIA_TYPES: tuple[str, ...] = ("jpg", "jpeg", "png", "webp")

@@ -24,6 +24,8 @@ vi.mock("@/lib/hooks", () => ({
   useMergeCatalogNode: vi.fn(),
   useCreateCatalogAlias: vi.fn(),
   useDeleteCatalogAlias: vi.fn(),
+  // PR-A2：DetailBody 在 family/variant/sku 层调用 profile（Tab 徽标 + category_id）
+  useCatalogProfile: vi.fn(),
 }));
 
 const updateFamily = mutation();
@@ -48,6 +50,8 @@ function stub() {
   vi.mocked(hooks.useMergeCatalogNode).mockReturnValue(merge);
   vi.mocked(hooks.useCreateCatalogAlias).mockReturnValue(mutation());
   vi.mocked(hooks.useDeleteCatalogAlias).mockReturnValue(delAlias);
+  // profile 默认无数据（Tab 徽标不显示计数，category_id 走全局属性）
+  vi.mocked(hooks.useCatalogProfile).mockReturnValue(query({ data: undefined }));
 }
 
 beforeEach(() => {

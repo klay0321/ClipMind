@@ -78,7 +78,8 @@ export function CatalogError({ error }: { error: unknown }) {
   );
 }
 
-// 参考图与自动识别的诚实说明横幅：明确「后续版本提供」，绝不伪造 AI 已识别
+// 自动识别的诚实说明横幅：明确「后续版本提供」，绝不伪造 AI 已识别。
+// 参考图与产品属性已在详情页支持维护；此处仅声明「自动产品识别」尚未启用。
 export function CatalogFutureNotice() {
   return (
     <div
@@ -86,7 +87,7 @@ export function CatalogFutureNotice() {
       data-testid="catalog-future-notice"
       className="rounded border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-700"
     >
-      参考图与自动产品识别将在后续版本提供。当前版本仅维护产品目录结构，不上传参考图、不进行任何 AI 识别。
+      产品属性与参考图可在详情页维护；自动产品识别将在后续版本提供，当前不进行任何 AI 识别、不显示识别结果。
     </div>
   );
 }

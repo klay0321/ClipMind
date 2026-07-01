@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 
 import { Button, ConfirmDialog, TextInput } from "@/components/ui";
+import { cn } from "@/lib/cn";
 import {
   useArchiveCatalogNode,
   useCatalogNode,
+  useCatalogProfile,
   useFamilies,
   useRestoreCatalogNode,
   useSetCatalogStatus,
@@ -16,10 +18,12 @@ import {
   useUpdateVariant,
   useVariants,
 } from "@/lib/hooks";
-import type { CatalogStatus, Family, Sku, Variant } from "@/lib/types";
+import type { AttributeTargetLevel, CatalogStatus, Family, Sku, Variant } from "@/lib/types";
 
 import { AliasManager } from "./AliasManager";
+import { AttributesTab } from "./AttributesTab";
 import { MergeDialog } from "./MergeDialog";
+import { ReferenceGallery } from "./ReferenceGallery";
 import type { SelectedNode } from "./CatalogTree";
 import { CatalogError, CatalogStatusBadge, LevelBadge, levelLabel } from "./widgets";
 
@@ -39,9 +43,13 @@ interface NodeCommon {
   name_zh: string;
   name_en: string | null;
   status: CatalogStatus;
+  category_id?: number | null;
   family_id?: number;
   variant_id?: number | null;
 }
+
+// 详情内 Tab（仅 family/variant/sku 层展示后两个）
+type DetailTab = "basic" | "attributes" | "references";
 
 export function EntityDetail({
   selected,
@@ -88,12 +96,26 @@ function DetailBody({
   const [nameEn, setNameEn] = useState(node.name_en ?? "");
   const [showMerge, setShowMerge] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
+  const [tab, setTab] = useState<DetailTab>("basic");
 
   useEffect(() => {
     setEditing(false);
     setNameZh(node.name_zh);
     setNameEn(node.name_en ?? "");
+    setTab("basic");
   }, [node.id, node.name_zh, node.name_en]);
+
+  // 属性 / 参考图仅 family/variant/sku 层承载（category 层不显示这两个 Tab）
+  const hasAssetTabs = level !== "category";
+  const attrLevel = level as AttributeTargetLevel;
+
+  // profile 提供该节点所属 category_id（variant/sku 不直接持有）+ Tab 徽标计数（真实计数，不估算）。
+  // 仅在有资产 Tab 的层拉取，避免 category 层多余请求。
+  const profileQ = useCatalogProfile(hasAssetTabs ? level : null, hasAssetTabs ? node.id : null);
+  const profile = profileQ.data;
+  // category_id：family 自身有；variant/sku 从 profile 取（未加载时为 null，属性定义仅拉全局）
+  const categoryId =
+    level === "family" ? (node.category_id ?? null) : (profile?.category_id ?? null);
 
   const updateCategory = useUpdateCategory();
   const updateFamily = useUpdateFamily();
@@ -270,13 +292,68 @@ function DetailBody({
 
       <CatalogError error={updateError} />
 
-      <div className="border-t border-gray-100 pt-3">
-        <AliasManager level={level} targetId={node.id} readOnly={readOnly} />
-      </div>
+      {/* Tab 导航：基本信息（现有内容）/ 产品属性 / 参考图库。仅 family/variant/sku 显示后两个。 */}
+      {hasAssetTabs ? (
+        <div className="flex gap-2 border-b border-gray-200 text-sm" role="tablist" data-testid="detail-tabs">
+          {([
+            { key: "basic", label: "基本信息" },
+            {
+              key: "attributes",
+              label: profile ? `产品属性 (${profile.value_count}/${profile.definition_count})` : "产品属性",
+            },
+            {
+              key: "references",
+              label: profile ? `参考图库 (${profile.reference_total})` : "参考图库",
+            },
+          ] as { key: DetailTab; label: string }[]).map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.key}
+              onClick={() => setTab(t.key)}
+              data-testid={`detail-tab-${t.key}`}
+              className={cn(
+                "-mb-px border-b-2 px-3 py-1.5 font-medium",
+                tab === t.key
+                  ? "border-brand text-brand"
+                  : "border-transparent text-gray-500 hover:text-gray-800",
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
-      <div className="border-t border-gray-100 pt-3">
-        <ChildList level={level} node={node} onSelect={onSelect} />
-      </div>
+      {tab === "basic" || !hasAssetTabs ? (
+        <div data-testid="detail-tabpanel-basic" className="space-y-4">
+          <div className={hasAssetTabs ? "" : "border-t border-gray-100 pt-3"}>
+            <AliasManager level={level} targetId={node.id} readOnly={readOnly} />
+          </div>
+
+          <div className="border-t border-gray-100 pt-3">
+            <ChildList level={level} node={node} onSelect={onSelect} />
+          </div>
+        </div>
+      ) : null}
+
+      {hasAssetTabs && tab === "attributes" ? (
+        <div data-testid="detail-tabpanel-attributes">
+          <AttributesTab
+            level={attrLevel}
+            targetId={node.id}
+            categoryId={categoryId}
+            readOnly={readOnly}
+          />
+        </div>
+      ) : null}
+
+      {hasAssetTabs && tab === "references" ? (
+        <div data-testid="detail-tabpanel-references">
+          <ReferenceGallery level={attrLevel} targetId={node.id} readOnly={readOnly} />
+        </div>
+      ) : null}
 
       {level !== "category" ? (
         <MergeDialog

@@ -131,6 +131,29 @@ import type {
   ReferenceUpdateRequest,
   ReferenceUploadResponse,
 } from "./types";
+import type {
+  CatalogRevision,
+  ConfusionPair,
+  ConfusionPairCreateRequest,
+  ConfusionPairUpdateRequest,
+  OnboardingActionRequest,
+  OnboardingReview,
+  ReadinessPolicy,
+  ReadinessPolicyCreateRequest,
+  ReadinessPolicyListQuery,
+  ReadinessResult,
+} from "./types";
+
+// 入驻审核动作 → 后端路径段（受控映射，不拼接任意字符串）
+export const ONBOARDING_ACTION_PATHS = {
+  submit: "submit-review",
+  approve: "approve",
+  request: "request-changes",
+  block: "block",
+} as const;
+
+export type OnboardingActionPath =
+  (typeof ONBOARDING_ACTION_PATHS)[keyof typeof ONBOARDING_ACTION_PATHS];
 
 export interface ShotSearchQuery {
   asset_id?: number;
@@ -1126,6 +1149,110 @@ export const api = {
   // ---- 目录资料完整度 profile ----
   catalogProfile(level: CatalogLevel, id: number): Promise<CatalogProfile> {
     return http<CatalogProfile>(`/product-catalog/${level}/${id}/profile`);
+  },
+
+  // ===== PR-A2 Gate B 产品入驻治理 =====
+  //
+  // readiness / 入驻审核由后端基于真实数据计算与守卫，前端只展示结果；
+  // 变更历史 append-only 只读；混淆关系两侧展示信息由后端补充。
+
+  // ---- 完整度策略 ----
+  listReadinessPolicies(
+    query: ReadinessPolicyListQuery = {},
+  ): Promise<{ items: ReadinessPolicy[]; total: number }> {
+    const p = new URLSearchParams();
+    if (query.category_id != null) p.set("category_id", String(query.category_id));
+    if (query.include_archived) p.set("include_archived", "true");
+    return http<{ items: ReadinessPolicy[]; total: number }>(
+      `/product-readiness-policies?${p.toString()}`,
+    );
+  },
+  createReadinessPolicy(req: ReadinessPolicyCreateRequest): Promise<ReadinessPolicy> {
+    return http<ReadinessPolicy>(`/product-readiness-policies`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  },
+  activateReadinessPolicy(id: number): Promise<ReadinessPolicy> {
+    return http<ReadinessPolicy>(`/product-readiness-policies/${id}/activate`, {
+      method: "POST",
+    });
+  },
+  archiveReadinessPolicy(id: number): Promise<ReadinessPolicy> {
+    return http<ReadinessPolicy>(`/product-readiness-policies/${id}/archive`, {
+      method: "POST",
+    });
+  },
+
+  // ---- Readiness（GET 读取 / POST 重新评估，同一确定性计算）----
+  getReadiness(level: AttributeTargetLevel, id: number): Promise<ReadinessResult> {
+    return http<ReadinessResult>(`/product-catalog/${level}/${id}/readiness`);
+  },
+  evaluateReadiness(level: AttributeTargetLevel, id: number): Promise<ReadinessResult> {
+    return http<ReadinessResult>(`/product-catalog/${level}/${id}/evaluate-readiness`, {
+      method: "POST",
+    });
+  },
+
+  // ---- 入驻审核（null = 尚未有记录）----
+  getOnboarding(level: AttributeTargetLevel, id: number): Promise<OnboardingReview | null> {
+    return http<OnboardingReview | null>(`/product-catalog/${level}/${id}/onboarding`);
+  },
+  onboardingAction(
+    level: AttributeTargetLevel,
+    id: number,
+    action: OnboardingActionPath,
+    req: OnboardingActionRequest = {},
+  ): Promise<OnboardingReview> {
+    return http<OnboardingReview>(`/product-catalog/${level}/${id}/${action}`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  },
+
+  // ---- 易混淆产品关系 ----
+  listConfusions(
+    level: AttributeTargetLevel,
+    id: number,
+    includeArchived = false,
+  ): Promise<{ items: ConfusionPair[]; total: number }> {
+    const p = new URLSearchParams();
+    if (includeArchived) p.set("include_archived", "true");
+    return http<{ items: ConfusionPair[]; total: number }>(
+      `/product-catalog/${level}/${id}/confusions?${p.toString()}`,
+    );
+  },
+  createConfusionPair(req: ConfusionPairCreateRequest): Promise<ConfusionPair> {
+    return http<ConfusionPair>(`/product-confusion-pairs`, {
+      method: "POST",
+      body: JSON.stringify(req),
+    });
+  },
+  updateConfusionPair(id: number, req: ConfusionPairUpdateRequest): Promise<ConfusionPair> {
+    return http<ConfusionPair>(`/product-confusion-pairs/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(req),
+    });
+  },
+  archiveConfusionPair(id: number): Promise<ConfusionPair> {
+    return http<ConfusionPair>(`/product-confusion-pairs/${id}/archive`, { method: "POST" });
+  },
+  restoreConfusionPair(id: number): Promise<ConfusionPair> {
+    return http<ConfusionPair>(`/product-confusion-pairs/${id}/restore`, { method: "POST" });
+  },
+
+  // ---- 变更历史（append-only 只读）----
+  listNodeRevisions(
+    level: CatalogLevel,
+    id: number,
+    query: { limit?: number; offset?: number } = {},
+  ): Promise<{ items: CatalogRevision[]; total: number }> {
+    const p = new URLSearchParams();
+    if (query.limit != null) p.set("limit", String(query.limit));
+    if (query.offset != null) p.set("offset", String(query.offset));
+    return http<{ items: CatalogRevision[]; total: number }>(
+      `/product-catalog/${level}/${id}/revisions?${p.toString()}`,
+    );
   },
 };
 

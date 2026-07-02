@@ -409,3 +409,29 @@ REFERENCE_QUALITY_STATUSES: tuple[str, ...] = (
 )
 # 参考图允许的媒体类型（扩展名/后端魔数校验）
 REFERENCE_MEDIA_TYPES: tuple[str, ...] = ("jpg", "jpeg", "png", "webp")
+
+# ---------------------------------------------------------------------------
+# PR-A2 Gate B：入驻治理（完整度策略 / 入驻审核 / 混淆关系 / 目录变更历史）。
+# 均为**系统能力集合**（稳定白名单，String 列 + service 校验，免迁移扩展），
+# 绝不是产品名称枚举。生命周期（CatalogStatus）与入驻审核（ONBOARDING）是两条独立轴：
+# active 不自动等于 approved；approved 不绕过生命周期。
+# ---------------------------------------------------------------------------
+
+# 入驻审核状态（§四：资料是否准备充分，独立于 Catalog 生命周期）
+ONBOARDING_STATUSES: tuple[str, ...] = (
+    "incomplete",        # 资料不满足当前 Category 策略
+    "ready_for_review",  # 系统检查完整，等待人工审核
+    "approved",          # 人工已确认可用于后续识别与检索
+    "needs_changes",     # 审核退回，需要补资料
+    "blocked",           # 资料存在明确错误，暂不可使用
+)
+
+# 混淆关系严重程度（人工判定）
+CONFUSION_SEVERITIES: tuple[str, ...] = ("low", "medium", "high")
+
+# 目录变更历史允许记录的动作（append-only；查询侧筛选用）
+CATALOG_REVISION_ACTIONS: tuple[str, ...] = (
+    "create", "update", "status", "archive", "restore", "merge",
+    "delete", "set_primary", "activate",
+    "submit_review", "approve", "request_changes", "block",
+)

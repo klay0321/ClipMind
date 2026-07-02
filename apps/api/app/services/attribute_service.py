@@ -36,6 +36,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import revision_service
 from app.services.catalog_service import CatalogConflict, CatalogError
 
 _VALIDATION_KEYS = {"min", "max", "max_length", "pattern"}
@@ -126,7 +127,7 @@ async def create_definition(db: AsyncSession, data: dict[str, Any]) -> ProductAt
         sort_order=int(data.get("sort_order") or 0),
         status=CatalogStatus.DRAFT,
     )
-    return await _add(db, row)
+    return await _add(db, row, rev_type="attribute_definition", rev_summary="创建属性定义")
 
 
 async def list_definitions(
@@ -168,6 +169,7 @@ async def update_definition(
     db: AsyncSession, obj: ProductAttributeDefinition, data: dict[str, Any]
 ) -> ProductAttributeDefinition:
     # value_type 与 key 不可变（改动会破坏既有 typed 值 / 稳定身份）
+    before = revision_service.snapshot("attribute_definition", obj)
     if "name_zh" in data and data["name_zh"] is not None:
         nz = data["name_zh"].strip()
         if not nz:
@@ -192,6 +194,11 @@ async def update_definition(
             setattr(obj, f, bool(data[f]))
     if "sort_order" in data and data["sort_order"] is not None:
         obj.sort_order = int(data["sort_order"])
+    await revision_service.record(
+        db, entity_type="attribute_definition", entity_id=obj.id, action="update",
+        before=before, after=revision_service.snapshot("attribute_definition", obj),
+        summary="更新属性定义",
+    )
     return await _commit(db, obj)
 
 
@@ -207,8 +214,17 @@ async def set_definition_status(
 ) -> ProductAttributeDefinition:
     if status == CatalogStatus.MERGED:
         raise CatalogError("属性定义不支持 merged")
+    before = revision_service.snapshot("attribute_definition", obj)
     obj.status = status
     obj.archived_at = utcnow() if status == CatalogStatus.ARCHIVED else None
+    action = "archive" if status == CatalogStatus.ARCHIVED else (
+        "restore" if before.get("status") == "archived" else "status"
+    )
+    await revision_service.record(
+        db, entity_type="attribute_definition", entity_id=obj.id, action=action,
+        before=before, after=revision_service.snapshot("attribute_definition", obj),
+        summary=f"属性定义状态变更为 {status.value}",
+    )
     return await _commit(db, obj)
 
 
@@ -340,14 +356,19 @@ async def set_value(
         )
     )).scalars().all()
     now = utcnow()
+    old_snapshot = (
+        revision_service.snapshot("attribute_value", existing[0]) if existing else None
+    )
     for old in existing:
         old.archived_at = now  # 归档旧活动值，保留历史
     await db.flush()
 
     row = ProductAttributeValue(definition_id=defn.id, **cols)
     setattr(row, f"{target_type}_id", int(target_id))
-    db.add(row)
-    return await _add(db, row)
+    return await _add(
+        db, row, rev_type="attribute_value", rev_action="update",
+        rev_before=old_snapshot, rev_summary=f"写入属性值（{defn.key}）",
+    )
 
 
 async def list_values(
@@ -366,7 +387,13 @@ async def list_values(
 async def delete_value(db: AsyncSession, value: ProductAttributeValue) -> None:
     """软删：归档该值（保留历史，不物理删除）。"""
     if value.archived_at is None:
+        before = revision_service.snapshot("attribute_value", value)
         value.archived_at = utcnow()
+        await revision_service.record(
+            db, entity_type="attribute_value", entity_id=value.id, action="archive",
+            before=before, after=revision_service.snapshot("attribute_value", value),
+            summary="归档属性值",
+        )
         await _commit(db, value)
 
 
@@ -460,9 +487,19 @@ async def _reference_counts(db: AsyncSession, level: str, node_id: int) -> dict[
 # --------------------------------------------------------------------------- #
 
 
-async def _add(db: AsyncSession, row):
+async def _add(db: AsyncSession, row, *, rev_type: str | None = None,
+               rev_summary: str | None = None, rev_action: str = "create",
+               rev_before: dict[str, Any] | None = None):
+    """新增行并提交；rev_type 非空时在**同一事务**内追加变更事件。"""
     db.add(row)
     try:
+        if rev_type:
+            await db.flush()
+            await revision_service.record(
+                db, entity_type=rev_type, entity_id=row.id, action=rev_action,
+                before=rev_before, after=revision_service.snapshot(rev_type, row),
+                summary=rev_summary,
+            )
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()

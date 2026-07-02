@@ -90,6 +90,13 @@ class Settings(BaseSettings):
     reference_asset_max_count: int = 50
     reference_asset_max_pixels: int = 60_000_000  # 单图最大像素数（防解压炸弹）
     reference_thumbnail_max_dim: int = 320
+    # PR-A2 Gate B：系统默认完整度策略（Category 未配置 active policy 时使用；
+    # 可经环境变量调整，不硬编码任何产品名；required_angles 默认为空列表）
+    readiness_default_min_references: int = 3
+    readiness_default_min_identity_attributes: int = 1
+    readiness_default_require_primary: bool = True
+    readiness_default_require_alias: bool = False
+    readiness_default_require_name_en: bool = False
 
     log_level: str = "INFO"
 

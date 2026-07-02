@@ -34,6 +34,8 @@ from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import revision_service
+
 LEVELS = {
     "category": ProductCategory,
     "family": ProductFamily,
@@ -133,7 +135,7 @@ async def create_category(db: AsyncSession, data: dict[str, Any]) -> ProductCate
         name_en=(data.get("name_en") or None), description=(data.get("description") or None),
         status=CatalogStatus.DRAFT, sort_order=int(data.get("sort_order") or 0),
     )
-    return await _add(db, row)
+    return await _add(db, row, rev_type="category", rev_summary="创建产品类别")
 
 
 async def create_family(db: AsyncSession, data: dict[str, Any]) -> ProductFamily:
@@ -149,7 +151,7 @@ async def create_family(db: AsyncSession, data: dict[str, Any]) -> ProductFamily
         name_en=(data.get("name_en") or None), description=(data.get("description") or None),
         status=CatalogStatus.DRAFT, legacy_product_id=data.get("legacy_product_id"),
     )
-    return await _add(db, row)
+    return await _add(db, row, rev_type="family", rev_summary="创建产品系列")
 
 
 async def create_variant(db: AsyncSession, data: dict[str, Any]) -> ProductVariant:
@@ -163,7 +165,7 @@ async def create_variant(db: AsyncSession, data: dict[str, Any]) -> ProductVaria
         name_en=(data.get("name_en") or None), description=(data.get("description") or None),
         status=CatalogStatus.DRAFT,
     )
-    return await _add(db, row)
+    return await _add(db, row, rev_type="variant", rev_summary="创建产品变体")
 
 
 async def create_sku(db: AsyncSession, data: dict[str, Any]) -> ProductSKU:
@@ -183,12 +185,20 @@ async def create_sku(db: AsyncSession, data: dict[str, Any]) -> ProductSKU:
         sku_code=sku_code, normalized_sku_code=(_norm(sku_code) if sku_code else None),
         name_zh=name_zh, name_en=(data.get("name_en") or None), status=CatalogStatus.DRAFT,
     )
-    return await _add(db, row)
+    return await _add(db, row, rev_type="sku", rev_summary="创建产品 SKU")
 
 
-async def _add(db: AsyncSession, row):
+async def _add(db: AsyncSession, row, *, rev_type: str | None = None,
+               rev_summary: str | None = None):
+    """新增行并提交；rev_type 非空时在**同一事务**内追加 create 变更事件。"""
     db.add(row)
     try:
+        if rev_type:
+            await db.flush()
+            await revision_service.record(
+                db, entity_type=rev_type, entity_id=row.id, action="create",
+                after=revision_service.snapshot(rev_type, row), summary=rev_summary,
+            )
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()
@@ -412,7 +422,8 @@ def _result(cands: list[dict]) -> dict:
 
 
 async def _add_historical_alias(
-    db: AsyncSession, level: str, target_id: int, alias: str, language: str
+    db: AsyncSession, level: str, target_id: int, alias: str, language: str,
+    correlation_id: str | None = None,
 ) -> None:
     """同事务追加 historical_name 别名（幂等：同目标同 normalized_alias 已存在则跳过）。"""
     na = _norm(alias)
@@ -433,20 +444,28 @@ async def _add_historical_alias(
     )
     setattr(row, attr, target_id)
     db.add(row)
+    await db.flush()
+    await revision_service.record(
+        db, entity_type="alias", entity_id=row.id, action="create",
+        after=revision_service.snapshot("alias", row),
+        summary="更名自动保留历史名称别名", correlation_id=correlation_id,
+    )
 
 
 async def update_node(db: AsyncSession, level: str, obj, data: dict[str, Any]):
     """更新名称/描述等（**更名不改 id/code**；改名同事务自动建历史别名）。"""
+    before = revision_service.snapshot(level, obj)
+    corr = revision_service.new_correlation_id()
     if "name_zh" in data:
         new_zh = _require_zh(data["name_zh"])
         if obj.name_zh and obj.name_zh.strip() and _norm(obj.name_zh) != _norm(new_zh):
-            await _add_historical_alias(db, level, obj.id, obj.name_zh, "zh")
+            await _add_historical_alias(db, level, obj.id, obj.name_zh, "zh", corr)
         obj.name_zh = new_zh
     if "name_en" in data and hasattr(obj, "name_en"):
         new_en = (data["name_en"] or None)
         old_en = obj.name_en
         if old_en and old_en.strip() and _norm(old_en) != _norm(new_en or ""):
-            await _add_historical_alias(db, level, obj.id, old_en, "en")
+            await _add_historical_alias(db, level, obj.id, old_en, "en", corr)
         obj.name_en = new_en
     if "description" in data and hasattr(obj, "description"):
         obj.description = data["description"] or None
@@ -461,6 +480,11 @@ async def update_node(db: AsyncSession, level: str, obj, data: dict[str, Any]):
         sc = (data["sku_code"] or "").strip() or None
         obj.sku_code = sc
         obj.normalized_sku_code = _norm(sc) if sc else None
+    await revision_service.record(
+        db, entity_type=level, entity_id=obj.id, action="update",
+        before=before, after=revision_service.snapshot(level, obj),
+        summary=f"更新 {level} 基础信息", correlation_id=corr,
+    )
     return await _commit(db, obj)
 
 
@@ -497,8 +521,15 @@ async def set_status(db: AsyncSession, level: str, obj, new_status: CatalogStatu
         await _check_archive(db, level, obj)
     if new_status == CatalogStatus.ACTIVE:
         await _check_activation(db, level, obj)
+    before = revision_service.snapshot(level, obj)
     obj.status = new_status
     obj.archived_at = utcnow() if new_status == CatalogStatus.ARCHIVED else None
+    action = "archive" if new_status == CatalogStatus.ARCHIVED else "status"
+    await revision_service.record(
+        db, entity_type=level, entity_id=obj.id, action=action,
+        before=before, after=revision_service.snapshot(level, obj),
+        summary=f"{level} 状态变更为 {new_status.value}",
+    )
     return await _commit(db, obj)
 
 
@@ -525,9 +556,15 @@ async def restore(db: AsyncSession, level: str, obj):
     """归档恢复为 active（须通过层级激活校验）。"""
     if obj.status != CatalogStatus.ARCHIVED:
         raise CatalogError("仅归档节点可恢复")
+    before = revision_service.snapshot(level, obj)
     obj.status = CatalogStatus.ACTIVE
     await _check_activation(db, level, obj)
     obj.archived_at = None
+    await revision_service.record(
+        db, entity_type=level, entity_id=obj.id, action="restore",
+        before=before, after=revision_service.snapshot(level, obj),
+        summary=f"恢复 {level}",
+    )
     return await _commit(db, obj)
 
 
@@ -588,9 +625,15 @@ async def merge(db: AsyncSession, level: str, source, target_id: int):
         if cur is None:
             break
         hops += 1
+    before = revision_service.snapshot(level, source)
     source.status = CatalogStatus.MERGED
     source.merged_into_id = target.id
     source.archived_at = utcnow()
+    await revision_service.record(
+        db, entity_type=level, entity_id=source.id, action="merge",
+        before=before, after=revision_service.snapshot(level, source),
+        summary=f"{level} #{source.id} 合并到 #{target.id}",
+    )
     return await _commit(db, source)
 
 
@@ -635,13 +678,14 @@ async def add_alias(db: AsyncSession, data: dict[str, Any]) -> ProductCatalogAli
         alias_type=alias_type, is_primary=bool(data.get("is_primary")),
     )
     setattr(row, _TARGET_ATTR[level], int(target_id))
-    return await _add(db, row)
+    return await _add(db, row, rev_type="alias", rev_summary="创建产品别名")
 
 
 async def update_alias(db: AsyncSession, alias_id: int, data: dict[str, Any]):
     row = await db.get(ProductCatalogAlias, alias_id)
     if row is None:
         raise CatalogError("别名不存在")
+    before = revision_service.snapshot("alias", row)
     if "alias" in data:
         a = (data["alias"] or "").strip()
         if not a:
@@ -657,6 +701,11 @@ async def update_alias(db: AsyncSession, alias_id: int, data: dict[str, Any]):
         row.alias_type = at
     if "is_primary" in data:
         row.is_primary = bool(data["is_primary"])
+    await revision_service.record(
+        db, entity_type="alias", entity_id=row.id, action="update",
+        before=before, after=revision_service.snapshot("alias", row),
+        summary="更新产品别名",
+    )
     return await _commit(db, row)
 
 
@@ -664,6 +713,12 @@ async def delete_alias(db: AsyncSession, alias_id: int) -> bool:
     row = await db.get(ProductCatalogAlias, alias_id)
     if row is None:
         return False
+    before = revision_service.snapshot("alias", row)
+    rid = row.id
     await db.delete(row)
+    await revision_service.record(
+        db, entity_type="alias", entity_id=rid, action="delete",
+        before=before, summary="删除产品别名",
+    )
     await db.commit()
     return True

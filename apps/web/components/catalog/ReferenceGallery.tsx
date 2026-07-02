@@ -16,8 +16,8 @@ import {
 
 import { CatalogError } from "./widgets";
 
-// 角度中文标签（受控枚举常量，非产品值）
-const ANGLE_LABELS: Record<ReferenceAngle, string> = {
+// 角度中文标签（受控枚举常量，非产品值；导出供完整度面板等复用）
+export const ANGLE_LABELS: Record<ReferenceAngle, string> = {
   front: "正面",
   back: "背面",
   left: "左侧",

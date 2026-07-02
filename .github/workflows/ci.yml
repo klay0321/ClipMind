@@ -481,12 +481,15 @@ jobs:
             grep -q "$flag" pr-a2b-ui.log || { echo "缺少标志 $flag"; exit 1; }
           done
       - name: PR-B 成片与使用血缘 UI E2E（真实页面：登记成片/候选确认/统计/归档守卫）
-        working-directory: e2e
         env:
           WEB_BASE: http://localhost:3000
           API_BASE: http://localhost:8000
         run: |
           set -o pipefail
+          # 播种第二个 Asset（成片文件须与来源镜头素材不同；仅 gate_c 单素材栈会缺）
+          python scripts/ci_pr_b_lineage_e2e.py --mode seed-ui | tee prb-ui-seed.log
+          grep -q "PR_B_UI_SEED_OK" prb-ui-seed.log
+          cd e2e
           npx playwright test pr-b-final-video-lineage.spec.ts --grep-invert @persist | tee pr-b-ui.log
           for flag in PR_B_UI_FINAL_VIDEO_OK PR_B_UI_CONFIRM_OK PR_B_UI_USAGE_COUNT_OK PR_B_UI_ARCHIVE_GUARD_OK PR_B_UI_E2E_OK; do
             grep -q "$flag" pr-b-ui.log || { echo "缺少标志 $flag"; exit 1; }

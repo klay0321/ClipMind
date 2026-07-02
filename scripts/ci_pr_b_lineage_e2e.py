@@ -108,7 +108,7 @@ def make_video(path: str, colors: list[str], seg_seconds: float = 2.5) -> None:
         sys.exit(1)
 
 
-def upload_video(local_path: str, filename: str) -> None:
+def upload_video(local_path: str, filename: str) -> int:
     boundary = uuid.uuid4().hex
     with open(local_path, "rb") as f:
         content = f.read()
@@ -116,14 +116,23 @@ def upload_video(local_path: str, filename: str) -> None:
         f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
         f"filename=\"{filename}\"\r\nContent-Type: video/mp4\r\n\r\n"
     ).encode() + content + f"\r\n--{boundary}--\r\n".encode()
-    jreq(
+    res = jreq(
         "POST", "/api/uploads", raw=body,
         content_type=f"multipart/form-data; boundary={boundary}",
         expect=(202,),
     )
+    return int(res["source_directory_id"])
 
 
-def wait_asset(filename: str) -> dict:
+def wait_asset(filename: str, source_directory_id: int | None = None) -> dict:
+    """等待上传文件被扫描索引。
+
+    连续上传时后到文件可能错过已在列举中的扫描窗口（扫描请求幂等复用活动运行），
+    故等待过半仍未出现时重新触发一次目录扫描，而不是拉长超时干等。
+    """
+    deadline = time.time() + 300
+    rescan_at = time.time() + 60
+
     def find():
         q = urllib.parse.quote(filename)
         data = jreq("GET", f"/api/assets?page=1&page_size=50&q={q}")
@@ -132,7 +141,22 @@ def wait_asset(filename: str) -> dict:
                 return item
         return None
 
-    return poll(find, lambda a: a is not None, desc=f"等待素材索引 {filename}")
+    while time.time() < deadline:
+        item = find()
+        if item is not None:
+            return item
+        if source_directory_id is not None and time.time() >= rescan_at:
+            _req("POST", f"/api/source-directories/{source_directory_id}/scan")
+            rescan_at = deadline  # 只补触发一次
+        time.sleep(3)
+    print(f"E2E FAIL: 轮询超时（等待素材索引 {filename}）", file=sys.stderr)
+    sys.exit(1)
+
+
+def upload_and_index(local_path: str, filename: str) -> dict:
+    """逐个上传并等待索引完成（串行，避免并发扫描窗口竞态）。"""
+    sd_id = upload_video(local_path, filename)
+    return wait_asset(filename, sd_id)
 
 
 def analyze_and_wait_shots(asset_id: int) -> list[dict]:
@@ -173,13 +197,11 @@ def run_full() -> None:
     make_video(os.path.join(tmp, "b.mp4"), ["green"])
     make_video(os.path.join(tmp, "fa.mp4"), ["yellow", "purple"])
     make_video(os.path.join(tmp, "fb.mp4"), ["cyan"])
-    for local, key in [("a.mp4", "src_a"), ("b.mp4", "src_b"), ("fa.mp4", "fin_a"), ("fb.mp4", "fin_b")]:
-        upload_video(os.path.join(tmp, local), names[key])
-
-    src_a = wait_asset(names["src_a"])
-    src_b = wait_asset(names["src_b"])
-    fin_a = wait_asset(names["fin_a"])
-    fin_b = wait_asset(names["fin_b"])
+    # 逐个上传并等待索引（并发上传会踩中"扫描已在列举"的窗口，后到文件被漏扫）
+    src_a = upload_and_index(os.path.join(tmp, "a.mp4"), names["src_a"])
+    src_b = upload_and_index(os.path.join(tmp, "b.mp4"), names["src_b"])
+    fin_a = upload_and_index(os.path.join(tmp, "fa.mp4"), names["fin_a"])
+    fin_b = upload_and_index(os.path.join(tmp, "fb.mp4"), names["fin_b"])
 
     shots_a = analyze_and_wait_shots(src_a["id"])
     shots_b = analyze_and_wait_shots(src_b["id"])
@@ -385,6 +407,20 @@ def run_check_persist() -> None:
     print("PR_B_PERSIST_OK")
 
 
+def run_seed_ui() -> None:
+    """为 UI E2E 栈播种：上传 1 个合成成片素材并等待索引。
+
+    UI spec 需要"与来源镜头素材不同的 Asset"作为成片文件；
+    仅 seed 一个素材的栈会缺第二个 Asset 导致用例被跳过。
+    """
+    run_tag = uuid.uuid4().hex[:6]
+    tmp = tempfile.mkdtemp(prefix="prb_ui_seed_")
+    local = os.path.join(tmp, "ui.mp4")
+    make_video(local, ["orange"])
+    asset = upload_and_index(local, f"{PREFIX}-ui-final-{run_tag}.mp4")
+    print(f"PR_B_UI_SEED_OK asset={asset['id']}")
+
+
 def run_cleanup() -> None:
     # 仅清理本前缀数据：血缘行（级联 usage/occurrence/event）→ 脚本/项目 → 上传素材行。
     # RESTRICT 外键要求先删任何引用本前缀素材的成片行（含 UI E2E 的 PRB-UI 前缀），
@@ -406,12 +442,16 @@ def run_cleanup() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--mode", choices=["full", "check-persist", "cleanup"], default="full")
+    parser.add_argument(
+        "--mode", choices=["full", "check-persist", "seed-ui", "cleanup"], default="full"
+    )
     args = parser.parse_args()
     if args.mode == "full":
         run_full()
     elif args.mode == "check-persist":
         run_check_persist()
+    elif args.mode == "seed-ui":
+        run_seed_ui()
     else:
         run_cleanup()
 

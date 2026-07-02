@@ -50,6 +50,10 @@ def _schema():
         conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
+    # 0015：catalog_revision.revision_number 取号自独立序列（由迁移创建的 standalone 对象，
+    # 不在 metadata 内）——create_all 后补建，保持「create_all ≡ 迁移到 head」的等价性。
+    with engine.begin() as conn:
+        conn.execute(text("CREATE SEQUENCE IF NOT EXISTS catalog_revision_seq"))
     # create_all 建出的 schema 等价于迁移到 head：标记 alembic_version=head，
     # 使迁移就绪检查（/health/ready 的 migration_ok）在测试库下为真。
     head = _alembic_head()
@@ -77,7 +81,15 @@ def _truncate():
     with engine.begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE download_log, bundle_export, favorite, saved_search, "
+                # 0015：治理/目录表显式入清单——product_confusion_pair/catalog_revision
+                # 无 FK 不会被 CASCADE 级联，若不显式清空会残留旧行并撞上
+                # RESTART IDENTITY 复用的 family/variant/sku id（跨测试假冲突）。
+                "TRUNCATE catalog_revision, product_confusion_pair, "
+                "product_onboarding_review, product_readiness_policy, "
+                "product_reference_asset, product_attribute_value, "
+                "product_attribute_definition, product_catalog_alias, "
+                "product_sku, product_variant, product_family, product_category, "
+                "download_log, bundle_export, favorite, saved_search, "
                 "dynamic_collection, collection_shot, collection, "
                 "project_product, project_shot, project_asset, project, "
                 "script_export, script_shot_candidate, script_segment, script_project, "

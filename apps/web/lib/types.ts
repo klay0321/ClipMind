@@ -1981,3 +1981,202 @@ export interface CatalogRevision {
   actor_label: string | null;
   created_at: string;
 }
+
+// ============================================================
+// PR-B 最终成片 / 使用血缘
+// 使用次数一律为后端派生统计（只读）；前端绝不允许直接编辑数字。
+// ============================================================
+
+export type FinalVideoStatus = "draft" | "ready" | "completed" | "archived";
+export type UsageStatus = "proposed" | "suspected" | "confirmed" | "rejected" | "revoked";
+export type UsageEvidenceMethod =
+  | "manual"
+  | "clipmind_project"
+  | "editor_project"
+  | "visual_match"
+  | "audio_match"
+  | "legacy_path_rule";
+
+export interface FinalVideoUsageStats {
+  source_shot_count: number;
+  confirmed_count: number;
+  proposed_count: number;
+  suspected_count: number;
+  rejected_count: number;
+  revoked_count: number;
+}
+
+export interface FinalVideo {
+  id: number;
+  asset_id: number;
+  project_id: number | null;
+  script_project_id: number | null;
+  title: string;
+  description: string | null;
+  version_label: string | null;
+  status: FinalVideoStatus;
+  completed_at: string | null;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+  asset_filename: string | null;
+  asset_duration: number | null;
+  asset_has_poster: boolean;
+  project_name: string | null;
+  script_project_name: string | null;
+  usage_stats: FinalVideoUsageStats;
+}
+
+export interface FinalVideoListResponse {
+  items: FinalVideo[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface FinalVideoCreateRequest {
+  asset_id: number;
+  title: string;
+  description?: string;
+  version_label?: string;
+  project_id?: number;
+  script_project_id?: number;
+  status?: Exclude<FinalVideoStatus, "archived">;
+  completed_at?: string;
+}
+
+export interface FinalVideoUpdateRequest {
+  title?: string;
+  description?: string | null;
+  version_label?: string | null;
+  project_id?: number | null;
+  script_project_id?: number | null;
+  status?: Exclude<FinalVideoStatus, "archived">;
+  completed_at?: string | null;
+}
+
+export interface FinalVideoUsage {
+  id: number;
+  final_video_id: number;
+  source_shot_id: number;
+  source_asset_id: number;
+  source_shot_generation: number | null;
+  status: UsageStatus;
+  evidence_method: UsageEvidenceMethod;
+  confidence: number | null;
+  evidence_summary: string | null;
+  evidence_refs: Record<string, unknown> | null;
+  confirmed_at: string | null;
+  rejected_at: string | null;
+  revoked_at: string | null;
+  actor_label: string | null;
+  review_note: string | null;
+  created_at: string;
+  updated_at: string;
+  shot: Shot | null;
+  source_asset_filename: string | null;
+  occurrence_count: number;
+  product_name: string | null;
+}
+
+export interface UsageCreateRequest {
+  source_shot_id: number;
+  evidence_summary?: string;
+  confidence?: number;
+  actor_label?: string;
+  review_note?: string;
+}
+
+export interface UsageActionRequest {
+  actor_label?: string;
+  note?: string;
+}
+
+export interface UsageOccurrence {
+  id: number;
+  usage_id: number;
+  occurrence_index: number;
+  source_start_ms: number;
+  source_end_ms: number;
+  final_start_ms: number;
+  final_end_ms: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OccurrenceCreateRequest {
+  source_start_ms: number;
+  source_end_ms: number;
+  final_start_ms: number;
+  final_end_ms: number;
+}
+
+export interface ProposeFromProjectResult {
+  created: number;
+  existing: number;
+  skipped_unavailable: number;
+  conflicts: number;
+  segments_scanned: number;
+  created_usage_ids: number[];
+}
+
+export interface UsageEvent {
+  id: number;
+  usage_id: number;
+  action: string;
+  before_status: string | null;
+  after_status: string | null;
+  actor_label: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface FinalVideoBrief {
+  final_video_id: number;
+  title: string;
+  status: FinalVideoStatus;
+  confirmed_at: string | null;
+}
+
+export interface ShotUsageSummary {
+  shot_id: number;
+  confirmed_usage_count: number;
+  proposed_count: number;
+  suspected_count: number;
+  last_used_at: string | null;
+  final_videos: FinalVideoBrief[];
+}
+
+export interface ShotUsageCount {
+  shot_id: number;
+  confirmed_usage_count: number;
+  proposed_count: number;
+}
+
+export interface AssetUsageSummary {
+  asset_id: number;
+  total_shots: number;
+  used_shot_count: number;
+  never_used_shot_count: number;
+  distinct_final_video_count: number;
+  usage_distribution: Record<string, number>;
+  last_used_at: string | null;
+}
+
+export interface UsageWithOccurrences extends FinalVideoUsage {
+  occurrences: UsageOccurrence[];
+}
+
+export interface FinalVideoLineage {
+  final_video: FinalVideo;
+  usages: UsageWithOccurrences[];
+}
+
+export interface FinalVideoListQuery {
+  page: number;
+  page_size: number;
+  status?: FinalVideoStatus;
+  project_id?: number;
+  q?: string;
+  include_archived?: boolean;
+}

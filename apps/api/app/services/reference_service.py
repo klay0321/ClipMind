@@ -31,7 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.services import images
+from app.services import images, revision_service
 from app.services.catalog_service import LEVELS, CatalogConflict, CatalogError
 
 logger = logging.getLogger(__name__)
@@ -215,6 +215,12 @@ async def upload_reference(
         row.is_primary = True
     db.add(row)
     try:
+        await db.flush()
+        await revision_service.record(
+            db, entity_type="reference_asset", entity_id=row.id, action="create",
+            after=revision_service.snapshot("reference_asset", row),
+            summary=f"上传参考图（{target_type} #{target_id}，角度 {angle}）",
+        )
         await db.commit()
     except IntegrityError as exc:
         await db.rollback()
@@ -276,6 +282,7 @@ async def get_reference(db: AsyncSession, ref_id: int) -> ProductReferenceAsset 
 async def update_reference(
     db: AsyncSession, asset: ProductReferenceAsset, data: dict
 ) -> ProductReferenceAsset:
+    before = revision_service.snapshot("reference_asset", asset)
     if "angle" in data and data["angle"] is not None:
         asset.angle = _valid_angle(data["angle"])
     if "quality_status" in data and data["quality_status"] is not None:
@@ -287,6 +294,11 @@ async def update_reference(
         asset.description = (data["description"] or None)
     if "sort_order" in data and data["sort_order"] is not None:
         asset.sort_order = int(data["sort_order"])
+    await revision_service.record(
+        db, entity_type="reference_asset", entity_id=asset.id, action="update",
+        before=before, after=revision_service.snapshot("reference_asset", asset),
+        summary="更新参考图元数据",
+    )
     return await _commit(db, asset)
 
 
@@ -294,18 +306,30 @@ async def set_primary(db: AsyncSession, asset: ProductReferenceAsset) -> Product
     """将该图设为其目标的主图（清除同目标其它活动主图，保证唯一）。"""
     if asset.archived_at is not None or asset.state in REFERENCE_HIDDEN_STATES:
         raise CatalogError("已归档/拒绝的参考图不能设为主图")
+    before = revision_service.snapshot("reference_asset", asset)
     ttype, tid = _target_of(asset)
     await _clear_primary(db, ttype, tid)
     asset.is_primary = True
+    await revision_service.record(
+        db, entity_type="reference_asset", entity_id=asset.id, action="set_primary",
+        before=before, after=revision_service.snapshot("reference_asset", asset),
+        summary=f"设为 {ttype} #{tid} 主参考图",
+    )
     return await _commit(db, asset)
 
 
 async def archive_reference(
     db: AsyncSession, asset: ProductReferenceAsset
 ) -> ProductReferenceAsset:
+    before = revision_service.snapshot("reference_asset", asset)
     asset.state = "archived"
     asset.archived_at = utcnow()
     asset.is_primary = False  # 归档不再作主图
+    await revision_service.record(
+        db, entity_type="reference_asset", entity_id=asset.id, action="archive",
+        before=before, after=revision_service.snapshot("reference_asset", asset),
+        summary="归档参考图",
+    )
     return await _commit(db, asset)
 
 
@@ -314,8 +338,14 @@ async def restore_reference(
 ) -> ProductReferenceAsset:
     if asset.archived_at is None and asset.state != "rejected":
         raise CatalogError("仅归档/拒绝的参考图可恢复")
+    before = revision_service.snapshot("reference_asset", asset)
     asset.state = "active"
     asset.archived_at = None
+    await revision_service.record(
+        db, entity_type="reference_asset", entity_id=asset.id, action="restore",
+        before=before, after=revision_service.snapshot("reference_asset", asset),
+        summary="恢复参考图",
+    )
     return await _commit(db, asset)
 
 
@@ -323,7 +353,13 @@ async def delete_reference(db: AsyncSession, asset: ProductReferenceAsset) -> No
     """物理删除：先删库记录，再尽力删 data_dir 派生文件（绝不碰源）。"""
     img_abs = _abs(asset.image_path)
     thumb_abs = _abs(asset.thumbnail_path)
+    before = revision_service.snapshot("reference_asset", asset)
+    rid = asset.id
     await db.delete(asset)
+    await revision_service.record(
+        db, entity_type="reference_asset", entity_id=rid, action="delete",
+        before=before, summary="物理删除参考图记录",
+    )
     await db.commit()
     _best_effort_remove(img_abs)
     _best_effort_remove(thumb_abs)

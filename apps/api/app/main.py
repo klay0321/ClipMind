@@ -21,6 +21,7 @@ from app.routers import (
     health,
     product_attributes,
     product_catalog,
+    product_governance,
     product_reference,
     products,
     projects,
@@ -70,6 +71,7 @@ app.include_router(products.router, prefix="/api")
 app.include_router(product_catalog.router, prefix="/api")
 app.include_router(product_attributes.router, prefix="/api")
 app.include_router(product_reference.router, prefix="/api")
+app.include_router(product_governance.router, prefix="/api")
 app.include_router(tags.router, prefix="/api")
 app.include_router(search.router, prefix="/api")
 app.include_router(scripts.router, prefix="/api")

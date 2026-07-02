@@ -8,6 +8,7 @@ import { Pagination } from "@/components/Pagination";
 import { ReviewSummaryBar } from "@/components/ReviewSummaryBar";
 import { ShotCard } from "@/components/ShotCard";
 import { ShotDetail } from "@/components/ShotDetail";
+import { UsageCountBadge } from "@/components/final-videos/UsageCountBadge";
 import { ShotCompletenessBar } from "@/components/shots/ShotCompletenessBar";
 import { TopNav } from "@/components/TopNav";
 import { Button } from "@/components/ui/Button";
@@ -25,8 +26,9 @@ import {
   useShotFilterOptions,
   useShots,
   useShotSearch,
+  useShotUsageCounts,
 } from "@/lib/hooks";
-import type { Product, Shot } from "@/lib/types";
+import type { Product, Shot, ShotUsageCount } from "@/lib/types";
 
 const PAGE_SIZE = 24;
 
@@ -282,6 +284,14 @@ export function ShotsView({
     return copy;
   }, [rawItems, sort]);
 
+  // PR-B：批量拉取当前页镜头的使用计数（只读派生值，一次请求避免 N+1）
+  const usageCountsQ = useShotUsageCounts(items.map((s) => s.id));
+  const usageCounts = useMemo(() => {
+    const map = new Map<number, ShotUsageCount>();
+    for (const it of usageCountsQ.data?.items ?? []) map.set(it.shot_id, it);
+    return map;
+  }, [usageCountsQ.data]);
+
   useEffect(() => {
     if (rawItems.length > 0 && !rawItems.some((s) => s.id === selectedId)) {
       setSelectedId(rawItems[0].id);
@@ -335,6 +345,7 @@ export function ShotsView({
               onSelect={setSelectedId}
               onDownload={handleDownload}
               downloading={exportShotId === s.id}
+              usageBadge={<UsageCountBadge count={usageCounts.get(s.id)} />}
             />
           ))}
         </div>

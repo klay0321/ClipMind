@@ -12,8 +12,13 @@ import {
   shotKeyframeUrl,
   shotPreviewUrl,
 } from "@/lib/api";
-import { formatCodec, formatDuration, formatResolution } from "@/lib/format";
-import { useExportMutation, useExportStatus, useShot } from "@/lib/hooks";
+import { formatCodec, formatDateTime, formatDuration, formatResolution } from "@/lib/format";
+import {
+  useExportMutation,
+  useExportStatus,
+  useShot,
+  useShotUsageSummary,
+} from "@/lib/hooks";
 
 function timecode(s: number): string {
   return formatDuration(s);
@@ -175,7 +180,56 @@ export function ShotDetail({ shotId }: { shotId: number | null }) {
         ) : null}
       </div>
 
+      <ShotUsagePanel shotId={s.id} />
+
       <ReviewPanel shotId={s.id} />
+    </div>
+  );
+}
+
+/** PR-B：镜头正式使用情况（只读派生值；仅 confirmed 计入使用次数）。 */
+function ShotUsagePanel({ shotId }: { shotId: number }) {
+  const summary = useShotUsageSummary(shotId);
+  const data = summary.data;
+  if (summary.isLoading || !data) return null;
+  return (
+    <div className="rounded border border-gray-100 bg-gray-50 p-2 text-xs" data-testid="shot-usage-panel">
+      <div className="flex items-center justify-between">
+        <span className="font-medium text-gray-700">成片使用情况</span>
+        <span
+          className={
+            data.confirmed_usage_count > 0 ? "font-semibold text-emerald-700" : "text-gray-500"
+          }
+          data-testid="shot-usage-count"
+        >
+          使用 {data.confirmed_usage_count} 次
+        </span>
+      </div>
+      {data.proposed_count > 0 ? (
+        <p className="mt-1 text-amber-700">
+          另有 {data.proposed_count} 条候选引用待确认（候选不计入使用次数）
+        </p>
+      ) : null}
+      {data.last_used_at ? (
+        <p className="mt-1 text-gray-500">最近使用：{formatDateTime(data.last_used_at)}</p>
+      ) : null}
+      {data.final_videos.length > 0 ? (
+        <ul className="mt-1 space-y-0.5">
+          {data.final_videos.map((fv) => (
+            <li key={fv.final_video_id} className="truncate">
+              <a
+                href={`/final-videos/${fv.final_video_id}`}
+                className="text-brand hover:underline"
+                data-testid={`shot-usage-fv-${fv.final_video_id}`}
+              >
+                用于成片：{fv.title}
+              </a>
+            </li>
+          ))}
+        </ul>
+      ) : data.confirmed_usage_count === 0 && data.proposed_count === 0 ? (
+        <p className="mt-1 text-gray-400">尚未被任何成片引用</p>
+      ) : null}
     </div>
   );
 }

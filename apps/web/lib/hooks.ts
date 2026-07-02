@@ -78,6 +78,14 @@ import type {
   OnboardingActionRequest,
   ReadinessPolicyCreateRequest,
 } from "./types";
+import type {
+  FinalVideoCreateRequest,
+  FinalVideoListQuery,
+  FinalVideoUpdateRequest,
+  OccurrenceCreateRequest,
+  UsageActionRequest,
+  UsageCreateRequest,
+} from "./types";
 
 const ACTIVE_SCAN: ScanStatus[] = ["queued", "scanning"];
 const ACTIVE_RUN: MediaRunStatus[] = ["queued", "running"];
@@ -1865,5 +1873,154 @@ export function useRevisions(
       }),
     enabled: level != null && targetId != null,
     placeholderData: keepPreviousData,
+  });
+}
+
+// ============================================================
+// PR-B 最终成片 / 使用血缘（使用次数为只读派生值）
+// ============================================================
+
+export function useFinalVideos(query: FinalVideoListQuery) {
+  return useQuery({
+    queryKey: ["final-videos", query],
+    queryFn: () => api.listFinalVideos(query),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useFinalVideo(id: number | null) {
+  return useQuery({
+    queryKey: ["final-video", id],
+    queryFn: () => api.getFinalVideo(id as number),
+    enabled: id != null,
+  });
+}
+
+export function useFinalVideoLineage(id: number | null) {
+  return useQuery({
+    queryKey: ["final-video-lineage", id],
+    queryFn: () => api.getFinalVideoLineage(id as number),
+    enabled: id != null,
+  });
+}
+
+function useInvalidateLineage() {
+  const qc = useQueryClient();
+  return () => {
+    void qc.invalidateQueries({ queryKey: ["final-videos"] });
+    void qc.invalidateQueries({ queryKey: ["final-video"] });
+    void qc.invalidateQueries({ queryKey: ["final-video-lineage"] });
+    void qc.invalidateQueries({ queryKey: ["usage-events"] });
+    void qc.invalidateQueries({ queryKey: ["shot-usage"] });
+    void qc.invalidateQueries({ queryKey: ["shot-usage-counts"] });
+    void qc.invalidateQueries({ queryKey: ["asset-usage"] });
+  };
+}
+
+export function useCreateFinalVideo() {
+  const invalidate = useInvalidateLineage();
+  return useMutation({
+    mutationFn: (payload: FinalVideoCreateRequest) => api.createFinalVideo(payload),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateFinalVideo(id: number) {
+  const invalidate = useInvalidateLineage();
+  return useMutation({
+    mutationFn: (payload: FinalVideoUpdateRequest) => api.updateFinalVideo(id, payload),
+    onSuccess: invalidate,
+  });
+}
+
+export function useFinalVideoLifecycle(id: number) {
+  const invalidate = useInvalidateLineage();
+  return useMutation({
+    mutationFn: (action: "archive" | "restore") =>
+      action === "archive" ? api.archiveFinalVideo(id) : api.restoreFinalVideo(id),
+    onSuccess: invalidate,
+  });
+}
+
+export function useCreateUsage(finalVideoId: number) {
+  const invalidate = useInvalidateLineage();
+  return useMutation({
+    mutationFn: (payload: UsageCreateRequest) => api.createUsage(finalVideoId, payload),
+    onSuccess: invalidate,
+  });
+}
+
+export function useProposeFromProject(finalVideoId: number) {
+  const invalidate = useInvalidateLineage();
+  return useMutation({
+    mutationFn: () => api.proposeFromProject(finalVideoId),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUsageAction() {
+  const invalidate = useInvalidateLineage();
+  return useMutation({
+    mutationFn: ({
+      usageId,
+      action,
+      payload,
+    }: {
+      usageId: number;
+      action: "confirm" | "reject" | "revoke" | "restore-proposal";
+      payload?: UsageActionRequest;
+    }) => api.usageAction(usageId, action, payload ?? {}),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUsageEvents(usageId: number | null) {
+  return useQuery({
+    queryKey: ["usage-events", usageId],
+    queryFn: () => api.listUsageEvents(usageId as number),
+    enabled: usageId != null,
+  });
+}
+
+export function useOccurrenceMutation() {
+  const invalidate = useInvalidateLineage();
+  return useMutation({
+    mutationFn: async (
+      input:
+        | { kind: "create"; usageId: number; payload: OccurrenceCreateRequest }
+        | { kind: "update"; occurrenceId: number; payload: Partial<OccurrenceCreateRequest> }
+        | { kind: "delete"; occurrenceId: number },
+    ): Promise<unknown> => {
+      if (input.kind === "create") return api.createOccurrence(input.usageId, input.payload);
+      if (input.kind === "update")
+        return api.updateOccurrence(input.occurrenceId, input.payload);
+      return api.deleteOccurrence(input.occurrenceId);
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useShotUsageSummary(shotId: number | null) {
+  return useQuery({
+    queryKey: ["shot-usage", shotId],
+    queryFn: () => api.getShotUsageSummary(shotId as number),
+    enabled: shotId != null,
+  });
+}
+
+export function useShotUsageCounts(shotIds: number[]) {
+  const key = shotIds.slice().sort((a, b) => a - b).join(",");
+  return useQuery({
+    queryKey: ["shot-usage-counts", key],
+    queryFn: () => api.getShotUsageCounts(shotIds),
+    enabled: shotIds.length > 0,
+  });
+}
+
+export function useAssetUsageSummary(assetId: number | null) {
+  return useQuery({
+    queryKey: ["asset-usage", assetId],
+    queryFn: () => api.getAssetUsageSummary(assetId as number),
+    enabled: assetId != null,
   });
 }

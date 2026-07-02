@@ -18,6 +18,8 @@ from app.routers import (
     export_center,
     exports,
     favorites,
+    final_video_usages,
+    final_videos,
     health,
     product_attributes,
     product_catalog,
@@ -80,3 +82,8 @@ app.include_router(collections.router, prefix="/api")
 app.include_router(dynamic_collections.router, prefix="/api")
 app.include_router(saved_searches.router, prefix="/api")
 app.include_router(favorites.router, prefix="/api")
+# PR-B 最终成片 / 使用血缘
+app.include_router(final_videos.router, prefix="/api")
+app.include_router(final_video_usages.router, prefix="/api")
+app.include_router(final_video_usages.occurrence_router, prefix="/api")
+app.include_router(final_video_usages.summary_router, prefix="/api")

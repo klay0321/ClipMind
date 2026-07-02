@@ -435,3 +435,63 @@ CATALOG_REVISION_ACTIONS: tuple[str, ...] = (
     "delete", "set_primary", "activate",
     "submit_review", "approve", "request_changes", "block",
 )
+
+
+# ============================================================
+# PR-B 最终成片 / Shot 使用血缘 相关枚举
+# ============================================================
+
+
+class FinalVideoStatus(StrEnum):
+    """FinalVideo.status —— 最终成片生命周期。
+
+    archived 为归档（保留记录与血缘，不物理删除，历史 confirmed usage 继续计数）；
+    删除接口不存在——"删除"一律指归档。
+    """
+
+    DRAFT = "draft"          # 创建中，资料未齐
+    READY = "ready"          # 资料齐备，可开始确认血缘
+    COMPLETED = "completed"  # 成片已交付/发布
+    ARCHIVED = "archived"    # 归档（只读；不允许确认新 Usage）
+
+
+class FinalVideoUsageStatus(StrEnum):
+    """FinalVideoUsage.status —— 成片↔Shot 引用关系状态。
+
+    **只有 confirmed 计入正式使用次数**；proposed/suspected/rejected/revoked 均不计数。
+    状态迁移：proposed→confirmed / proposed→rejected / confirmed→revoked /
+    rejected|revoked→(restore)→proposed。suspected 本阶段仅预留值，不由任何流程产生。
+    """
+
+    PROPOSED = "proposed"    # 候选（人工手加或从项目生成），待人工确认
+    SUSPECTED = "suspected"  # 疑似（预留给后续自动反查，本阶段不产生）
+    CONFIRMED = "confirmed"  # 人工确认的正式引用（唯一计数状态）
+    REJECTED = "rejected"    # 人工驳回（重新确认须先恢复为 proposed）
+    REVOKED = "revoked"      # 确认后撤销（立即从计数中移除）
+
+
+# 引用证据方式（受控业务集合）。存 String 列而非 pg_enum，便于后续 PR 新增
+# 证据来源时免迁移；service 层按此集合校验。
+USAGE_EVIDENCE_METHODS: tuple[str, ...] = (
+    "manual",            # 人工手动添加
+    "clipmind_project",  # 从 ClipMind 项目的已选择/锁定镜头生成（仍需人工确认）
+    "editor_project",    # 剪辑工程文件解析（PR 预留，本阶段不实现）
+    "visual_match",      # 视觉反查（PR-H 预留，本阶段不实现）
+    "audio_match",       # 音频指纹（预留，本阶段不实现）
+    "legacy_path_rule",  # 历史"已使用"目录规则（PR-C 预留；永不自动 confirmed）
+)
+# 本阶段真正实现且允许进入 confirmed 的证据来源
+CONFIRMABLE_EVIDENCE_METHODS: tuple[str, ...] = ("manual", "clipmind_project")
+
+# 使用血缘审计事件动作（append-only；与业务变更同事务写入）
+USAGE_EVENT_ACTIONS: tuple[str, ...] = (
+    "create_proposal",    # propose-from-project 生成候选
+    "manual_add",         # 人工手动添加候选
+    "confirm",            # 人工确认
+    "reject",             # 人工驳回
+    "revoke",             # 撤销已确认引用
+    "restore_proposal",   # rejected/revoked 恢复为 proposed
+    "occurrence_add",     # 新增出现时间段
+    "occurrence_update",  # 修改出现时间段
+    "occurrence_delete",  # 删除出现时间段
+)

@@ -143,6 +143,24 @@ import type {
   ReadinessPolicyListQuery,
   ReadinessResult,
 } from "./types";
+import type {
+  AssetUsageSummary,
+  FinalVideo,
+  FinalVideoCreateRequest,
+  FinalVideoLineage,
+  FinalVideoListQuery,
+  FinalVideoListResponse,
+  FinalVideoUpdateRequest,
+  FinalVideoUsage,
+  OccurrenceCreateRequest,
+  ProposeFromProjectResult,
+  ShotUsageCount,
+  ShotUsageSummary,
+  UsageActionRequest,
+  UsageCreateRequest,
+  UsageEvent,
+  UsageOccurrence,
+} from "./types";
 
 // 入驻审核动作 → 后端路径段（受控映射，不拼接任意字符串）
 export const ONBOARDING_ACTION_PATHS = {
@@ -1253,6 +1271,101 @@ export const api = {
     return http<{ items: CatalogRevision[]; total: number }>(
       `/product-catalog/${level}/${id}/revisions?${p.toString()}`,
     );
+  },
+
+  // ===== PR-B 最终成片 / 使用血缘 =====
+  listFinalVideos(query: FinalVideoListQuery): Promise<FinalVideoListResponse> {
+    const p = new URLSearchParams();
+    p.set("page", String(query.page));
+    p.set("page_size", String(query.page_size));
+    if (query.status) p.set("status", query.status);
+    if (query.project_id != null) p.set("project_id", String(query.project_id));
+    if (query.q) p.set("q", query.q);
+    if (query.include_archived) p.set("include_archived", "true");
+    return http<FinalVideoListResponse>(`/final-videos?${p.toString()}`);
+  },
+  createFinalVideo(payload: FinalVideoCreateRequest): Promise<FinalVideo> {
+    return http<FinalVideo>(`/final-videos`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  getFinalVideo(id: number): Promise<FinalVideo> {
+    return http<FinalVideo>(`/final-videos/${id}`);
+  },
+  updateFinalVideo(id: number, payload: FinalVideoUpdateRequest): Promise<FinalVideo> {
+    return http<FinalVideo>(`/final-videos/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  },
+  archiveFinalVideo(id: number): Promise<FinalVideo> {
+    return http<FinalVideo>(`/final-videos/${id}/archive`, { method: "POST" });
+  },
+  restoreFinalVideo(id: number): Promise<FinalVideo> {
+    return http<FinalVideo>(`/final-videos/${id}/restore`, { method: "POST" });
+  },
+  getFinalVideoLineage(id: number): Promise<FinalVideoLineage> {
+    return http<FinalVideoLineage>(`/final-videos/${id}/lineage`);
+  },
+  createUsage(finalVideoId: number, payload: UsageCreateRequest): Promise<FinalVideoUsage> {
+    return http<FinalVideoUsage>(`/final-videos/${finalVideoId}/usages`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  proposeFromProject(finalVideoId: number): Promise<ProposeFromProjectResult> {
+    return http<ProposeFromProjectResult>(
+      `/final-videos/${finalVideoId}/propose-from-project`,
+      { method: "POST", body: JSON.stringify({}) },
+    );
+  },
+  usageAction(
+    usageId: number,
+    action: "confirm" | "reject" | "revoke" | "restore-proposal",
+    payload: UsageActionRequest = {},
+  ): Promise<FinalVideoUsage> {
+    return http<FinalVideoUsage>(`/final-video-usages/${usageId}/${action}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  listUsageEvents(usageId: number): Promise<{ items: UsageEvent[] }> {
+    return http<{ items: UsageEvent[] }>(`/final-video-usages/${usageId}/events`);
+  },
+  createOccurrence(
+    usageId: number,
+    payload: OccurrenceCreateRequest,
+  ): Promise<UsageOccurrence> {
+    return http<UsageOccurrence>(`/final-video-usages/${usageId}/occurrences`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  updateOccurrence(
+    occurrenceId: number,
+    payload: Partial<OccurrenceCreateRequest>,
+  ): Promise<UsageOccurrence> {
+    return http<UsageOccurrence>(`/final-video-usage-occurrences/${occurrenceId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  },
+  deleteOccurrence(occurrenceId: number): Promise<void> {
+    return http<void>(`/final-video-usage-occurrences/${occurrenceId}`, {
+      method: "DELETE",
+    });
+  },
+  getShotUsageSummary(shotId: number): Promise<ShotUsageSummary> {
+    return http<ShotUsageSummary>(`/shots/${shotId}/usage-summary`);
+  },
+  getShotUsageCounts(shotIds: number[]): Promise<{ items: ShotUsageCount[] }> {
+    return http<{ items: ShotUsageCount[] }>(
+      `/shot-usage-summaries?shot_ids=${shotIds.join(",")}`,
+    );
+  },
+  getAssetUsageSummary(assetId: number): Promise<AssetUsageSummary> {
+    return http<AssetUsageSummary>(`/assets/${assetId}/usage-summary`);
   },
 };
 

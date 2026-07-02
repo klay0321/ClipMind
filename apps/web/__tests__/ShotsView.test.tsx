@@ -27,6 +27,8 @@ vi.mock("@/lib/hooks", () => ({
   useReviewEvents: vi.fn(),
   useProductCandidates: vi.fn(),
   useReviewActionMutation: vi.fn(),
+  useShotUsageCounts: vi.fn(),
+  useShotUsageSummary: vi.fn(),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -106,6 +108,8 @@ function makeAnalysis(overrides: Partial<ShotAnalysis> = {}): ShotAnalysis {
 
 beforeEach(() => {
   vi.mocked(hooks.useShotAnalysis).mockReturnValue(query({ data: undefined }));
+  vi.mocked(hooks.useShotUsageCounts).mockReturnValue(query({ data: { items: [] } }));
+  vi.mocked(hooks.useShotUsageSummary).mockReturnValue(query({ data: undefined }));
   vi.mocked(hooks.useAnalyzeMutation).mockReturnValue(mutation());
   vi.mocked(hooks.useAssetShots).mockReturnValue(query());
   vi.mocked(hooks.useShots).mockReturnValue(query());

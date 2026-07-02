@@ -11,13 +11,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.schemas.common import Page
 from app.schemas.export import ExportAcceptedOut, ExportCreate
+from app.schemas.final_video import ShotUsageSummaryOut
 from app.schemas.shot import (
     ShotDetailOut,
     ShotOut,
     to_shot_detail,
     to_shot_out,
 )
-from app.services import files, shot_dispatch, shot_service
+from app.services import files, final_video_service, shot_dispatch, shot_service
 
 router = APIRouter(prefix="/shots", tags=["shots"])
 
@@ -91,6 +92,14 @@ async def get_preview(shot_id: int, db: AsyncSession = Depends(get_db)) -> FileR
     if shot is None:
         raise HTTPException(status_code=404, detail="镜头不存在")
     return files.serve_derived(shot.proxy_path, media_type="video/mp4")
+
+
+@router.get("/{shot_id}/usage-summary", response_model=ShotUsageSummaryOut)
+async def get_shot_usage_summary(
+    shot_id: int, db: AsyncSession = Depends(get_db)
+) -> ShotUsageSummaryOut:
+    """镜头正式使用统计（PR-B 只读派生值：仅 confirmed 计入使用次数）。"""
+    return await final_video_service.get_shot_usage_summary(db, shot_id)
 
 
 @router.post(

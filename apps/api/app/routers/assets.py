@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_db
 from app.schemas.asset import AssetOut, RescanAcceptedOut
 from app.schemas.common import Page
+from app.schemas.final_video import AssetUsageSummaryOut
 from app.schemas.shot import (
     AnalyzeAcceptedOut,
     ShotAnalysisOut,
@@ -21,6 +22,7 @@ from app.services import (
     ai_dispatch,
     asset_service,
     files,
+    final_video_service,
     scan_dispatch,
     shot_dispatch,
     shot_service,
@@ -132,6 +134,14 @@ async def rescan_asset(
 # ---------------- 素材海报（FFmpeg 抽一帧封面）----------------
 
 
+@router.get("/{asset_id}/usage-summary", response_model=AssetUsageSummaryOut)
+async def get_asset_usage_summary(
+    asset_id: int, db: AsyncSession = Depends(get_db)
+) -> AssetUsageSummaryOut:
+    """素材使用统计（PR-B 只读派生值：按内部镜头 confirmed usage 聚合）。"""
+    return await final_video_service.get_asset_usage_summary(db, asset_id)
+
+
 @router.get("/{asset_id}/poster")
 async def get_asset_poster(
     asset_id: int, db: AsyncSession = Depends(get_db)
@@ -175,6 +185,8 @@ async def _start_analysis(asset_id: int, db: AsyncSession) -> AnalyzeAcceptedOut
         raise HTTPException(status_code=409, detail="源文件缺失，无法分析")
     try:
         run = await shot_dispatch.request_analysis(db, asset)
+    except HTTPException:
+        raise  # 业务守卫（如 PR-B 血缘引用 409）原样透传
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=503, detail=f"无法入队镜头分析: {exc}") from exc
     return AnalyzeAcceptedOut(

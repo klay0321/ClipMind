@@ -15,6 +15,7 @@ export function ShotCard({
   onDownload,
   downloading = false,
   favorite,
+  usageBadge,
 }: {
   shot: Shot;
   selected: boolean;
@@ -23,6 +24,8 @@ export function ShotCard({
   downloading?: boolean;
   // 可选收藏动作槽（避免复制卡片；由调用方传入 FavoriteButton）
   favorite?: React.ReactNode;
+  // 可选使用次数徽标槽（PR-B 只读派生值；由调用方传入，绝不在卡片内伪造）
+  usageBadge?: React.ReactNode;
 }) {
   return (
     <div
@@ -51,6 +54,7 @@ export function ShotCard({
               <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1 py-0.5 text-[10px] text-white">
                 {shot.duration.toFixed(1)}s
               </span>
+              {usageBadge ? <span className="absolute bottom-1 left-1">{usageBadge}</span> : null}
             </>
           }
         />

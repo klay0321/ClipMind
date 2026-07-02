@@ -11,6 +11,14 @@ from app.db import get_db
 from app.schemas.asset import AssetOut, RescanAcceptedOut
 from app.schemas.common import Page
 from app.schemas.final_video import AssetUsageSummaryOut
+from app.schemas.identity import (
+    AnalysisGenerationsOut,
+    AssetIdentityOut,
+    AssetLocationOut,
+    BatchFingerprintRequest,
+    FingerprintJobOut,
+    FingerprintRequest,
+)
 from app.schemas.shot import (
     AnalyzeAcceptedOut,
     ShotAnalysisOut,
@@ -23,6 +31,7 @@ from app.services import (
     asset_service,
     files,
     final_video_service,
+    identity_service,
     scan_dispatch,
     shot_dispatch,
     shot_service,
@@ -237,13 +246,24 @@ async def list_asset_shots(
     asset_id: int,
     page: int = Query(1, ge=1),
     page_size: int = Query(24, ge=1, le=100),
+    generation: str | None = Query(
+        None, description="默认当前代次；'current' 或代次数字（PR-C 历史代次查看）"
+    ),
     db: AsyncSession = Depends(get_db),
 ) -> Page[ShotOut]:
     asset = await asset_service.get_asset(db, asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="素材不存在")
+    gen_num: int | None = None
+    if generation is not None and generation != "current":
+        try:
+            gen_num = int(generation)
+        except ValueError:
+            raise HTTPException(
+                status_code=422, detail="generation 须为 'current' 或数字"
+            ) from None
     items, total = await shot_service.list_shots(
-        db, asset_id=asset_id, page=page, page_size=page_size
+        db, asset_id=asset_id, page=page, page_size=page_size, generation=gen_num
     )
     return Page[ShotOut](
         items=[to_shot_out(s, asset.filename) for s in items],
@@ -251,3 +271,64 @@ async def list_asset_shots(
         page=page,
         page_size=page_size,
     )
+
+
+# ---------------- PR-C 素材身份 / 位置历史 / 指纹 / 分析代次 ----------------
+
+
+@router.get("/{asset_id}/identity", response_model=AssetIdentityOut)
+async def get_asset_identity(
+    asset_id: int, db: AsyncSession = Depends(get_db)
+) -> AssetIdentityOut:
+    """素材身份汇总（只读派生；哈希仅缩短形式，不返回绝对路径）。"""
+    return await identity_service.get_identity(db, asset_id)
+
+
+@router.get("/{asset_id}/locations", response_model=list[AssetLocationOut])
+async def get_asset_locations(
+    asset_id: int, db: AsyncSession = Depends(get_db)
+) -> list[AssetLocationOut]:
+    """素材位置历史（root 显示名 + 相对路径 + 状态；历史不物理删除）。"""
+    return await identity_service.list_locations(db, asset_id)
+
+
+@router.post(
+    "/{asset_id}/fingerprint",
+    response_model=FingerprintJobOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def request_asset_fingerprint(
+    asset_id: int,
+    req: FingerprintRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> FingerprintJobOut:
+    kind = req.kind if req is not None else "full"
+    job = await identity_service.request_fingerprints(db, [asset_id], kind)
+    return FingerprintJobOut.model_validate(job)
+
+
+@router.post(
+    "/fingerprints/batch",
+    response_model=FingerprintJobOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def request_batch_fingerprints(
+    req: BatchFingerprintRequest, db: AsyncSession = Depends(get_db)
+) -> FingerprintJobOut:
+    job = await identity_service.request_fingerprints(db, req.asset_ids, req.kind)
+    return FingerprintJobOut.model_validate(job)
+
+
+@router.get("/fingerprint-jobs/{job_id}", response_model=FingerprintJobOut)
+async def get_fingerprint_job(
+    job_id: int, db: AsyncSession = Depends(get_db)
+) -> FingerprintJobOut:
+    return await identity_service.get_fingerprint_job(db, job_id)
+
+
+@router.get("/{asset_id}/analysis-generations", response_model=AnalysisGenerationsOut)
+async def get_analysis_generations(
+    asset_id: int, db: AsyncSession = Depends(get_db)
+) -> AnalysisGenerationsOut:
+    """镜头分析代次历史（current/retired、镜头数、被血缘引用数）。"""
+    return await identity_service.list_analysis_generations(db, asset_id)

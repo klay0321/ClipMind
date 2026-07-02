@@ -10,6 +10,9 @@ from pydantic import BaseModel, ConfigDict
 
 class AssetOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+    # PR-C 身份汇总（行内零成本字段；完整汇总见 GET /assets/{id}/identity）
+    fingerprint_state: str = "pending"
+    full_hash_available: bool = False
 
     id: int
     source_directory_id: int

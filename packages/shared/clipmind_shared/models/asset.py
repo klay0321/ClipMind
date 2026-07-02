@@ -14,7 +14,6 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -41,7 +40,23 @@ class Asset(Base):
     file_size: Mapped[int] = mapped_column(BigInteger)
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     quick_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    full_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 预留：完整内容哈希（后续 PR 启用）
+
+    # ---- PR-C 稳定内容身份（docs/ASSET_IDENTITY.md）----
+    # 路径 / 文件名 / mtime / 大小都不是身份；full_hash（完整 SHA256）才是精确字节身份。
+    # quick_fingerprint = sha256(size + 头/中/尾块)（带版本），只用于候选筛选，
+    # 不能单独自动合并有业务数据的 Asset。
+    full_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    full_hash_algorithm: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    quick_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    quick_fingerprint_version: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    # 受控白名单 FINGERPRINT_STATES：pending / quick_ready / full_ready / failed / stale
+    fingerprint_state: Mapped[str] = mapped_column(String(16), default="pending")
+    fingerprint_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    fingerprinted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # 计算 full_hash 时的字节数（与当下 file_size 核对，检测计算后内容又变化）
+    content_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     # FFprobe 视频信息
     duration: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -82,11 +97,9 @@ class Asset(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint(
-            "source_directory_id",
-            "normalized_relative_path",
-            name="uq_asset_sd_norm_path",
-        ),
+        # PR-C：路径不再是 Asset 唯一身份——(root, normalized_path) 的活动唯一性
+        # 由 asset_location 的部分唯一索引保证；此处保留普通复合索引供投影查询。
+        Index("ix_asset_sd_norm_path", "source_directory_id", "normalized_relative_path"),
         Index("ix_asset_sd_status", "source_directory_id", "status"),
         Index("ix_asset_sd_last_seen_scan", "source_directory_id", "last_seen_scan_id"),
     )

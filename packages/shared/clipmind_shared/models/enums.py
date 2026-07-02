@@ -495,3 +495,28 @@ USAGE_EVENT_ACTIONS: tuple[str, ...] = (
     "occurrence_update",  # 修改出现时间段
     "occurrence_delete",  # 删除出现时间段
 )
+
+
+# ============================================================
+# PR-C 稳定素材身份 / 位置历史 / 指纹（受控 String 白名单，免迁移扩展）
+# ============================================================
+
+# AssetLocation.location_status
+LOCATION_STATUSES: tuple[str, ...] = ("present", "missing", "historical", "conflict")
+# 活动位置（占用 root+path 唯一槽位）的状态
+ACTIVE_LOCATION_STATUSES: tuple[str, ...] = ("present", "missing", "conflict")
+
+# Asset.fingerprint_state
+FINGERPRINT_STATES: tuple[str, ...] = (
+    "pending",      # 尚未计算任何身份指纹
+    "quick_ready",  # quick fingerprint 已就绪（候选层，非权威）
+    "full_ready",   # 完整 SHA256 已就绪（权威字节身份）
+    "failed",       # 最近一次指纹计算失败（见 fingerprint_error）
+    "stale",        # 路径内容发生变化，既有指纹不再可信
+)
+
+# FingerprintJob.kind / status
+FINGERPRINT_KINDS: tuple[str, ...] = ("quick", "full")
+FINGERPRINT_JOB_STATUSES: tuple[str, ...] = (
+    "queued", "running", "completed", "partial", "failed",
+)

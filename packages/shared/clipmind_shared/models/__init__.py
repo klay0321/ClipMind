@@ -19,9 +19,12 @@ from clipmind_shared.models.enums import (
     ACTIVE_AI_RUN_STATUSES,
     ACTIVE_MEDIA_RUN_STATUSES,
     ACTIVE_SCAN_RUN_STATUSES,
+    CONFIRMABLE_EVIDENCE_METHODS,
     EXCLUDED_FROM_SEARCH_STATUSES,
     HUMAN_EFFECTIVE_STATUSES,
     SEARCHABLE_DOCUMENT_STATUS,
+    USAGE_EVENT_ACTIONS,
+    USAGE_EVIDENCE_METHODS,
     VECTOR_READY_EMBEDDING_STATUS,
     SCRIPT_EXPORT_FORMATS,
     SHOT_BASED_FAVORITE_TYPES,
@@ -32,6 +35,8 @@ from clipmind_shared.models.enums import (
     CatalogStatus,
     ExportStatus,
     FavoriteTargetType,
+    FinalVideoStatus,
+    FinalVideoUsageStatus,
     MediaRunStatus,
     ProductStatus,
     ProjectStatus,
@@ -49,6 +54,12 @@ from clipmind_shared.models.enums import (
     TagType,
 )
 from clipmind_shared.models.export import Export
+from clipmind_shared.models.final_video import (
+    FinalVideo,
+    FinalVideoUsage,
+    FinalVideoUsageEvent,
+    FinalVideoUsageOccurrence,
+)
 from clipmind_shared.models.favorite import Favorite
 from clipmind_shared.models.media_run import MediaProcessingRun
 from clipmind_shared.models.product import (
@@ -185,4 +196,14 @@ __all__ = [
     "FavoriteTargetType",
     "SHOT_BASED_FAVORITE_TYPES",
     "SCRIPT_EXPORT_FORMATS",
+    # PR-B 最终成片 / 使用血缘
+    "FinalVideo",
+    "FinalVideoUsage",
+    "FinalVideoUsageOccurrence",
+    "FinalVideoUsageEvent",
+    "FinalVideoStatus",
+    "FinalVideoUsageStatus",
+    "USAGE_EVIDENCE_METHODS",
+    "CONFIRMABLE_EVIDENCE_METHODS",
+    "USAGE_EVENT_ACTIONS",
 ]

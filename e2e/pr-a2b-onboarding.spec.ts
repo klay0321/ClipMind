@@ -142,7 +142,7 @@ test("PR-A2B 治理：策略/incomplete→complete/提交批准/混淆/变更历
     "当前为可信内网人工审核，尚未启用用户权限",
   );
   await page.getByTestId("onboarding-submit").click();
-  await expect(page.getByTestId("onboarding-status")).toContainText(/待审核|ready/);
+  await expect(page.getByTestId("onboarding-status")).toContainText(/待人工审核|ready/);
   await page.getByTestId("onboarding-approve").click();
   await expect(page.getByTestId("onboarding-status")).toContainText(/已批准|approved/);
   // eslint-disable-next-line no-console
@@ -155,8 +155,9 @@ test("PR-A2B 治理：策略/incomplete→complete/提交批准/混淆/变更历
   await page.getByTestId("detail-tab-confusions").click();
   await expect(page.getByTestId("confusions-panel")).toBeVisible();
   await page.getByTestId("confusion-add").click();
-  await page.getByTestId("confusion-target-select").fill(`${tag}相近品`);
-  await page.getByText(`${tag}相近品`, { exact: false }).last().click();
+  // 目标候选为 <select>：先搜索缩小范围，再按已知 id 选择（不依赖 code 文案）
+  await page.getByTestId("confusion-search").fill(`${tag}相近品`);
+  await page.getByTestId("confusion-target-select").selectOption(String(other.id));
   await page.getByTestId("confusion-submit").click();
   await expect(page.getByTestId("confusions-panel")).toContainText(`${tag}相近品`);
   // eslint-disable-next-line no-console
@@ -175,7 +176,6 @@ test("PR-A2B 治理：策略/incomplete→complete/提交批准/混淆/变更历
   await page.getByTestId("tree-panel").getByText(`${tag}产品`).first().click();
   await page.getByTestId("detail-tab-onboarding").click();
   await expect(page.getByTestId("onboarding-status")).toContainText(/已批准|approved/);
-  void other;
   // eslint-disable-next-line no-console
   console.log("PR_A2B_UI_E2E_OK");
 });

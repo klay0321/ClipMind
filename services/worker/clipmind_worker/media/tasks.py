@@ -8,9 +8,10 @@
     2. 校验全部输出；
     3. 事务插入新 Shot（PROCESSING，按 shot_id 计算最终路径）→ commit（旧 READY 仍对外）；
     4. 原子搬运 staging 文件到 active/shots/{shot_id}/；
-    5. 一次事务：新 Shot 置 READY + 删除旧代次 Shot（原子切换）；
-    6. 提交后清理旧派生文件与 staging。
-  任意步骤失败 → run FAILED，旧 READY 镜头与文件保持可用。
+    5. 一次事务：新 Shot 置 READY + 旧代次标记 retired（PR-C 代次保留：不再物理
+       删除旧 Shot，血缘/项目/审核继续引用历史 Shot；旧代次检索文档同事务退役）；
+    6. 提交后仅清理 staging（旧代次派生文件保留供历史查看）。
+  任意步骤失败 → run FAILED，旧 current 代次镜头与文件保持可用。
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from clipmind_shared.models import (
     Export,
     MediaProcessingRun,
     Shot,
+    ShotSearchDocument,
     SourceDirectory,
 )
 from clipmind_shared.models.enums import (
@@ -42,6 +44,7 @@ from clipmind_shared.models.enums import (
     AssetStatus,
     ExportStatus,
     MediaRunStatus,
+    SearchDocumentStatus,
     ShotStatus,
 )
 from clipmind_shared.security import (
@@ -49,7 +52,7 @@ from clipmind_shared.security import (
     resolve_and_validate_root,
     safe_join_within_root,
 )
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from clipmind_worker.celery_app import celery_app
@@ -159,7 +162,7 @@ def _finalize(
     generation: int,
     staged: list[tuple[int, Any, Any]],
 ) -> None:
-    """原子代次替换：插入新镜头 → 搬运文件 → 一次事务置 READY 并删除旧代次。"""
+    """原子代次切换：插入新镜头 → 搬运文件 → 一次事务置 READY 并 retire 旧代次。"""
     new_shots: list[tuple[Shot, Any]] = []
     for seq, boundary, _derived in staged:
         shot = Shot(
@@ -202,24 +205,38 @@ def _finalize(
 
     _fault_after_move()  # 故障窗口 B（测试注入）
 
-    # T2：原子切换 —— 新镜头 READY + 删除旧代次镜头
+    # T2：原子代次切换（PR-C：**不再物理删除旧 Shot**）——新镜头 READY，
+    # 旧代次标记 retired（只读历史；FinalVideoUsage/项目/审核等继续引用旧 Shot）。
+    # 同事务把旧代次检索文档退役（EXCLUDED），默认搜索只召回当前代次。
+    now = utcnow()
     old_shots = (
         session.execute(
-            select(Shot).where(Shot.asset_id == asset.id, Shot.generation < generation)
+            select(Shot).where(
+                Shot.asset_id == asset.id,
+                Shot.generation < generation,
+                Shot.retired_at.is_(None),
+            )
         )
         .scalars()
         .all()
     )
-    old_dirs = [storage.active_shot_dir(root, asset.id, s.id) for s in old_shots]
     for shot, _derived in new_shots:
         shot.status = ShotStatus.READY
+    old_ids = [s.id for s in old_shots]
     for s in old_shots:
-        session.delete(s)
+        s.retired_at = now
+    if old_ids:
+        session.execute(
+            update(ShotSearchDocument)
+            .where(ShotSearchDocument.shot_id.in_(old_ids))
+            .values(
+                document_status=SearchDocumentStatus.EXCLUDED,
+                is_searchable=False,
+            )
+        )
     session.commit()
-
-    # 提交后清理旧派生目录
-    for d in old_dirs:
-        storage.remove_path(d)
+    # 旧代次派生文件（关键帧/代理）保留：血缘与历史查看仍需要；
+    # 无引用历史的清理属后续独立任务，本阶段不自动物理删除。
 
 
 def _analyze(

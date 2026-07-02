@@ -333,7 +333,7 @@ async def _validate_pick(
 ) -> None:
     """校验选择/锁定目标：镜头存在且 READY、未被审核排除、属于当前候选（或显式 override）。"""
     shot = await db.get(Shot, shot_id)
-    if shot is None or shot.status != ShotStatus.READY:
+    if shot is None or shot.status != ShotStatus.READY or shot.retired_at is not None:
         raise HTTPException(status_code=422, detail="镜头不存在或不可用")
     # 审核排除态的镜头不可被选/锁（即便 override；excluded 不进推荐）
     rs = await db.scalar(

@@ -186,6 +186,12 @@ def rebuild_shot_document(
     shot = session.get(Shot, shot_id)
     if shot is None or shot.status != ShotStatus.READY:
         return "not_found"
+    if shot.retired_at is not None:
+        # PR-C：历史代次文档一律退役，不参与检索（不删除行，保留审计）
+        doc = _get_or_create_doc(session, shot)
+        doc.document_status = SearchDocumentStatus.EXCLUDED
+        doc.is_searchable = False
+        return "retired"
 
     eff = resolve_effective(session, shot)
     doc = _get_or_create_doc(session, shot)
@@ -309,7 +315,11 @@ def rebuild_shot_document(
 def ready_shot_ids_for_asset(session: Session, asset_id: int) -> list[int]:
     rows = session.execute(
         select(Shot.id)
-        .where(Shot.asset_id == asset_id, Shot.status == ShotStatus.READY)
+        .where(
+            Shot.asset_id == asset_id,
+            Shot.status == ShotStatus.READY,
+            Shot.retired_at.is_(None),
+        )
         .order_by(Shot.generation.desc(), Shot.sequence_no.asc())
     ).scalars().all()
     return list(rows)
@@ -378,7 +388,7 @@ def shots_needing_index(
     stmt = (
         select(Shot.id)
         .outerjoin(SSD, doc_join)
-        .where(Shot.status == ShotStatus.READY, or_(*conds))
+        .where(Shot.status == ShotStatus.READY, Shot.retired_at.is_(None), or_(*conds))
         .order_by(Shot.id.asc())
         .limit(limit)
     )

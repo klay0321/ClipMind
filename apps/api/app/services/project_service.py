@@ -470,7 +470,11 @@ async def list_project_assets(
         cnt_rows = (
             await db.execute(
                 select(Shot.asset_id, func.count(Shot.id))
-                .where(Shot.asset_id.in_(asset_ids), Shot.status == ShotStatus.READY)
+                .where(
+                    Shot.asset_id.in_(asset_ids),
+                    Shot.status == ShotStatus.READY,
+                    Shot.retired_at.is_(None),
+                )
                 .group_by(Shot.asset_id)
             )
         ).all()
@@ -523,7 +527,11 @@ async def list_project_shots(
         base = (
             select(Shot)
             .join(ProjectShot, ProjectShot.shot_id == Shot.id)
-            .where(ProjectShot.project_id == project_id, Shot.status == ShotStatus.READY)
+            .where(
+                ProjectShot.project_id == project_id,
+                Shot.status == ShotStatus.READY,
+                Shot.retired_at.is_(None),
+            )
         )
         total = int(
             (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0
@@ -545,7 +553,7 @@ async def list_project_shots(
     # 口径与统计 visible_shot_count 一致（不按审核状态排除），且在大项目下计划稳定。
     if not has_content_filter and sort != "confidence":
         base = select(Shot).where(
-            Shot.status == ShotStatus.READY, Shot.id.in_(restrict)
+            Shot.status == ShotStatus.READY, Shot.retired_at.is_(None), Shot.id.in_(restrict)
         )
         total = int(
             (await db.execute(select(func.count()).select_from(base.subquery()))).scalar()
@@ -709,7 +717,11 @@ async def get_project_stats(db: AsyncSession, project_id: int) -> dict[str, Any]
     # ---- 查询 2：可见镜头并集去重一次（CTE），再对其单遍统计 visible/risk/searchable ----
     vis = (
         select(Shot.id.label("sid"))
-        .where(Shot.status == ShotStatus.READY, Shot.id.in_(_visible_shot_ids(project_id)))
+        .where(
+            Shot.status == ShotStatus.READY,
+            Shot.retired_at.is_(None),
+            Shot.id.in_(_visible_shot_ids(project_id)),
+        )
         .distinct()
         .cte("vis")
     )

@@ -147,7 +147,11 @@ async def list_collection_shots(
     base = (
         select(Shot)
         .join(CollectionShot, CollectionShot.shot_id == Shot.id)
-        .where(CollectionShot.collection_id == collection_id, Shot.status == ShotStatus.READY)
+        .where(
+            CollectionShot.collection_id == collection_id,
+            Shot.status == ShotStatus.READY,
+            Shot.retired_at.is_(None),
+        )
     )
     total = int(
         (await db.execute(select(func.count()).select_from(base.subquery()))).scalar() or 0

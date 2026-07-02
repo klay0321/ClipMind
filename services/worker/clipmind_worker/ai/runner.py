@@ -380,7 +380,11 @@ def run_asset_analysis(
 
     stmt = (
         select(Shot)
-        .where(Shot.asset_id == asset.id, Shot.status == ShotStatus.READY)
+        .where(
+            Shot.asset_id == asset.id,
+            Shot.status == ShotStatus.READY,
+            Shot.retired_at.is_(None),
+        )
         .order_by(Shot.generation.desc(), Shot.sequence_no.asc())
     )
     shots = list(session.execute(stmt).scalars().all())

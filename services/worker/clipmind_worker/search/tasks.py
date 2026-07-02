@@ -108,6 +108,7 @@ def _backfill_shot_ids(session: Session, *, only_failed: bool, limit: int) -> li
             )
             .where(
                 Shot.status == ShotStatus.READY,
+                Shot.retired_at.is_(None),
                 ShotSearchDocument.embedding_status == SearchEmbeddingStatus.FAILED,
             )
             .order_by(Shot.id)
@@ -116,7 +117,7 @@ def _backfill_shot_ids(session: Session, *, only_failed: bool, limit: int) -> li
     else:
         stmt = (
             select(Shot.id)
-            .where(Shot.status == ShotStatus.READY)
+            .where(Shot.status == ShotStatus.READY, Shot.retired_at.is_(None))
             .order_by(Shot.id)
             .limit(limit)
         )

@@ -44,7 +44,7 @@ def _base():
                 ShotReviewState.shot_generation == Shot.generation,
             ),
         )
-        .where(Shot.status == ShotStatus.READY)
+        .where(Shot.status == ShotStatus.READY, Shot.retired_at.is_(None))
     )
 
 

@@ -47,24 +47,9 @@ async def get_latest_media_run(db: AsyncSession, asset_id: int) -> MediaProcessi
 async def request_analysis(db: AsyncSession, asset: Asset) -> MediaProcessingRun:
     """发起/重试镜头分析：已有活动运行则幂等返回，否则建运行并入队。
 
-    PR-B 血缘守卫：素材镜头存在成片使用血缘引用时拒绝重新分析——
-    代次替换会物理删除旧镜头，破坏 final_video_usage 的 RESTRICT 外键与血缘完整性
-    （worker 侧即便绕过也会因外键失败而保留旧代次，绝不静默断血缘）。
+    PR-C：有使用血缘的素材也可安全重新分析——代次保留（旧 Shot 标 retired 不再
+    物理删除），FinalVideoUsage 继续引用历史 Shot，PR-B 的 409 守卫已解除。
     """
-    from fastapi import HTTPException
-
-    from app.services.final_video_service import count_usage_refs_for_asset
-
-    usage_refs = await count_usage_refs_for_asset(db, asset.id)
-    if usage_refs > 0:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"该素材的镜头已被成片使用血缘引用（{usage_refs} 条），"
-                "重新拆镜头会删除旧镜头并破坏血缘，已阻止"
-            ),
-        )
-
     existing = await get_active_media_run(db, asset.id)
     if existing is not None:
         return existing

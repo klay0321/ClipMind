@@ -104,9 +104,9 @@ def main() -> None:
     assert up.stdout and "SCRIPT_DB_UPGRADE_OK" in up.stdout, "db_upgrade.sh 未输出 OK 标志"
     print("  db_upgrade.sh ran: SCRIPT_DB_UPGRADE_OK emitted by official command")
 
-    # 4. 自动到 head（0014）：0009 Gate B + 0010 项目/集合 + 0011/0012 导出中心 + 0013 目录 + 0014 属性/参考图
+    # 4. 自动到 head（0015）：… + 0013 目录 + 0014 属性/参考图 + 0015 入驻治理
     rev2 = psql(TEST_DB, "select version_num from alembic_version")
-    assert rev2 == "0014_product_attr_refs", f"应到 head 0014，实际 {rev2}"
+    assert rev2 == "0015_product_onboarding_gov", f"应到 head 0015，实际 {rev2}"
     # 0009 Gate B 仍在
     has_export = psql(TEST_DB, "select to_regclass('public.script_export')")
     assert has_export == "script_export", "应有 script_export 表（0009）"
@@ -188,12 +188,24 @@ def main() -> None:
     print("  0014 product_attribute_definition/value/reference_asset present; data intact")
     print("ATTR_REF_DB_UPGRADE_OK")
 
-    # 5. 再次升级幂等（仍 head 0014，无错误，数据不变）
+    # 4g. 0015 入驻治理表 + revision 序列出现；既有业务数据不丢
+    for tbl in ("product_readiness_policy", "product_onboarding_review",
+                "product_confusion_pair", "catalog_revision"):
+        assert psql(TEST_DB, f"select to_regclass('public.{tbl}')") == tbl, f"应有 {tbl} 表（0015）"
+    seq = psql(TEST_DB,
+               "select count(*) from pg_sequences where sequencename='catalog_revision_seq'")
+    assert seq == "1", "应有 catalog_revision_seq 序列（0015）"
+    seg_a2b = psql(TEST_DB, f"select count(*) from script_segment where script_project_id={pid}")
+    assert seg_a2b == seg_before, "0015 升级后业务数据丢失"
+    print("  0015 readiness/onboarding/confusion/revision tables + sequence present; data intact")
+    print("GOVERNANCE_DB_UPGRADE_OK")
+
+    # 5. 再次升级幂等（仍 head 0015，无错误，数据不变）
     up2 = db_upgrade_script(ASYNC_URL)
     assert up2.returncode == 0, f"幂等升级失败: {up2.stderr}"
     rev3 = psql(TEST_DB, "select version_num from alembic_version")
     seg_final = psql(TEST_DB, f"select count(*) from script_segment where script_project_id={pid}")
-    assert rev3 == "0014_product_attr_refs" and seg_final == seg_before, "幂等升级破坏状态"
+    assert rev3 == "0015_product_onboarding_gov" and seg_final == seg_before, "幂等升级破坏状态"
     print(f"  idempotent re-run: still {rev3}, data intact (segments={seg_final})")
     print("SCRIPT_DB_UPGRADE_IDEMPOTENT_OK")
 

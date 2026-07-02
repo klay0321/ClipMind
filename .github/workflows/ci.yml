@@ -216,6 +216,17 @@ jobs:
                       PR_A2A_NEW_PRODUCT_NO_CODE_CHANGE_OK PR_A2A_LEGACY_PRODUCT_COMPAT_OK PR_A2A_E2E_OK; do
             grep -q "$flag" a2a.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: 入驻治理 端到端（PR-A2B；策略/完整度/审核/混淆/变更历史；纯 API 中性数据）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_pr_a2b_e2e.py --mode full | tee a2b.log
+          for flag in PR_A2B_READINESS_POLICY_OK PR_A2B_ONBOARDING_WORKFLOW_OK \
+                      PR_A2B_CONFUSION_PAIR_OK PR_A2B_CATALOG_REVISION_OK \
+                      PR_A2B_NEW_PRODUCT_NO_CODE_CHANGE_OK PR_A2B_E2E_OK; do
+            grep -q "$flag" a2b.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: 导出中心/多格式/Bundle/保存搜索/收藏/动态集合 端到端（PR-06B；FakeProvider；export+media worker）
         env:
           API_BASE: http://localhost:8000
@@ -227,7 +238,7 @@ jobs:
                       DYNAMIC_COLLECTION_E2E_OK PR06B_E2E_OK; do
             grep -q "$flag" pr06b.log || { echo "缺少标志 $flag"; exit 1; }
           done
-      - name: 已有数据库升级路径端到端（0008→head 含 0009/0010/0011/0012/0013/0014 + 幂等；独立测试库，不碰业务库）
+      - name: 已有数据库升级路径端到端（0008→head 含 0009-0015 + 幂等；独立测试库，不碰业务库）
         run: |
           set -o pipefail
           python scripts/ci_db_upgrade_e2e.py | tee db_upgrade.log
@@ -236,6 +247,7 @@ jobs:
           grep -q "EXPORT_CENTER_DB_UPGRADE_OK" db_upgrade.log
           grep -q "CATALOG_DB_UPGRADE_OK" db_upgrade.log
           grep -q "ATTR_REF_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "GOVERNANCE_DB_UPGRADE_OK" db_upgrade.log
           grep -q "SCRIPT_DB_UPGRADE_IDEMPOTENT_OK" db_upgrade.log
       - name: AI 链路 DB 级持久化断言（不以 Celery task 自报成功为准）
         run: |
@@ -277,6 +289,8 @@ jobs:
           grep -q "GENERIC_CATALOG_PERSIST_OK" catalog_a1_persist.log
           python scripts/ci_pr_a2a_e2e.py --mode check-persist | tee a2a_persist.log
           grep -q "PR_A2A_RESTART_PERSIST_OK" a2a_persist.log
+          python scripts/ci_pr_a2b_e2e.py --mode check-persist | tee a2b_persist.log
+          grep -q "PR_A2B_RESTART_PERSIST_OK" a2b_persist.log
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |
@@ -441,6 +455,17 @@ jobs:
           for flag in PR_A2A_UI_ATTRIBUTE_OK PR_A2A_UI_REFERENCE_OK PR_A2A_UI_E2E_OK; do
             grep -q "$flag" pr-a2a-ui.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: PR-A2B 入驻治理 UI E2E（真实页面：完整度/提交批准/混淆关系/变更历史/刷新持久化）
+        working-directory: e2e
+        env:
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          npx playwright test pr-a2b-onboarding.spec.ts --grep-invert @persist | tee pr-a2b-ui.log
+          for flag in PR_A2B_UI_READINESS_OK PR_A2B_UI_ONBOARDING_OK PR_A2B_UI_CONFUSION_OK PR_A2B_UI_REVISION_OK PR_A2B_UI_E2E_OK; do
+            grep -q "$flag" pr-a2b-ui.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: 重启 API/web/search-worker/export-worker 后持久化
         env:
           WEB_BASE: http://localhost:3000
@@ -470,6 +495,8 @@ jobs:
           grep -q "PR_A1_UI_PERSIST_OK" e2e/pr-a1-persist.log
           ( cd e2e && npx playwright test pr-a2a-attributes-references.spec.ts --grep @persist | tee pr-a2a-persist.log )
           grep -q "PR_A2A_UI_PERSIST_OK" e2e/pr-a2a-persist.log
+          ( cd e2e && npx playwright test pr-a2b-onboarding.spec.ts --grep @persist | tee pr-a2b-persist.log )
+          grep -q "PR_A2B_UI_PERSIST_OK" e2e/pr-a2b-persist.log
       - name: 失败时上传脱敏证据（trace/截图/报告；不含 .env/key/endpoint）
         if: failure()
         uses: actions/upload-artifact@v4

@@ -227,6 +227,17 @@ jobs:
                       PR_A2B_NEW_PRODUCT_NO_CODE_CHANGE_OK PR_A2B_E2E_OK; do
             grep -q "$flag" a2b.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: 最终成片/使用血缘 端到端（PR-B；上传合成视频→拆镜头→proposal→确认/撤销计数；纯 API 中性数据）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_pr_b_lineage_e2e.py --mode full | tee prb.log
+          for flag in PR_B_FINAL_VIDEO_OK PR_B_PROJECT_PROPOSAL_OK PR_B_OCCURRENCES_OK \
+                      PR_B_REVOKE_RECOUNT_OK PR_B_USAGE_COUNT_SEMANTICS_OK \
+                      PR_B_USAGE_LINEAGE_OK PR_B_BACKWARD_COMPAT_OK PR_B_API_E2E_OK; do
+            grep -q "$flag" prb.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: 导出中心/多格式/Bundle/保存搜索/收藏/动态集合 端到端（PR-06B；FakeProvider；export+media worker）
         env:
           API_BASE: http://localhost:8000
@@ -291,6 +302,9 @@ jobs:
           grep -q "PR_A2A_RESTART_PERSIST_OK" a2a_persist.log
           python scripts/ci_pr_a2b_e2e.py --mode check-persist | tee a2b_persist.log
           grep -q "PR_A2B_RESTART_PERSIST_OK" a2b_persist.log
+          python scripts/ci_pr_b_lineage_e2e.py --mode check-persist | tee prb_persist.log
+          grep -q "PR_B_RESTART_PERSIST_OK" prb_persist.log
+          grep -q "PR_B_PERSIST_OK" prb_persist.log
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |
@@ -466,6 +480,17 @@ jobs:
           for flag in PR_A2B_UI_READINESS_OK PR_A2B_UI_ONBOARDING_OK PR_A2B_UI_CONFUSION_OK PR_A2B_UI_REVISION_OK PR_A2B_UI_E2E_OK; do
             grep -q "$flag" pr-a2b-ui.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: PR-B 成片与使用血缘 UI E2E（真实页面：登记成片/候选确认/统计/归档守卫）
+        working-directory: e2e
+        env:
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          npx playwright test pr-b-final-video-lineage.spec.ts --grep-invert @persist | tee pr-b-ui.log
+          for flag in PR_B_UI_FINAL_VIDEO_OK PR_B_UI_CONFIRM_OK PR_B_UI_USAGE_COUNT_OK PR_B_UI_ARCHIVE_GUARD_OK PR_B_UI_E2E_OK; do
+            grep -q "$flag" pr-b-ui.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: 重启 API/web/search-worker/export-worker 后持久化
         env:
           WEB_BASE: http://localhost:3000
@@ -497,6 +522,8 @@ jobs:
           grep -q "PR_A2A_UI_PERSIST_OK" e2e/pr-a2a-persist.log
           ( cd e2e && npx playwright test pr-a2b-onboarding.spec.ts --grep @persist | tee pr-a2b-persist.log )
           grep -q "PR_A2B_UI_PERSIST_OK" e2e/pr-a2b-persist.log
+          ( cd e2e && npx playwright test pr-b-final-video-lineage.spec.ts --grep @persist | tee pr-b-persist.log )
+          grep -q "PR_B_UI_PERSIST_OK" e2e/pr-b-persist.log
       - name: 失败时上传脱敏证据（trace/截图/报告；不含 .env/key/endpoint）
         if: failure()
         uses: actions/upload-artifact@v4

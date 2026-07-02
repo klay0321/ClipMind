@@ -93,10 +93,15 @@ def _new_run(session, asset) -> MediaProcessingRun:
 
 
 def _ready_shots(session, asset_id):
+    """当前代次 READY 镜头（PR-C：retired 历史代次不在默认口径内）。"""
     return (
         session.execute(
             select(Shot)
-            .where(Shot.asset_id == asset_id, Shot.status == ShotStatus.READY)
+            .where(
+                Shot.asset_id == asset_id,
+                Shot.status == ShotStatus.READY,
+                Shot.retired_at.is_(None),
+            )
             .order_by(Shot.sequence_no)
         )
         .scalars()
@@ -184,13 +189,17 @@ def test_reanalysis_atomic_replace(session, tmp_path):
              worker_name="t2")
     shots2 = _ready_shots(session, asset.id)
 
-    # 数量一致（幂等，无重复），全部为第 2 代，旧镜头与旧目录消失
+    # 数量一致（幂等，无重复），当前代次全部为第 2 代；
+    # PR-C 代次保留：旧代次镜头**不再物理删除**（retired 只读历史），派生目录保留
     assert len(shots2) == len(shots1)
     assert all(s.generation == 2 for s in shots2)
     all_shots = session.execute(select(Shot).where(Shot.asset_id == asset.id)).scalars().all()
-    assert all(s.generation == 2 for s in all_shots)  # 旧代次已删除
+    retired = [s for s in all_shots if s.retired_at is not None]
+    assert {s.id for s in retired} == set(old_ids), "旧代次应保留并标记 retired"
+    assert all(s.generation == 1 for s in retired)
+    assert all(s.status == ShotStatus.READY for s in retired), "retired 镜头保持 READY（只读）"
     for d in old_dirs:
-        assert not os.path.isdir(d), f"旧目录应已清理: {d}"  # 含旧 strip，整目录移除
+        assert os.path.isdir(d), f"旧代次派生目录应保留（血缘/历史查看）: {d}"
     new_shot_ids = {s.id for s in shots2}
     for s in shots2:
         assert os.path.isfile(_abs(data_dir, s.proxy_path))
@@ -204,7 +213,7 @@ def test_reanalysis_atomic_replace(session, tmp_path):
 
 @needs_ffmpeg
 def test_export_survives_reanalysis(session, tmp_path):
-    """重分析删除旧镜头后，导出记录仍可追溯（shot_id 置空、来源快照与文件保留）。"""
+    """重分析后导出记录仍可追溯（PR-C：旧镜头保留为 retired，shot_id 不再置空）。"""
     src = make_multi_scene_video(str(tmp_path / "m.mp4"), scenes=3, seg_duration=2)
     data_dir = os.path.realpath(str(tmp_path / "data"))
     settings = _settings(data_dir)
@@ -235,14 +244,16 @@ def test_export_survives_reanalysis(session, tmp_path):
     export_id = exp.id
     old_shot_id = shot0.id
 
-    # 重分析（删除第一代镜头）
+    # 重分析（PR-C：第一代镜头保留为 retired）
     _analyze(session, _new_run(session, asset), asset, settings,
              src_abs=src, data_root_real=data_dir, worker_name="t2")
 
     session.expire_all()
     survived = session.get(Export, export_id)
     assert survived is not None, "导出记录应保留"
-    assert survived.shot_id is None, "旧镜头删除后 shot_id 置空（SET NULL）"
+    assert survived.shot_id == old_shot_id, "旧镜头保留（retired），便利引用不再断开"
+    old_shot = session.get(Shot, old_shot_id)
+    assert old_shot is not None and old_shot.retired_at is not None
     assert survived.asset_id == asset.id, "Asset 未删 → asset_id 保留"
     assert survived.source_asset_id == asset.id
     assert survived.source_shot_id == old_shot_id

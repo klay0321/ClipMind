@@ -679,18 +679,18 @@ async def test_project_delete_does_not_touch_usage(client, session):
     assert (await _shot_summary(client, shot.id))["confirmed_usage_count"] == 1
 
 
-async def test_reanalysis_guard_when_lineage_exists(client, session):
+async def test_reanalysis_allowed_when_lineage_exists(client, session):
+    """PR-C：代次保留后有血缘素材也可安全重新分析（PR-B 的 409 守卫已解除）。"""
     src = await _seed_asset(session, filename="s16.mp4")
     shot = await _seed_shot(session, src)
     final_asset = await _seed_asset(session, filename="f16.mp4")
     fv = await _create_fv(client, final_asset.id)
     await _add_usage(client, fv["id"], shot.id)
 
-    # 有血缘引用（即使仅 proposed）→ 重新分析被阻止
+    # 有血缘引用也允许重新分析（202；旧 Shot 将保留为 retired，血缘不断）
     r = await client.post(f"/api/assets/{src.id}/analyze-shots")
-    assert r.status_code == 409
-    assert "血缘" in r.json()["detail"]
-    # 无血缘的素材不受影响
+    assert r.status_code == 202, r.text
+    # 无血缘素材同样正常
     other = await _seed_asset(session, filename="s16b.mp4")
     r = await client.post(f"/api/assets/{other.id}/analyze-shots")
     assert r.status_code == 202

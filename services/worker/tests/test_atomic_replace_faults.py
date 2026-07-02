@@ -63,8 +63,10 @@ def _new_run(session, asset) -> int:
 
 
 def _ready(session, asset_id):
+    """当前代次 READY 镜头（PR-C：retired 历史代次不在默认口径内）。"""
     return (session.query(Shot)
-            .filter(Shot.asset_id == asset_id, Shot.status == ShotStatus.READY)
+            .filter(Shot.asset_id == asset_id, Shot.status == ShotStatus.READY,
+                    Shot.retired_at.is_(None))
             .order_by(Shot.sequence_no).all())
 
 
@@ -135,19 +137,24 @@ def _run_fault_scenario(session, tmp_path, monkeypatch, hook_name: str):
 
     session.expire_all()
     final = session.query(Shot).filter(Shot.asset_id == asset.id).all()
-    ready3 = [s for s in final if s.status == ShotStatus.READY]
-    assert len(ready3) == n, "重试后 ready 镜头数稳定"
-    assert all(s.generation == 3 for s in final), "旧代次清除，无重复/无 processing 残留"
-    # 旧 gen1 目录已清
+    ready3 = _ready(session, asset.id)
+    assert len(ready3) == n, "重试后当前代次 ready 镜头数稳定"
+    assert all(s.generation == 3 for s in ready3), "当前代次应为第 3 代"
+    # PR-C 代次保留：gen1 保留为 retired（只读历史），目录保留；
+    # gen2 的 processing 残留（崩溃产物，从未 READY）仍被清理
+    retired = [s for s in final if s.retired_at is not None]
+    assert {s.id for s in retired} == set(gen1_ids), "gen1 应保留为 retired"
+    assert all(s.status == ShotStatus.READY for s in retired)
+    assert not [s for s in final if s.status == ShotStatus.PROCESSING], "processing 残留应清理"
     for sid in gen1_ids:
         d = os.path.join(data_dir, "assets", str(asset.id), "active", "shots", str(sid))
-        assert not os.path.isdir(d)
-    # gen2 processing 残留目录已清（fault B 会留下，必须被回收）
+        assert os.path.isdir(d), "retired 代次派生目录应保留"
+    # 孤儿目录检查：合法目录 = 全部 READY 镜头（含 retired 历史）
     proc_dirs_root = os.path.join(data_dir, "assets", str(asset.id), "active", "shots")
-    ready_ids = {s.id for s in ready3}
+    legal_ids = {s.id for s in final if s.status == ShotStatus.READY}
     if os.path.isdir(proc_dirs_root):
         for name in os.listdir(proc_dirs_root):
-            assert int(name) in ready_ids, f"孤儿目录残留 {name}"
+            assert int(name) in legal_ids, f"孤儿目录残留 {name}"
 
 
 @needs_ffmpeg

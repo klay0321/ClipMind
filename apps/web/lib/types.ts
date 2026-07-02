@@ -1788,3 +1788,196 @@ export interface CatalogProfile {
   reference_primary_id: number | null;
   ai_recognition_enabled: boolean;
 }
+
+// ===== PR-A2 Gate B 产品入驻治理（完整度策略 / readiness / 入驻审核 / 混淆关系 / 变更历史）=====
+//
+// 与后端 schemas/product_governance.py 对齐。关键约束：
+//   - readiness 分数/检查项全部由后端基于真实数据计算，前端只展示、绝不重算或伪造；
+//   - 入驻审核为「可信内网人工审核」，无用户权限体系，actor_label 仅为显示名；
+//   - 混淆关系两侧节点名称来自 API（left/right），前端绝不硬编码任何公司产品名。
+
+// 入驻审核状态（与后端 ONBOARDING_STATUSES 一致；独立于 Catalog 生命周期）
+export type OnboardingStatus =
+  | "incomplete"
+  | "ready_for_review"
+  | "approved"
+  | "needs_changes"
+  | "blocked";
+
+export const ONBOARDING_STATUSES: OnboardingStatus[] = [
+  "incomplete",
+  "ready_for_review",
+  "approved",
+  "needs_changes",
+  "blocked",
+];
+
+// 混淆关系严重程度（人工判定，受控枚举）
+export type ConfusionSeverity = "low" | "medium" | "high";
+
+export const CONFUSION_SEVERITIES: ConfusionSeverity[] = ["low", "medium", "high"];
+
+// ---- 完整度策略（category 级；draft → activate 生效，版本单调递增）----
+export interface ReadinessPolicy {
+  id: number;
+  category_id: number;
+  version: number;
+  name: string;
+  min_reference_count: number;
+  required_angles: string[] | null;
+  min_identity_attribute_count: number;
+  require_primary_reference: boolean;
+  require_name_en: boolean;
+  require_alias: boolean;
+  require_sku_for_active_variant: boolean;
+  status: CatalogStatus;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+}
+
+export interface ReadinessPolicyCreateRequest {
+  category_id: number;
+  name?: string;
+  min_reference_count?: number;
+  required_angles?: string[];
+  min_identity_attribute_count?: number;
+  require_primary_reference?: boolean;
+  require_name_en?: boolean;
+  require_alias?: boolean;
+  require_sku_for_active_variant?: boolean;
+}
+
+export interface ReadinessPolicyListQuery {
+  category_id?: number;
+  include_archived?: boolean;
+}
+
+// ---- Readiness 计算结果（后端确定性计算；policy_version=0 表示系统默认策略）----
+export interface ReadinessCheck {
+  key: string;
+  passed: boolean;
+  current: unknown;
+  required: unknown;
+}
+
+export interface ReadinessMissingItem {
+  key: string;
+  current: unknown;
+  required: unknown;
+}
+
+export interface ReadinessBlockingItem {
+  key: string;
+  detail: string;
+}
+
+export interface ReadinessResult {
+  target_level: AttributeTargetLevel;
+  target_id: number;
+  score: number;
+  complete: boolean;
+  policy_id: number | null;
+  policy_version: number;
+  checks: ReadinessCheck[];
+  missing_items: ReadinessMissingItem[];
+  blocking_items: ReadinessBlockingItem[];
+  evaluated_at: string;
+  // 恒为 false：完整度只是资料统计，不代表 AI 已能识别该产品
+  ai_recognition_enabled: boolean;
+}
+
+// ---- 入驻审核（每目标一条当前记录；历史进变更历史）----
+export interface OnboardingReview {
+  id: number;
+  family_id: number | null;
+  variant_id: number | null;
+  sku_id: number | null;
+  status: OnboardingStatus;
+  policy_id: number | null;
+  policy_version: number | null;
+  readiness_score: number | null;
+  readiness_snapshot: Record<string, unknown> | null;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+  reviewer_note: string | null;
+  submitted_by: string | null;
+  reviewed_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// 审核动作请求体（note=审核意见；actor_label=非可信显示名，非登录身份）
+export interface OnboardingActionRequest {
+  note?: string;
+  actor_label?: string;
+}
+
+// 审核动作种类（映射到后端 submit-review / approve / request-changes / block）
+export type OnboardingActionKind = "submit" | "approve" | "request" | "block";
+
+// ---- 易混淆产品关系（同层级、无方向；left/right 经 canonical 排序）----
+export interface ConfusionFeature {
+  feature: string;
+  left_value: string;
+  right_value: string;
+  visible_in_reference: boolean;
+  identity_relevant: boolean;
+}
+
+// 混淆对一侧节点的展示信息（对方名称来自 API，绝不硬编码）
+export interface ConfusionSide {
+  id: number;
+  name_zh: string;
+  code: string | null;
+  status: CatalogStatus;
+}
+
+export interface ConfusionPair {
+  id: number;
+  target_level: AttributeTargetLevel;
+  left_target_id: number;
+  right_target_id: number;
+  severity: ConfusionSeverity;
+  reason: string | null;
+  distinguishing_features: ConfusionFeature[] | null;
+  review_note: string | null;
+  status: "active" | "archived";
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+  left: ConfusionSide | null;
+  right: ConfusionSide | null;
+}
+
+export interface ConfusionPairCreateRequest {
+  target_level: AttributeTargetLevel;
+  left_target_id: number;
+  right_target_id: number;
+  severity?: ConfusionSeverity;
+  reason?: string;
+  distinguishing_features?: ConfusionFeature[];
+  review_note?: string;
+}
+
+export interface ConfusionPairUpdateRequest {
+  severity?: ConfusionSeverity;
+  reason?: string | null;
+  distinguishing_features?: ConfusionFeature[];
+  review_note?: string | null;
+}
+
+// ---- 目录变更历史（append-only 只读；before/after 为后端脱敏白名单快照）----
+export interface CatalogRevision {
+  id: number;
+  revision_number: number;
+  entity_type: string;
+  entity_id: number;
+  action: string;
+  before_data: Record<string, unknown> | null;
+  after_data: Record<string, unknown> | null;
+  change_summary: string | null;
+  correlation_id: string;
+  actor_label: string | null;
+  created_at: string;
+}

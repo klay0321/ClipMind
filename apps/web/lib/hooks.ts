@@ -7,7 +7,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 
-import { api, type ShotSearchQuery } from "./api";
+import { api, ONBOARDING_ACTION_PATHS, type ShotSearchQuery } from "./api";
 import type { AIRunStatus, AssetQuery, MediaRunStatus, ShotQuery } from "./types";
 import type { ExportStatus, ReviewActionInput, ReviewActionKind, ScanStatus } from "./types";
 import type { DescriptionMatchRequest, ShotSearchRequest } from "./types";
@@ -70,6 +70,13 @@ import type {
   AttributeValueUpsertRequest,
   ReferenceListQuery,
   ReferenceUpdateRequest,
+} from "./types";
+import type {
+  ConfusionPairCreateRequest,
+  ConfusionPairUpdateRequest,
+  OnboardingActionKind,
+  OnboardingActionRequest,
+  ReadinessPolicyCreateRequest,
 } from "./types";
 
 const ACTIVE_SCAN: ScanStatus[] = ["queued", "scanning"];
@@ -1690,5 +1697,173 @@ export function useCatalogProfile(level: CatalogLevel | null, id: number | null)
     queryKey: ["catalog-profile", level, id],
     queryFn: () => api.catalogProfile(level as CatalogLevel, id as number),
     enabled: level != null && id != null,
+  });
+}
+
+// ===== PR-A2 Gate B 产品入驻治理（readiness / 策略 / 入驻审核 / 混淆 / 变更历史）=====
+//
+// 失效策略：
+//   - 入驻审核动作后 → 失效 onboarding + readiness + revisions（审核事件写入变更历史）。
+//   - 混淆关系变更后 → 失效 confusions + revisions。
+//   - 策略创建/激活/归档后 → 失效策略列表 + 全部 readiness（生效策略改变评分标准）。
+//   - 属性/参考图既有失效逻辑不动（readiness 面板每次切入/手动重新评估拉最新）。
+
+// 治理目标节点的 readiness / onboarding / revisions 一并失效
+function invalidateGovernanceTarget(
+  qc: ReturnType<typeof useQueryClient>,
+  level: AttributeTargetLevel,
+  targetId: number,
+) {
+  qc.invalidateQueries({ queryKey: ["readiness", level, targetId] });
+  qc.invalidateQueries({ queryKey: ["onboarding", level, targetId] });
+  qc.invalidateQueries({ queryKey: ["revisions", level, targetId] });
+}
+
+// ---- Readiness ----
+
+export function useReadiness(level: AttributeTargetLevel | null, targetId: number | null) {
+  return useQuery({
+    queryKey: ["readiness", level, targetId],
+    queryFn: () => api.getReadiness(level as AttributeTargetLevel, targetId as number),
+    enabled: level != null && targetId != null,
+  });
+}
+
+// 重新评估（POST；成功后用返回值直接刷新缓存，避免二次请求）
+export function useEvaluateReadiness(level: AttributeTargetLevel, targetId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.evaluateReadiness(level, targetId),
+    onSuccess: (data) => {
+      qc.setQueryData(["readiness", level, targetId], data);
+    },
+  });
+}
+
+// ---- 完整度策略（按分类）----
+
+export function useReadinessPolicies(categoryId: number | null) {
+  return useQuery({
+    queryKey: ["readiness-policies", categoryId],
+    queryFn: () => api.listReadinessPolicies({ category_id: categoryId as number }),
+    enabled: categoryId != null,
+  });
+}
+
+export function useCreateReadinessPolicy() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: ReadinessPolicyCreateRequest) => api.createReadinessPolicy(req),
+    onSuccess: (_data, req) => {
+      qc.invalidateQueries({ queryKey: ["readiness-policies", req.category_id] });
+    },
+  });
+}
+
+export function useActivateReadinessPolicy(categoryId: number | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.activateReadinessPolicy(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["readiness-policies", categoryId] });
+      // 生效策略变化 → 该分类下所有节点的 readiness 结果都可能改变，广谱失效
+      qc.invalidateQueries({ queryKey: ["readiness"] });
+    },
+  });
+}
+
+// ---- 入驻审核 ----
+
+export function useOnboarding(level: AttributeTargetLevel | null, targetId: number | null) {
+  return useQuery({
+    queryKey: ["onboarding", level, targetId],
+    queryFn: () => api.getOnboarding(level as AttributeTargetLevel, targetId as number),
+    enabled: level != null && targetId != null,
+  });
+}
+
+// 统一审核动作（submit | approve | request | block）；成功后失效 onboarding+readiness+revisions
+export function useOnboardingAction(level: AttributeTargetLevel, targetId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      action,
+      req,
+    }: {
+      action: OnboardingActionKind;
+      req?: OnboardingActionRequest;
+    }) => api.onboardingAction(level, targetId, ONBOARDING_ACTION_PATHS[action], req ?? {}),
+    onSuccess: () => invalidateGovernanceTarget(qc, level, targetId),
+  });
+}
+
+// ---- 易混淆产品关系 ----
+
+export function useConfusions(level: AttributeTargetLevel | null, targetId: number | null) {
+  return useQuery({
+    queryKey: ["confusions", level, targetId],
+    queryFn: () => api.listConfusions(level as AttributeTargetLevel, targetId as number),
+    enabled: level != null && targetId != null,
+  });
+}
+
+// 混淆关系变更后失效 confusions + revisions（两侧节点的列表都可能变化，用前缀广谱失效）
+function invalidateConfusions(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ["confusions"] });
+  qc.invalidateQueries({ queryKey: ["revisions"] });
+}
+
+export function useCreateConfusionPair() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (req: ConfusionPairCreateRequest) => api.createConfusionPair(req),
+    onSuccess: () => invalidateConfusions(qc),
+  });
+}
+
+export function useUpdateConfusionPair() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, req }: { id: number; req: ConfusionPairUpdateRequest }) =>
+      api.updateConfusionPair(id, req),
+    onSuccess: () => invalidateConfusions(qc),
+  });
+}
+
+// 归档/恢复聚合（与 useReferenceMutations 同范式）
+export function useConfusionPairMutations() {
+  const qc = useQueryClient();
+  const invalidate = () => invalidateConfusions(qc);
+
+  const archive = useMutation({
+    mutationFn: (id: number) => api.archiveConfusionPair(id),
+    onSuccess: invalidate,
+  });
+  const restore = useMutation({
+    mutationFn: (id: number) => api.restoreConfusionPair(id),
+    onSuccess: invalidate,
+  });
+
+  return { archive, restore };
+}
+
+// ---- 变更历史（只读，「加载更多」式分页：limit = page * 页大小，后端上限 200）----
+
+export const REVISION_PAGE_SIZE = 20;
+
+export function useRevisions(
+  level: CatalogLevel | null,
+  targetId: number | null,
+  page = 1,
+) {
+  return useQuery({
+    queryKey: ["revisions", level, targetId, page],
+    queryFn: () =>
+      api.listNodeRevisions(level as CatalogLevel, targetId as number, {
+        limit: Math.min(REVISION_PAGE_SIZE * page, 200),
+        offset: 0,
+      }),
+    enabled: level != null && targetId != null,
+    placeholderData: keepPreviousData,
   });
 }

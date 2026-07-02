@@ -5,9 +5,14 @@ import type {
   AttributeValue,
   CatalogAlias,
   CatalogProfile,
+  CatalogRevision,
   CatalogTreeNode,
   Category,
+  ConfusionPair,
   Family,
+  OnboardingReview,
+  ReadinessPolicy,
+  ReadinessResult,
   ReferenceAsset,
   Sku,
   Variant,
@@ -209,6 +214,110 @@ export function makeProfile(o: Partial<CatalogProfile> = {}): CatalogProfile {
     reference_by_angle: {},
     reference_primary_id: null,
     ai_recognition_enabled: false,
+    ...o,
+  };
+}
+
+// ===== PR-A2 Gate B 治理夹具（readiness / 入驻审核 / 混淆 / 变更历史）=====
+
+export function makeReadiness(o: Partial<ReadinessResult> = {}): ReadinessResult {
+  return {
+    target_level: "family",
+    target_id: 10,
+    score: 100,
+    complete: true,
+    policy_id: null,
+    policy_version: 0,
+    checks: [
+      { key: "name_zh", passed: true, current: true, required: true },
+      { key: "category", passed: true, current: true, required: true },
+      { key: "minimum_references", passed: true, current: 3, required: 3 },
+      { key: "parent_active", passed: true, current: true, required: true },
+    ],
+    missing_items: [],
+    blocking_items: [],
+    evaluated_at: "2026-06-30T00:00:00Z",
+    ai_recognition_enabled: false,
+    ...o,
+  };
+}
+
+export function makePolicy(o: Partial<ReadinessPolicy> = {}): ReadinessPolicy {
+  return {
+    id: 500,
+    category_id: 1,
+    version: 1,
+    name: "策略 v1",
+    min_reference_count: 3,
+    required_angles: null,
+    min_identity_attribute_count: 0,
+    require_primary_reference: true,
+    require_name_en: false,
+    require_alias: false,
+    require_sku_for_active_variant: false,
+    status: "draft",
+    created_at: "2026-06-30T00:00:00Z",
+    updated_at: "2026-06-30T00:00:00Z",
+    archived_at: null,
+    ...o,
+  };
+}
+
+export function makeOnboarding(o: Partial<OnboardingReview> = {}): OnboardingReview {
+  return {
+    id: 600,
+    family_id: 10,
+    variant_id: null,
+    sku_id: null,
+    status: "ready_for_review",
+    policy_id: null,
+    policy_version: 0,
+    readiness_score: 100,
+    readiness_snapshot: null,
+    submitted_at: "2026-06-30T00:00:00Z",
+    reviewed_at: null,
+    reviewer_note: null,
+    submitted_by: null,
+    reviewed_by: null,
+    created_at: "2026-06-30T00:00:00Z",
+    updated_at: "2026-06-30T00:00:00Z",
+    ...o,
+  };
+}
+
+export function makePair(o: Partial<ConfusionPair> = {}): ConfusionPair {
+  return {
+    id: 700,
+    target_level: "family",
+    left_target_id: 10,
+    right_target_id: 11,
+    severity: "medium",
+    reason: null,
+    distinguishing_features: null,
+    review_note: null,
+    status: "active",
+    created_at: "2026-06-30T00:00:00Z",
+    updated_at: "2026-06-30T00:00:00Z",
+    archived_at: null,
+    left: { id: 10, name_zh: "示例产品", code: "fam-10", status: "active" },
+    right: { id: 11, name_zh: "近似产品", code: "fam-11", status: "active" },
+    ...o,
+  };
+}
+
+export function makeRevision(o: Partial<CatalogRevision> = {}): CatalogRevision {
+  return {
+    id: 800,
+    revision_number: 1,
+    entity_type: "family",
+    entity_id: 10,
+    action: "update",
+    before_data: { name_zh: "旧名称" },
+    after_data: { name_zh: "新名称" },
+    change_summary: "更名",
+    correlation_id: "abcdef1234567890abcdef1234567890",
+    actor_label: null,
+    created_at: "2026-06-30T00:00:00Z",
     ...o,
   };
 }

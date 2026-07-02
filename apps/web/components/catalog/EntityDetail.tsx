@@ -22,7 +22,11 @@ import type { AttributeTargetLevel, CatalogStatus, Family, Sku, Variant } from "
 
 import { AliasManager } from "./AliasManager";
 import { AttributesTab } from "./AttributesTab";
+import { ConfusionsPanel } from "./ConfusionsPanel";
+import { HistoryPanel } from "./HistoryPanel";
 import { MergeDialog } from "./MergeDialog";
+import { OnboardingPanel } from "./OnboardingPanel";
+import { ReadinessPanel } from "./ReadinessPanel";
 import { ReferenceGallery } from "./ReferenceGallery";
 import type { SelectedNode } from "./CatalogTree";
 import { CatalogError, CatalogStatusBadge, LevelBadge, levelLabel } from "./widgets";
@@ -48,8 +52,15 @@ interface NodeCommon {
   variant_id?: number | null;
 }
 
-// 详情内 Tab（仅 family/variant/sku 层展示后两个）
-type DetailTab = "basic" | "attributes" | "references";
+// 详情内 Tab（仅 family/variant/sku 层展示 basic 之外的资产 / 治理 Tab）
+type DetailTab =
+  | "basic"
+  | "attributes"
+  | "references"
+  | "readiness"
+  | "onboarding"
+  | "confusions"
+  | "history";
 
 export function EntityDetail({
   selected,
@@ -292,9 +303,14 @@ function DetailBody({
 
       <CatalogError error={updateError} />
 
-      {/* Tab 导航：基本信息（现有内容）/ 产品属性 / 参考图库。仅 family/variant/sku 显示后两个。 */}
+      {/* Tab 导航：基本信息 / 产品属性 / 参考图库 / 完整度 / 入驻审核 / 易混淆 / 变更历史。
+          仅 family/variant/sku 显示 basic 之外的 Tab；治理 Tab 惰性挂载（切到才请求）。 */}
       {hasAssetTabs ? (
-        <div className="flex gap-2 border-b border-gray-200 text-sm" role="tablist" data-testid="detail-tabs">
+        <div
+          className="flex flex-wrap gap-2 border-b border-gray-200 text-sm"
+          role="tablist"
+          data-testid="detail-tabs"
+        >
           {([
             { key: "basic", label: "基本信息" },
             {
@@ -305,6 +321,10 @@ function DetailBody({
               key: "references",
               label: profile ? `参考图库 (${profile.reference_total})` : "参考图库",
             },
+            { key: "readiness", label: "完整度" },
+            { key: "onboarding", label: "入驻审核" },
+            { key: "confusions", label: "易混淆" },
+            { key: "history", label: "变更历史" },
           ] as { key: DetailTab; label: string }[]).map((t) => (
             <button
               key={t.key}
@@ -352,6 +372,42 @@ function DetailBody({
       {hasAssetTabs && tab === "references" ? (
         <div data-testid="detail-tabpanel-references">
           <ReferenceGallery level={attrLevel} targetId={node.id} readOnly={readOnly} />
+        </div>
+      ) : null}
+
+      {hasAssetTabs && tab === "readiness" ? (
+        <div data-testid="detail-tabpanel-readiness">
+          <ReadinessPanel
+            level={attrLevel}
+            targetId={node.id}
+            categoryId={categoryId}
+            readOnly={readOnly}
+          />
+        </div>
+      ) : null}
+
+      {hasAssetTabs && tab === "onboarding" ? (
+        <div data-testid="detail-tabpanel-onboarding">
+          <OnboardingPanel level={attrLevel} targetId={node.id} readOnly={readOnly} />
+        </div>
+      ) : null}
+
+      {hasAssetTabs && tab === "confusions" ? (
+        <div data-testid="detail-tabpanel-confusions">
+          <ConfusionsPanel
+            level={attrLevel}
+            targetId={node.id}
+            // 同层级候选约束：family 层用自身 id；variant/sku 用所属 family
+            familyId={level === "family" ? node.id : (node.family_id ?? null)}
+            readOnly={readOnly}
+            onSelect={onSelect}
+          />
+        </div>
+      ) : null}
+
+      {hasAssetTabs && tab === "history" ? (
+        <div data-testid="detail-tabpanel-history">
+          <HistoryPanel level={level} targetId={node.id} />
         </div>
       ) : null}
 

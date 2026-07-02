@@ -26,6 +26,19 @@ vi.mock("@/lib/hooks", () => ({
   useDeleteCatalogAlias: vi.fn(),
   // PR-A2：DetailBody 在 family/variant/sku 层调用 profile（Tab 徽标 + category_id）
   useCatalogProfile: vi.fn(),
+  // PR-A2 Gate B：治理 Tab 惰性挂载所需 hooks（默认 stub，切到对应 Tab 才会被调用）
+  useReadiness: vi.fn(),
+  useEvaluateReadiness: vi.fn(),
+  useReadinessPolicies: vi.fn(),
+  useCreateReadinessPolicy: vi.fn(),
+  useActivateReadinessPolicy: vi.fn(),
+  useOnboarding: vi.fn(),
+  useOnboardingAction: vi.fn(),
+  useConfusions: vi.fn(),
+  useCreateConfusionPair: vi.fn(),
+  useUpdateConfusionPair: vi.fn(),
+  useConfusionPairMutations: vi.fn(),
+  useRevisions: vi.fn(),
 }));
 
 const updateFamily = mutation();
@@ -52,6 +65,23 @@ function stub() {
   vi.mocked(hooks.useDeleteCatalogAlias).mockReturnValue(delAlias);
   // profile 默认无数据（Tab 徽标不显示计数，category_id 走全局属性）
   vi.mocked(hooks.useCatalogProfile).mockReturnValue(query({ data: undefined }));
+  // Gate B 治理 hooks 默认 stub（面板惰性挂载，默认 basic Tab 下不会被调用）
+  vi.mocked(hooks.useReadiness).mockReturnValue(query({ data: undefined }));
+  vi.mocked(hooks.useEvaluateReadiness).mockReturnValue(mutation());
+  vi.mocked(hooks.useReadinessPolicies).mockReturnValue(query({ data: undefined }));
+  vi.mocked(hooks.useCreateReadinessPolicy).mockReturnValue(mutation());
+  vi.mocked(hooks.useActivateReadinessPolicy).mockReturnValue(mutation());
+  vi.mocked(hooks.useOnboarding).mockReturnValue(query({ data: undefined }));
+  vi.mocked(hooks.useOnboardingAction).mockReturnValue(mutation());
+  vi.mocked(hooks.useConfusions).mockReturnValue(query({ data: undefined }));
+  vi.mocked(hooks.useCreateConfusionPair).mockReturnValue(mutation());
+  vi.mocked(hooks.useUpdateConfusionPair).mockReturnValue(mutation());
+  vi.mocked(hooks.useConfusionPairMutations).mockReturnValue({
+    archive: mutation(),
+    restore: mutation(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
+  vi.mocked(hooks.useRevisions).mockReturnValue(query({ data: undefined }));
 }
 
 beforeEach(() => {
@@ -184,5 +214,45 @@ describe("EntityDetail", () => {
     vi.mocked(hooks.useCatalogNode).mockReturnValue(query({ data: makeFamily() }));
     render(<EntityDetail selected={{ level: "family", id: 10 }} onSelect={vi.fn()} />);
     expect(screen.getByTestId("alias-empty")).toBeInTheDocument();
+  });
+
+  it("family 层显示 Gate B 治理 Tab 且惰性挂载（切到才请求）", async () => {
+    vi.mocked(hooks.useCatalogNode).mockReturnValue(query({ data: makeFamily() }));
+    const user = userEvent.setup();
+    render(<EntityDetail selected={{ level: "family", id: 10 }} onSelect={vi.fn()} />);
+    const tabs = screen.getByTestId("detail-tabs");
+    expect(within(tabs).getByTestId("detail-tab-readiness")).toBeInTheDocument();
+    expect(within(tabs).getByTestId("detail-tab-onboarding")).toBeInTheDocument();
+    expect(within(tabs).getByTestId("detail-tab-confusions")).toBeInTheDocument();
+    expect(within(tabs).getByTestId("detail-tab-history")).toBeInTheDocument();
+    // 默认 basic Tab：治理面板未挂载、hooks 未被调用（惰性）
+    expect(screen.queryByTestId("detail-tabpanel-readiness")).not.toBeInTheDocument();
+    expect(hooks.useReadiness).not.toHaveBeenCalled();
+    // 切到完整度 Tab 后面板挂载
+    await user.click(screen.getByTestId("detail-tab-readiness"));
+    expect(screen.getByTestId("detail-tabpanel-readiness")).toBeInTheDocument();
+    expect(hooks.useReadiness).toHaveBeenCalled();
+  });
+
+  it("切到入驻审核 Tab 显示权限提示（无用户权限体系）", async () => {
+    vi.mocked(hooks.useCatalogNode).mockReturnValue(query({ data: makeFamily() }));
+    const user = userEvent.setup();
+    render(<EntityDetail selected={{ level: "family", id: 10 }} onSelect={vi.fn()} />);
+    await user.click(screen.getByTestId("detail-tab-onboarding"));
+    expect(screen.getByTestId("detail-tabpanel-onboarding")).toBeInTheDocument();
+    expect(screen.getByTestId("onboarding-permission-notice")).toHaveTextContent(
+      "当前为可信内网人工审核，尚未启用用户权限。",
+    );
+  });
+
+  it("category 层不显示治理 Tab", () => {
+    vi.mocked(hooks.useCatalogNode).mockReturnValue(
+      query({ data: { id: 1, code: "c", name_zh: "分类", name_en: null, status: "active" } }),
+    );
+    render(<EntityDetail selected={{ level: "category", id: 1 }} onSelect={vi.fn()} />);
+    expect(screen.queryByTestId("detail-tab-readiness")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("detail-tab-onboarding")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("detail-tab-confusions")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("detail-tab-history")).not.toBeInTheDocument();
   });
 });

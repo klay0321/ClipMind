@@ -249,7 +249,7 @@ jobs:
                       DYNAMIC_COLLECTION_E2E_OK PR06B_E2E_OK; do
             grep -q "$flag" pr06b.log || { echo "缺少标志 $flag"; exit 1; }
           done
-      - name: 已有数据库升级路径端到端（0008→head 含 0009-0015 + 幂等；独立测试库，不碰业务库）
+      - name: 已有数据库升级路径端到端（0008→head 含 0009-0016 + 幂等；独立测试库，不碰业务库）
         run: |
           set -o pipefail
           python scripts/ci_db_upgrade_e2e.py | tee db_upgrade.log
@@ -259,6 +259,7 @@ jobs:
           grep -q "CATALOG_DB_UPGRADE_OK" db_upgrade.log
           grep -q "ATTR_REF_DB_UPGRADE_OK" db_upgrade.log
           grep -q "GOVERNANCE_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "LINEAGE_DB_UPGRADE_OK" db_upgrade.log
           grep -q "SCRIPT_DB_UPGRADE_IDEMPOTENT_OK" db_upgrade.log
       - name: AI 链路 DB 级持久化断言（不以 Celery task 自报成功为准）
         run: |

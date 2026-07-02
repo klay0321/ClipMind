@@ -25,7 +25,7 @@ from clipmind_shared.constants import (
 )
 from clipmind_shared.db.base import utcnow
 from clipmind_shared.ffprobe import ProbeError, probe_video
-from clipmind_shared.models import Asset, ScanRun, SourceDirectory
+from clipmind_shared.models import Asset, AssetLocation, ScanRun, SourceDirectory
 from clipmind_shared.models.enums import AssetStatus, ScanRunStatus, ScanStatus
 from clipmind_shared.pathutil import normalize_relative_path
 from clipmind_shared.security import (
@@ -46,6 +46,16 @@ from clipmind_worker.scanning import (
     decide_action,
 )
 from clipmind_worker.scanning.diff import FileAction, needs_probe
+from clipmind_worker.scanning.reconcile import (
+    ReconcileStats,
+    add_copy_location,
+    add_primary_location,
+    find_active_location,
+    mark_content_conflict,
+    match_by_content,
+    relink_moved_asset,
+    touch_location,
+)
 from clipmind_worker.scanning.walker import iter_video_files
 
 settings = get_settings()
@@ -58,6 +68,21 @@ def _truncate(text: str) -> str:
     return text[:ERROR_MESSAGE_MAX_LEN]
 
 
+def _probe_and_apply(session: Session, asset: Asset, abs_path: str, counts: dict[str, int]) -> None:
+    """FFprobe 并把媒体元数据写入 Asset（新建/接受的内容才调用）。"""
+    try:
+        probe = probe_video(abs_path, timeout=settings.ffprobe_timeout)
+        apply_probe_to_asset(asset, probe)
+        asset.status = AssetStatus.INDEXED
+        asset.error_message = None
+        asset.poster_path = None  # 扫描结束统一重生成
+    except ProbeError as exc:
+        clear_probe_fields(asset)
+        asset.status = AssetStatus.ERROR
+        asset.error_message = _truncate(f"{exc.reason}: {exc.detail}".strip())
+        counts["errored"] += 1
+
+
 def _process_file(
     session: Session,
     sd: SourceDirectory,
@@ -65,53 +90,94 @@ def _process_file(
     abs_path: str,
     rel: str,
     counts: dict[str, int],
+    stats: ReconcileStats,
 ) -> None:
     norm = normalize_relative_path(rel)
     st = os.stat(abs_path)
     new_mtime = datetime.fromtimestamp(st.st_mtime, tz=UTC)
 
-    asset = session.execute(
-        select(Asset).where(
-            Asset.source_directory_id == sd.id,
-            Asset.normalized_relative_path == norm,
+    # PR-C：路径查找走活动 AssetLocation（路径不再是 Asset 身份）
+    loc = find_active_location(session, sd.id, norm)
+
+    if loc is not None:
+        asset = session.get(Asset, loc.asset_id)
+        if asset is None:  # 理论不可达（FK 保证）
+            return
+        stats.existing_assets += 1
+        stored_size = loc.file_size if loc.file_size is not None else asset.file_size
+        stored_mtime = (
+            datetime.fromtimestamp(loc.mtime_ns / 1e9, tz=UTC)
+            if loc.mtime_ns is not None
+            else asset.modified_at
         )
-    ).scalar_one_or_none()
+        action = decide_action(
+            exists=True,
+            is_source_missing=(loc.location_status == "missing"),
+            stored_size=stored_size,
+            stored_mtime=stored_mtime,
+            new_size=st.st_size,
+            new_mtime=new_mtime,
+        )
 
-    action = decide_action(
-        exists=asset is not None,
-        is_source_missing=(asset is not None and asset.status == AssetStatus.SOURCE_MISSING),
-        stored_size=asset.file_size if asset else None,
-        stored_mtime=asset.modified_at if asset else None,
-        new_size=st.st_size,
-        new_mtime=new_mtime,
-    )
-
-    # 第一层：未变文件只更新"最后发现"标记，不读内容、不 probe
-    if not needs_probe(action):
-        if asset is not None:  # UNCHANGED 分支 asset 必然存在
+        # 场景 A：路径不变、内容不变——touch 位置与投影，不读内容、不 probe
+        if not needs_probe(action):
+            touch_location(loc, st)
             asset.last_seen_scan_id = run.id
             asset.last_seen_at = utcnow()
+            return
+
+        # 路径不变但 size/mtime 变化（或缺失后重现）：用 quick_hash 判定内容是否真变
+        quick_hash = compute_quick_hash(abs_path, st.st_size)
+        if quick_hash == asset.quick_hash:
+            # 内容未变（mtime 漂移 / 文件找回）：恢复 present 并 touch
+            touch_location(loc, st)
+            if loc.is_primary:
+                asset.file_size = st.st_size
+                asset.modified_at = new_mtime
+            asset.last_seen_scan_id = run.id
+            asset.last_seen_at = utcnow()
+            if action == FileAction.REAPPEARED and asset.status == AssetStatus.SOURCE_MISSING:
+                asset.status = AssetStatus.INDEXED
+            return
+
+        # 场景 B：同路径内容被替换——不静默覆盖身份，标 conflict 等人工确认
+        asset.last_seen_scan_id = run.id
+        asset.last_seen_at = utcnow()
+        mark_content_conflict(session, loc, asset, stats)
+        counts["modified"] += 1
         return
 
-    # 第二层：新增/变化/重现 才计算 quick_hash + FFprobe
-    ext = os.path.splitext(rel)[1].lstrip(".").lower()
+    # ---- 新路径：内容身份匹配（场景 C/D/E）----
+    matched, has_present, qfp_value, ambiguous_ids = match_by_content(
+        session, abs_path=abs_path, st=st, stats=stats
+    )
     quick_hash = compute_quick_hash(abs_path, st.st_size)
 
-    probe = None
-    probe_error: str | None = None
-    try:
-        probe = probe_video(abs_path, timeout=settings.ffprobe_timeout)
-    except ProbeError as exc:
-        probe_error = _truncate(f"{exc.reason}: {exc.detail}".strip())
+    if matched is not None:
+        matched.last_seen_scan_id = run.id
+        matched.last_seen_at = utcnow()
+        if has_present:
+            # 场景 D：复制/多位置——同一 Asset 增加非 primary 位置，不重复分析
+            add_copy_location(
+                session, matched,
+                source_root_id=sd.id, relative_path=rel, normalized_path=norm,
+                st=st, stats=stats,
+            )
+        else:
+            # 场景 C：移动/改名——Asset ID 与全部业务数据保留
+            relink_moved_asset(
+                session, matched,
+                source_root_id=sd.id, relative_path=rel, normalized_path=norm,
+                st=st, scan_quick_hash=quick_hash, stats=stats,
+            )
+        return
 
-    if asset is None:
-        asset = Asset(source_directory_id=sd.id, first_seen_at=utcnow())
-        session.add(asset)
-        counts["new"] += 1
-    elif action == FileAction.MODIFIED:
-        counts["modified"] += 1
-    elif action == FileAction.REAPPEARED:
-        counts["new"] += 1
+    # 无权威匹配：新建 Asset（场景 E 的 quick 命中只作候选记录，绝不自动合并）
+    ext = os.path.splitext(rel)[1].lstrip(".").lower()
+    asset = Asset(source_directory_id=sd.id, first_seen_at=utcnow())
+    session.add(asset)
+    counts["new"] += 1
+    stats.new_assets += 1
 
     asset.relative_path = rel
     asset.normalized_relative_path = norm
@@ -120,21 +186,26 @@ def _process_file(
     asset.file_size = st.st_size
     asset.modified_at = new_mtime
     asset.quick_hash = quick_hash
+    if qfp_value is not None:
+        asset.quick_fingerprint = qfp_value
+        from clipmind_shared.fingerprint import QUICK_FP_VERSION
+
+        asset.quick_fingerprint_version = QUICK_FP_VERSION
+        asset.fingerprint_state = "quick_ready"
     asset.metadata_version = METADATA_VERSION
     asset.last_seen_scan_id = run.id
     asset.last_seen_at = utcnow()
-
-    if probe is not None:
-        apply_probe_to_asset(asset, probe)
-        asset.status = AssetStatus.INDEXED
-        asset.error_message = None
-        # 新增/变化的素材失效旧海报，扫描结束统一重生成（内容可能已变）
-        asset.poster_path = None
-    else:
-        clear_probe_fields(asset)
-        asset.status = AssetStatus.ERROR
-        asset.error_message = probe_error
-        counts["errored"] += 1
+    _probe_and_apply(session, asset, abs_path, counts)
+    session.flush()  # 取 asset.id 建位置
+    add_primary_location(
+        session, asset,
+        source_root_id=sd.id, relative_path=rel, normalized_path=norm, st=st,
+    )
+    if ambiguous_ids:
+        stats.ambiguous_candidates += 1
+        stats.ambiguous.append(
+            {"new_asset_id": asset.id, "candidate_asset_ids": ambiguous_ids[:10]}
+        )
 
 
 def _update_run_counts(run: ScanRun, counts: dict[str, int]) -> None:
@@ -145,7 +216,8 @@ def _update_run_counts(run: ScanRun, counts: dict[str, int]) -> None:
 
 
 def _scan_files(
-    session: Session, sd: SourceDirectory, run: ScanRun, root_real: str
+    session: Session, sd: SourceDirectory, run: ScanRun, root_real: str,
+    stats: ReconcileStats,
 ) -> dict[str, int]:
     counts = {"discovered": 0, "new": 0, "modified": 0, "errored": 0}
     batch = 0
@@ -156,7 +228,7 @@ def _scan_files(
         exclude_patterns=sd.exclude_patterns,
     ):
         counts["discovered"] += 1
-        _process_file(session, sd, run, abs_path, rel, counts)
+        _process_file(session, sd, run, abs_path, rel, counts, stats)
         batch += 1
         if batch >= SCAN_COMMIT_BATCH:
             _update_run_counts(run, counts)
@@ -188,8 +260,76 @@ def _enqueue_posters(session: Session, sd_id: int, run_id: int) -> int:
     return len(ids)
 
 
-def _mark_missing(session: Session, sd_id: int, run_id: int) -> int:
-    """仅遍历完整成功后调用：本次未发现的素材标记为 source_missing。"""
+def _mark_missing(
+    session: Session, sd_id: int, run: ScanRun, stats: ReconcileStats
+) -> int:
+    """仅遍历完整成功后调用：位置级缺失标记 + 副本晋升 + 兼容的素材级缺失。"""
+    # 1) 位置级：本 root 下本次未 touch 的 present 位置 → missing（历史不物理删除）
+    started = run.started_at or utcnow()
+    loc_result = session.execute(
+        update(AssetLocation)
+        .where(
+            AssetLocation.source_root_id == sd_id,
+            AssetLocation.location_status == "present",
+            AssetLocation.last_seen_at < started,
+        )
+        .values(location_status="missing", missing_at=utcnow())
+    )
+    missing_locations = loc_result.rowcount or 0
+    stats.missing_locations += missing_locations
+    session.commit()
+
+    # 2) 副本晋升：primary 缺失但存在其他 present 副本 → 副本成为 primary（内容仍可用）
+    orphaned = (
+        session.execute(
+            select(AssetLocation).where(
+                AssetLocation.is_primary.is_(True),
+                AssetLocation.location_status == "missing",
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for old_primary in orphaned:
+        replacement = (
+            session.execute(
+                select(AssetLocation).where(
+                    AssetLocation.asset_id == old_primary.asset_id,
+                    AssetLocation.location_status == "present",
+                    AssetLocation.id != old_primary.id,
+                ).order_by(AssetLocation.last_seen_at.desc())
+            )
+            .scalars()
+            .first()
+        )
+        if replacement is None:
+            continue
+        asset = session.get(Asset, old_primary.asset_id)
+        old_primary.is_primary = False
+        old_primary.location_status = "historical"
+        session.flush()
+        replacement.is_primary = True
+        if asset is not None:
+            asset.source_directory_id = replacement.source_root_id
+            asset.relative_path = replacement.relative_path
+            asset.normalized_relative_path = replacement.normalized_path
+            asset.filename = os.path.basename(replacement.relative_path)
+        stats.moved_locations += 1
+        stats.moved.append(
+            {
+                "asset_id": old_primary.asset_id,
+                "from": [old_primary.relative_path],
+                "to": replacement.relative_path,
+                "promoted_copy": True,
+            }
+        )
+    session.commit()
+
+    # 3) 素材级（兼容投影）：本次未见且已无任何 present 位置 → source_missing
+    no_present = ~select(AssetLocation.id).where(
+        AssetLocation.asset_id == Asset.id,
+        AssetLocation.location_status == "present",
+    ).exists()
     stmt = (
         update(Asset)
         .where(
@@ -197,8 +337,9 @@ def _mark_missing(session: Session, sd_id: int, run_id: int) -> int:
             Asset.status != AssetStatus.SOURCE_MISSING,
             (
                 (Asset.last_seen_scan_id.is_(None))
-                | (Asset.last_seen_scan_id != run_id)
+                | (Asset.last_seen_scan_id != run.id)
             ),
+            no_present,
         )
         .values(status=AssetStatus.SOURCE_MISSING)
     )
@@ -245,10 +386,14 @@ def scan_source_directory(self, scan_run_id: int) -> dict[str, Any]:  # noqa: AN
                 root_real = resolve_and_validate_root(
                     sd.mount_path, settings.allowed_roots_list
                 )
-                counts = _scan_files(session, sd, run, root_real)
-                missing = _mark_missing(session, sd_id, run.id)
+                stats = ReconcileStats(
+                    full_hash_budget=settings.scan_full_hash_budget_bytes
+                )
+                counts = _scan_files(session, sd, run, root_real, stats)
+                missing = _mark_missing(session, sd_id, run, stats)
 
                 run.files_missing = missing
+                run.reconciliation = stats.to_jsonb()
                 run.status = ScanRunStatus.COMPLETED
                 run.finished_at = utcnow()
                 sd.scan_status = ScanStatus.COMPLETED
@@ -265,6 +410,7 @@ def scan_source_directory(self, scan_run_id: int) -> dict[str, Any]:  # noqa: AN
                     "errored": counts["errored"],
                     "missing": missing,
                     "posters_queued": posters,
+                    **stats.counts(),
                 }
             except Exception as exc:  # noqa: BLE001 - 记录失败并向上抛交给 Celery
                 session.rollback()
@@ -311,6 +457,7 @@ def rescan_asset(self, asset_id: int) -> dict[str, Any]:  # noqa: ANN001
             return {"status": AssetStatus.SOURCE_MISSING.value}
 
         st = os.stat(abs_path)
+        old_quick = asset.quick_hash
         asset.file_size = st.st_size
         asset.modified_at = datetime.fromtimestamp(st.st_mtime, tz=UTC)
         asset.quick_hash = compute_quick_hash(abs_path, st.st_size)
@@ -326,6 +473,33 @@ def rescan_asset(self, asset_id: int) -> dict[str, Any]:  # noqa: ANN001
             asset.status = AssetStatus.ERROR
             asset.error_message = _truncate(f"{exc.reason}: {exc.detail}".strip())
         asset.last_seen_at = utcnow()
+
+        # PR-C：单素材重扫 = 人工显式接受当前路径内容。内容确实变化时旧内容指纹
+        # 全部作废（避免旧哈希把新内容误 relink 到旧身份），位置 conflict → present。
+        if old_quick is not None and asset.quick_hash != old_quick:
+            asset.full_hash = None
+            asset.full_hash_algorithm = None
+            asset.content_size = None
+            asset.quick_fingerprint = None
+            asset.quick_fingerprint_version = None
+            asset.fingerprint_state = "pending"
+            asset.fingerprint_error = None
+        loc = (
+            session.execute(
+                select(AssetLocation).where(
+                    AssetLocation.asset_id == asset.id,
+                    AssetLocation.is_primary.is_(True),
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if loc is not None:
+            loc.location_status = "present"
+            loc.missing_at = None
+            loc.file_size = st.st_size
+            loc.mtime_ns = st.st_mtime_ns
+            loc.last_seen_at = utcnow()
         indexed = asset.status == AssetStatus.INDEXED
         asset_id_val = asset.id
         session.commit()

@@ -144,7 +144,11 @@ import type {
   ReadinessResult,
 } from "./types";
 import type {
+  AnalysisGenerations,
+  AssetIdentity,
+  AssetLocationEntry,
   AssetUsageSummary,
+  FingerprintJob,
   FinalVideo,
   FinalVideoCreateRequest,
   FinalVideoLineage,
@@ -1366,6 +1370,31 @@ export const api = {
   },
   getAssetUsageSummary(assetId: number): Promise<AssetUsageSummary> {
     return http<AssetUsageSummary>(`/assets/${assetId}/usage-summary`);
+  },
+
+  // ===== PR-C 素材身份 / 位置 / 指纹 / 代次 =====
+  getAssetIdentity(assetId: number): Promise<AssetIdentity> {
+    return http<AssetIdentity>(`/assets/${assetId}/identity`);
+  },
+  getAssetLocations(assetId: number): Promise<AssetLocationEntry[]> {
+    return http<AssetLocationEntry[]>(`/assets/${assetId}/locations`);
+  },
+  requestFingerprint(assetId: number, kind: "quick" | "full"): Promise<FingerprintJob> {
+    return http<FingerprintJob>(`/assets/${assetId}/fingerprint`, {
+      method: "POST",
+      body: JSON.stringify({ kind }),
+    });
+  },
+  getFingerprintJob(jobId: number): Promise<FingerprintJob> {
+    return http<FingerprintJob>(`/assets/fingerprint-jobs/${jobId}`);
+  },
+  getAnalysisGenerations(assetId: number): Promise<AnalysisGenerations> {
+    return http<AnalysisGenerations>(`/assets/${assetId}/analysis-generations`);
+  },
+  listAssetShotsByGeneration(assetId: number, generation: number): Promise<PageResult<Shot>> {
+    return http<PageResult<Shot>>(
+      `/assets/${assetId}/shots?page=1&page_size=100&generation=${generation}`,
+    );
   },
 };
 

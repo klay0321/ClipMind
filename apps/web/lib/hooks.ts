@@ -2024,3 +2024,54 @@ export function useAssetUsageSummary(assetId: number | null) {
     enabled: assetId != null,
   });
 }
+
+// ============================================================
+// PR-C 素材身份 / 位置 / 指纹 / 分析代次(全部只读派生;指纹为后台任务)
+// ============================================================
+
+export function useAssetIdentity(assetId: number | null) {
+  return useQuery({
+    queryKey: ["asset-identity", assetId],
+    queryFn: () => api.getAssetIdentity(assetId as number),
+    enabled: assetId != null,
+  });
+}
+
+export function useAnalysisGenerations(assetId: number | null) {
+  return useQuery({
+    queryKey: ["analysis-generations", assetId],
+    queryFn: () => api.getAnalysisGenerations(assetId as number),
+    enabled: assetId != null,
+  });
+}
+
+export function useRequestFingerprint(assetId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (kind: "quick" | "full") => api.requestFingerprint(assetId, kind),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["asset-identity", assetId] });
+    },
+  });
+}
+
+export function useFingerprintJob(jobId: number | null) {
+  return useQuery({
+    queryKey: ["fingerprint-job", jobId],
+    queryFn: () => api.getFingerprintJob(jobId as number),
+    enabled: jobId != null,
+    // 任务进行中轮询;结束后停止
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
+      return s === "queued" || s === "running" ? 2000 : false;
+    },
+  });
+}
+
+export function useShotsByGeneration(assetId: number | null, generation: number | null) {
+  return useQuery({
+    queryKey: ["shots-by-generation", assetId, generation],
+    queryFn: () => api.listAssetShotsByGeneration(assetId as number, generation as number),
+    enabled: assetId != null && generation != null,
+  });
+}

@@ -68,7 +68,18 @@ export function ShotDetail({ shotId }: { shotId: number | null }) {
     <div className="space-y-3 p-4" data-testid="shot-detail">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-900">镜头 #{s.sequence_no}</h3>
-        <ShotStatusBadge status={s.status} />
+        <div className="flex items-center gap-1.5">
+          {s.retired ? (
+            <span
+              className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500"
+              title={`来自历史分析代次（第 ${s.generation ?? "?"} 代）；默认列表与搜索只显示当前代次`}
+              data-testid="shot-retired-badge"
+            >
+              历史代次
+            </span>
+          ) : null}
+          <ShotStatusBadge status={s.status} />
+        </div>
       </div>
 
       {/* 代理视频播放器（支持 Range 拖动进度条） */}

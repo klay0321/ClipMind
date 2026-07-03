@@ -50,6 +50,19 @@ class ShotSearchRequest(BaseModel):
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=24, ge=1, le=MAX_PAGE_SIZE)
 
+    # ---- PR-E 使用感知（向后兼容；default 模式与旧行为逐位一致）----
+    # default | prefer_unused | only_never_confirmed | exclude_high_frequency
+    # | least_recently_used
+    usage_mode: str = "default"
+    usage_scope: str = "combined"  # shot | asset | combined（Shot 主信号，Asset 轻量辅助）
+    max_confirmed_usage_count: int | None = Field(default=None, ge=0, le=1000)
+    min_days_since_last_use: int | None = Field(default=None, ge=0, le=3650)
+    exclude_recently_used_days: int | None = Field(default=None, ge=0, le=3650)
+    include_legacy_unknown: bool = True   # 展示历史弱证据提示；default 模式不参与排序
+    usage_preset: str = "balanced"        # balanced | strong_unused | relevance_first
+    usage_weights: dict[str, float] | None = None  # 受约束的请求级 override（越权 422）
+    include_usage_explanation: bool = True  # false 时省略 usage 块与 reasons
+
 
 class DescriptionMatchRequest(BaseModel):
     target_description: str = Field(..., min_length=1)
@@ -133,6 +146,15 @@ class SearchResultItem(BaseModel):
     # 规则派生解释
     matched_reasons: list[str] = []
     unmatched_requirements: list[str] = []
+
+    # ---- PR-E 使用感知（可选；不覆盖原始相似度字段）----
+    # base_score=原融合相关性分；usage_adjustment∈[-0.35,0.35]；
+    # final_score=base+adjustment（default 模式 adjustment=0，final==base==score）
+    base_score: float | None = None
+    usage_adjustment: float | None = None
+    final_score: float | None = None
+    usage: UsageInfoOut | None = None
+    usage_reasons: list[UsageReasonOut] = []
     risk_warnings: list[str] = []
 
     review_status: str | None = None
@@ -156,6 +178,40 @@ class DescriptionMatchItem(SearchResultItem):
 # ============================ 响应：包裹 ============================
 
 
+class UsageInfoOut(BaseModel):
+    """使用特征展示块（正式=confirmed 去重成片数；legacy 绝不显示成正式次数）。"""
+
+    shot_confirmed_usage_count: int = 0
+    shot_distinct_final_video_count: int = 0
+    asset_confirmed_usage_count: int = 0
+    asset_distinct_final_video_count: int = 0
+    asset_used_shot_count: int = 0
+    asset_total_current_shot_count: int = 0
+    last_confirmed_used_at: datetime | None = None
+    days_since_last_confirmed_use: float | None = None
+    accepted_legacy_evidence_count: int = 0
+    pending_formal_count: int = 0
+    usage_state: str = "never_confirmed_used"
+
+
+class UsageReasonOut(BaseModel):
+    code: str
+    adjustment: float
+    message: str
+
+
+class UsageSearchStatsOut(BaseModel):
+    """候选池与过滤可观测性（防饥饿证据；不含真实查询内容）。"""
+
+    requested_top_k: int = 0
+    candidate_pool_size: int = 0
+    filtered_count: int = 0
+    returned_count: int = 0
+    candidate_limit_reached: bool = False
+    expansion_rounds: int = 0
+    usage_projection_ms: int = 0
+
+
 class ShotSearchResponse(BaseModel):
     items: list[SearchResultItem]
     # total = 进入融合排序、可分页的候选数。truncated=false 时即满足召回的精确匹配数；
@@ -174,6 +230,7 @@ class ShotSearchResponse(BaseModel):
     degradation_reasons: list[str]
     elapsed_ms: int
     query_plan_summary: dict
+    usage_stats: UsageSearchStatsOut | None = None
     parsed_query: ParsedSearchQuery
 
 

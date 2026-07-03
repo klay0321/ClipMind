@@ -8,6 +8,7 @@ import { formatDuration } from "@/lib/format";
 import type { SearchResultItem } from "@/lib/types";
 
 import { MatchScore } from "./MatchScore";
+import { UsageBadge, UsageExplanation } from "./UsageBadge";
 import { ResultMedia } from "./ResultMedia";
 import { DegradedTag, ProductMatchTag, ReviewStatusBadge, StaleBadge } from "./SearchBadges";
 
@@ -102,6 +103,11 @@ export function SearchResultCard({
             ⚠ 风险：{item.risk_warnings[0]}
             {riskCount > 1 ? ` +${riskCount - 1}` : ""}
           </div>
+        ) : null}
+
+        <UsageBadge usage={item.usage} />
+        {item.usage_adjustment != null && item.usage_adjustment !== 0 ? (
+          <UsageExplanation item={item} />
         ) : null}
 
         <div className="mt-auto flex flex-wrap items-center gap-1 pt-1">

@@ -12,6 +12,9 @@ import type {
   SearchSort,
   ShotSearchRequest,
   SuggestionType,
+  UsageMode,
+  UsagePreset,
+  UsageScope,
 } from "./types";
 
 // ---------------- 标签 ----------------
@@ -189,7 +192,29 @@ export interface SearchFormState {
   createdFrom: string;
   createdTo: string;
   includeExcluded: boolean;
+  // ---- PR-E 使用感知 ----
+  usageMode: UsageMode;
+  usageScope: UsageScope;
+  maxConfirmedUsage: string;      // 数字输入（空=未设）
+  excludeRecentDays: string;      // 数字输入（空=未设）
+  includeLegacyUnknown: boolean;
+  usagePreset: UsagePreset;
+  showUsageExplanation: boolean;
 }
+
+export const USAGE_MODE_LABELS: Record<UsageMode, string> = {
+  default: "默认排序",
+  prefer_unused: "优先未使用",
+  only_never_confirmed: "只看从未正式使用",
+  exclude_high_frequency: "排除高频素材",
+  least_recently_used: "优先久未使用",
+};
+
+export const USAGE_PRESET_LABELS: Record<UsagePreset, string> = {
+  balanced: "均衡",
+  strong_unused: "强未使用优先",
+  relevance_first: "相关性优先",
+};
 
 export const EMPTY_SEARCH_FORM: SearchFormState = {
   query: "",
@@ -216,6 +241,13 @@ export const EMPTY_SEARCH_FORM: SearchFormState = {
   createdFrom: "",
   createdTo: "",
   includeExcluded: false,
+  usageMode: "default",
+  usageScope: "combined",
+  maxConfirmedUsage: "",
+  excludeRecentDays: "",
+  includeLegacyUnknown: true,
+  usagePreset: "balanced",
+  showUsageExplanation: true,
 };
 
 /** 是否填写了除排序/分页外的任意可检索信号（决定是否允许发起搜索）。 */
@@ -241,7 +273,11 @@ export function hasSearchSignal(f: SearchFormState): boolean {
       f.createdFrom ||
       f.createdTo ||
       parseNum(f.durationMin) != null ||
-      parseNum(f.durationMax) != null,
+      parseNum(f.durationMax) != null ||
+      // 使用情况条件本身就是合法浏览信号（如"只看从未正式使用"无需查询词）
+      f.usageMode !== "default" ||
+      parseNum(f.maxConfirmedUsage) != null ||
+      parseNum(f.excludeRecentDays) != null,
   );
 }
 
@@ -272,6 +308,9 @@ export function countActiveFilters(f: SearchFormState): number {
   if (f.createdTo) n++;
   if (parseNum(f.durationMin) != null || parseNum(f.durationMax) != null) n++;
   if (f.includeExcluded) n++;
+  if (f.usageMode !== "default") n++;
+  if (parseNum(f.maxConfirmedUsage) != null) n++;
+  if (parseNum(f.excludeRecentDays) != null) n++;
   return n;
 }
 
@@ -319,6 +358,20 @@ export function buildSearchRequest(
   // created_to 把当天创建的镜头全部排除（后端用 created_at <= created_to 含上界）。
   if (f.createdFrom) req.created_from = new Date(`${f.createdFrom}T00:00:00`).toISOString();
   if (f.createdTo) req.created_to = new Date(`${f.createdTo}T23:59:59.999`).toISOString();
+  // PR-E 使用感知：default + 无阈值时全部省略（请求与旧实现完全一致）
+  const maxUsage = parseNum(f.maxConfirmedUsage);
+  const recentDays = parseNum(f.excludeRecentDays);
+  const usageActive =
+    f.usageMode !== "default" || maxUsage != null || recentDays != null;
+  if (usageActive) {
+    req.usage_mode = f.usageMode;
+    req.usage_scope = f.usageScope;
+    if (maxUsage != null) req.max_confirmed_usage_count = maxUsage;
+    if (recentDays != null) req.exclude_recently_used_days = recentDays;
+    if (!f.includeLegacyUnknown) req.include_legacy_unknown = false;
+    if (f.usagePreset !== "balanced") req.usage_preset = f.usagePreset;
+    if (!f.showUsageExplanation) req.include_usage_explanation = false;
+  }
   return req;
 }
 
@@ -338,6 +391,15 @@ export function requestToForm(req: Partial<ShotSearchRequest>): SearchFormState 
     query: req.query ?? "",
     mode: (req.search_mode as SearchMode) ?? "hybrid",
     sort: (req.sort as SearchSort) ?? "relevance",
+    usageMode: (req.usage_mode as UsageMode) ?? "default",
+    usageScope: (req.usage_scope as UsageScope) ?? "combined",
+    maxConfirmedUsage:
+      req.max_confirmed_usage_count != null ? String(req.max_confirmed_usage_count) : "",
+    excludeRecentDays:
+      req.exclude_recently_used_days != null ? String(req.exclude_recently_used_days) : "",
+    includeLegacyUnknown: req.include_legacy_unknown !== false,
+    usagePreset: (req.usage_preset as UsagePreset) ?? "balanced",
+    showUsageExplanation: req.include_usage_explanation !== false,
     productId: req.product_ids && req.product_ids.length ? req.product_ids[0] : null,
     brands: joinList(req.brands),
     models: joinList(req.models),

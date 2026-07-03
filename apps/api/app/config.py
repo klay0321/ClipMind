@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     search_parser_model: str = ""          # mimo 文本解析模型（默认 mimo-v2.5-pro）
     search_parser_timeout: float = 8.0     # 解析超时（秒），超时降级规则解析，不阻断词法
     search_candidate_pool: int = 200       # 每通道候选池上限（有界融合）
+    # PR-E：usage hard filter 触发候选扩张时的池上限（防饥饿；仍有界）
+    search_candidate_pool_max: int = 1000
 
     # PR-05 脚本拆段解析
     # ""/auto=ai(mimo) 已配置则用 mimo，否则规则拆段 | fake | rulebased | mimo

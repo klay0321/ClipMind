@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 
 from clipmind_shared.ai.embedding import EmbeddingProvider
 from clipmind_shared.ai.providers.base import ProviderError
@@ -65,6 +65,19 @@ from app.schemas.search import (
     SearchResultItem,
     ShotSearchRequest,
     ShotSearchResponse,
+    UsageInfoOut,
+    UsageReasonOut,
+    UsageSearchStatsOut,
+)
+from app.services import usage_feature_service
+from app.services.usage_feature_service import UsageFeatures
+from app.services.usage_ranking import (
+    USAGE_MODES,
+    USAGE_SCOPES,
+    compute_adjustment,
+    hard_filter_predicate,
+    has_hard_filter,
+    resolve_weights,
 )
 
 _HUMAN = (ReviewStatus.CONFIRMED.value, ReviewStatus.MODIFIED.value)
@@ -1104,6 +1117,134 @@ async def _build_items(
     return items
 
 
+def _validate_usage_params(request: ShotSearchRequest) -> None:
+    if request.usage_mode not in USAGE_MODES:
+        raise HTTPException(status_code=422, detail=f"不支持的 usage_mode: {request.usage_mode}")
+    if request.usage_scope not in USAGE_SCOPES:
+        raise HTTPException(status_code=422, detail=f"不支持的 usage_scope: {request.usage_scope}")
+    if (
+        request.usage_mode == "exclude_high_frequency"
+        and request.max_confirmed_usage_count is None
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="exclude_high_frequency 需要显式提供 max_confirmed_usage_count",
+        )
+    # 权重提前校验（NaN/Inf/越界 → 422），default 模式也校验以尽早暴露错误
+    resolve_weights(request.usage_preset, request.usage_weights)
+
+
+def _usage_ranking_active(request: ShotSearchRequest) -> bool:
+    """default 模式完全跳过 usage 重排与过滤（排序与旧实现逐位一致）。"""
+    return request.usage_mode != "default" or has_hard_filter(
+        request.usage_mode,
+        request.max_confirmed_usage_count,
+        request.min_days_since_last_use,
+        request.exclude_recently_used_days,
+    )
+
+
+@dataclass
+class _UsageApplied:
+    ordered: list[Candidate]
+    adjustments: dict[int, tuple[float, float, list]]  # sid -> (base, adj, reasons)
+    stats: UsageSearchStatsOut
+    features: dict[int, UsageFeatures]
+
+
+async def _apply_usage_ranking(
+    db: AsyncSession,
+    *,
+    ordered: list[Candidate],
+    request: ShotSearchRequest,
+    now: datetime,
+) -> _UsageApplied:
+    """usage 过滤 + 重排（相关性为主：final=base+capped adjustment；tie-break 确定）。"""
+    proj_started = time.perf_counter()
+    features = await usage_feature_service.batch_features(
+        db, [c.shot_id for c in ordered]
+    )
+    weights = resolve_weights(request.usage_preset, request.usage_weights)
+    keep = hard_filter_predicate(
+        mode=request.usage_mode,
+        max_confirmed_usage_count=request.max_confirmed_usage_count,
+        min_days_since_last_use=request.min_days_since_last_use,
+        exclude_recently_used_days=request.exclude_recently_used_days,
+        now=now,
+    )
+    kept: list[Candidate] = []
+    filtered = 0
+    adjustments: dict[int, tuple[float, float, list]] = {}
+    for c in ordered:
+        f = features.get(c.shot_id) or UsageFeatures(shot_id=c.shot_id)
+        if not keep(f):
+            filtered += 1
+            continue
+        adj, reasons = compute_adjustment(
+            f,
+            weights=weights,
+            mode=request.usage_mode,
+            scope=request.usage_scope,
+            include_legacy_unknown=request.include_legacy_unknown,
+            now=now,
+        )
+        adjustments[c.shot_id] = (c.final_score, adj, reasons)
+        kept.append(c)
+    if request.usage_mode != "default":
+        # 重排：final=base+adj；tie-break (final desc, base desc, shot_id asc) 全序确定
+        kept.sort(
+            key=lambda c: (
+                -(adjustments[c.shot_id][0] + adjustments[c.shot_id][1]),
+                -adjustments[c.shot_id][0],
+                c.shot_id,
+            )
+        )
+    stats = UsageSearchStatsOut(
+        requested_top_k=request.page * request.page_size,
+        candidate_pool_size=len(ordered),
+        filtered_count=filtered,
+        returned_count=len(kept),
+        usage_projection_ms=int((time.perf_counter() - proj_started) * 1000),
+    )
+    return _UsageApplied(ordered=kept, adjustments=adjustments, stats=stats, features=features)
+
+
+def _attach_usage(
+    items: list[SearchResultItem],
+    features: dict[int, UsageFeatures],
+    adjustments: dict[int, tuple[float, float, list]],
+    now: datetime,
+    request: ShotSearchRequest,
+) -> None:
+    """把使用特征/调整/解释附到结果项（不覆盖原始相似度字段与 score）。"""
+    for item in items:
+        f = features.get(item.shot_id)
+        base, adj, reasons = adjustments.get(item.shot_id, (item.score, 0.0, []))
+        item.base_score = round(base, 6)
+        item.usage_adjustment = round(adj, 6)
+        item.final_score = round(base + adj, 6)
+        if not request.include_usage_explanation:
+            continue
+        if f is not None:
+            item.usage = UsageInfoOut(
+                shot_confirmed_usage_count=f.shot_confirmed_usage_count,
+                shot_distinct_final_video_count=f.shot_distinct_final_video_count,
+                asset_confirmed_usage_count=f.asset_confirmed_usage_count,
+                asset_distinct_final_video_count=f.asset_distinct_final_video_count,
+                asset_used_shot_count=f.asset_used_shot_count,
+                asset_total_current_shot_count=f.asset_total_current_shot_count,
+                last_confirmed_used_at=f.shot_last_confirmed_used_at,
+                days_since_last_confirmed_use=f.days_since_last_confirmed_use(now),
+                accepted_legacy_evidence_count=f.accepted_legacy_evidence_count,
+                pending_formal_count=f.pending_formal_count,
+                usage_state=f.usage_state,
+            )
+        item.usage_reasons = [
+            UsageReasonOut(code=r.code, adjustment=r.adjustment, message=r.message)
+            for r in reasons
+        ]
+
+
 async def run_shot_search(
     db: AsyncSession,
     request: ShotSearchRequest,
@@ -1113,31 +1254,91 @@ async def run_shot_search(
     settings: Settings,
 ) -> ShotSearchResponse:
     started = time.perf_counter()
+    _validate_usage_params(request)
     parsed = await run_in_threadpool(parser.parse, request.query or "")
     m = _merge(parsed, request)
     _validate_conflicts(m)
     pool = max(settings.search_candidate_pool, request.page * request.page_size)
+    now = datetime.now(UTC)
 
-    plan = await _plan_search(
-        db,
-        parsed=parsed,
-        m=m,
-        mode=request.search_mode,
-        embedding_provider=embedding_provider,
-        settings=settings,
-        pool=pool,
+    usage_active = _usage_ranking_active(request)
+    hard_filtering = has_hard_filter(
+        request.usage_mode,
+        request.max_confirmed_usage_count,
+        request.min_days_since_last_use,
+        request.exclude_recently_used_days,
     )
+    pool_max = max(settings.search_candidate_pool_max, pool)
+    need = request.page * request.page_size
+    expansion_rounds = 0
+    limit_reached = False
 
-    ordered = _reorder(plan.candidates, request.sort, plan.enrich)
+    while True:
+        plan = await _plan_search(
+            db,
+            parsed=parsed,
+            m=m,
+            mode=request.search_mode,
+            embedding_provider=embedding_provider,
+            settings=settings,
+            pool=pool,
+        )
+        ordered = _reorder(plan.candidates, request.sort, plan.enrich)
+        usage_applied: _UsageApplied | None = None
+        if usage_active:
+            usage_applied = await _apply_usage_ranking(
+                db, ordered=ordered, request=request, now=now
+            )
+            ordered = usage_applied.ordered
+            # 防饥饿：hard filter 吃掉候选且池被截断（可能还有匹配未进池）→ 扩张重跑
+            if (
+                hard_filtering
+                and len(ordered) < need
+                and plan.truncated
+                and pool < pool_max
+                and expansion_rounds < 3
+            ):
+                pool = min(pool * 2, pool_max)
+                expansion_rounds += 1
+                continue
+            limit_reached = (
+                hard_filtering
+                and len(ordered) < need
+                and plan.truncated
+                and (pool >= pool_max or expansion_rounds >= 3)
+            )
+        break
+
+    total = len(ordered) if usage_active else plan.total
     page_cands = paginate(ordered, request.page, request.page_size)
     items = await _build_items(
         db, page_cands=page_cands, parsed=parsed, m=m, products=plan.products, enrich=plan.enrich
     )
 
+    usage_stats: UsageSearchStatsOut | None = None
+    if usage_active:
+        _attach_usage(items, usage_applied.features, usage_applied.adjustments, now, request)
+        usage_stats = usage_applied.stats
+        usage_stats.returned_count = len(ordered)
+        usage_stats.expansion_rounds = expansion_rounds
+        usage_stats.candidate_limit_reached = limit_reached
+    elif request.include_usage_explanation:
+        # default + 展示：只对页内投影（省查询）；adjustment 恒 0
+        page_features = await usage_feature_service.batch_features(
+            db, [c.shot_id for c in page_cands]
+        )
+        _attach_usage(items, page_features, {}, now, request)
+        usage_stats = UsageSearchStatsOut(
+            requested_top_k=need,
+            candidate_pool_size=len(plan.candidates),
+            filtered_count=0,
+            returned_count=len(ordered),
+        )
+
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     return ShotSearchResponse(
         items=items,
-        total=plan.total,
+        total=total,
         filtered_total=plan.filtered_total,
         truncated=plan.truncated,
         page=request.page,
@@ -1150,6 +1351,7 @@ async def run_shot_search(
         degradation_reasons=plan.reasons,
         elapsed_ms=elapsed_ms,
         query_plan_summary=plan.plan_summary,
+        usage_stats=usage_stats,
         parsed_query=parsed,
     )
 

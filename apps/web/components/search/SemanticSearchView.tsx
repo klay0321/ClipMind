@@ -26,6 +26,7 @@ import { DegradedNotice } from "./DegradedNotice";
 import { SavedSearchPanel } from "./SavedSearchPanel";
 import { SearchBar } from "./SearchBar";
 import { SearchResultCard } from "./SearchResultCard";
+import { UsageModePills } from "./UsageControls";
 
 const SORTS: SearchSort[] = ["relevance", "latest", "duration", "quality"];
 const PAGE_SIZE = 24;
@@ -143,6 +144,16 @@ export function SemanticSearchView({
         onSubmit={submit}
         onClear={clear}
         loading={q.isFetching}
+      />
+
+      <UsageModePills
+        value={form.usageMode}
+        onSelect={(m) => {
+          const next = { ...form, usageMode: m };
+          setForm(next);
+          // 快捷模式点击即提交（有已提交条件时立即重跑第 1 页）
+          if (committed) commit(next, 1);
+        }}
       />
 
       <AdvancedFilters

@@ -8,6 +8,8 @@ import { ASPECT_RATIO_OPTIONS, REVIEW_STATUS_LABELS, countActiveFilters } from "
 import type { SearchFormState, StaleFilter } from "@/lib/search";
 import type { AspectRatioValue, ReviewStatus } from "@/lib/types";
 
+import { UsageAdvancedFilters } from "./UsageControls";
+
 const REVIEW_OPTIONS: ReviewStatus[] = [
   "unreviewed",
   "pending_review",
@@ -322,6 +324,8 @@ export function AdvancedFilters({
               包含已排除镜头（已驳回 / 无法判断 / 非当前代次）—— 仅排查用，结果可能含不可用镜头
             </label>
           </div>
+
+          <UsageAdvancedFilters form={form} onChange={onChange} />
 
           <div className="flex justify-end gap-2 border-t border-gray-100 pt-2">
             <button

@@ -27,6 +27,8 @@ TASK_EXPORT_SCRIPT_CSV = "clipmind.export_script_csv"
 TASK_EXPORT_BUNDLE = "clipmind.export_bundle"
 # PR-C 分级指纹计算（scan 队列：顺序读 NAS，批量任务内部串行限并发）
 TASK_FINGERPRINT_JOB = "clipmind.fingerprint_job"
+# PR-C Gate B 历史证据导入（default 队列：只读 AssetLocation，零文件 IO）
+TASK_LEGACY_IMPORT = "clipmind.legacy_usage_import"
 
 # ----- Celery 队列名 -----
 # PR-01 worker 只消费 default + scan；media/ai/export 为后续 PR 预留（不运行）

@@ -141,7 +141,7 @@ def upload_video(local_path: str, filename: str) -> int:
 
 def wait_asset(filename: str, sd_id: int | None = None, *, status="indexed") -> dict:
     deadline = time.time() + 300
-    rescan_at = time.time() + 60
+    rescan_at = time.time() + 45
 
     def find():
         q = urllib.parse.quote(filename)
@@ -156,8 +156,11 @@ def wait_asset(filename: str, sd_id: int | None = None, *, status="indexed") -> 
         if item is not None:
             return item
         if sd_id is not None and time.time() >= rescan_at:
+            # 周期性重扫（非一次性）：上传若撞上仍在跑的旧 scan run，
+            # POST 会被幂等合并进旧 run（其目录快照不含新文件）；
+            # 旧 run 结束后的下一次 POST 才会真正开新 run 扫到新文件。
             _req("POST", f"/api/source-directories/{sd_id}/scan")
-            rescan_at = deadline
+            rescan_at = time.time() + 45
         time.sleep(3)
     print(f"E2E FAIL: 等待素材 {filename} 超时", file=sys.stderr)
     sys.exit(1)
@@ -244,16 +247,18 @@ def run_full() -> None:
     c_name = f"{PREFIX}-c-{tag}.mp4"
     fin_name = f"{PREFIX}-final-{tag}.mp4"
 
-    # 1) 上传 A/B/C + 成片文件 → 索引
+    # 1) 上传 A/B/C + 成片文件 → 显式扫描（等前序活动 run 结束再开新 run，
+    #    避免上传撞上旧 run 被幂等合并而错过快照）→ 索引
     make_video(os.path.join(tmp, "a.mp4"), ["red", "blue"])
     make_video(os.path.join(tmp, "b.mp4"), ["yellow"])
     make_video(os.path.join(tmp, "c.mp4"), ["gray"])
     make_video(os.path.join(tmp, "f.mp4"), ["green"])
     sd_id = upload_video(os.path.join(tmp, "a.mp4"), a_name)
-    asset_a = wait_asset(a_name, sd_id)
     upload_video(os.path.join(tmp, "b.mp4"), b_name)
     upload_video(os.path.join(tmp, "c.mp4"), c_name)
     upload_video(os.path.join(tmp, "f.mp4"), fin_name)
+    scan_and_wait(sd_id)
+    asset_a = wait_asset(a_name, sd_id)
     asset_b = wait_asset(b_name, sd_id)
     asset_c = wait_asset(c_name, sd_id)
     fin = wait_asset(fin_name, sd_id)

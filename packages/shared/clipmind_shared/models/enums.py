@@ -520,3 +520,46 @@ FINGERPRINT_KINDS: tuple[str, ...] = ("quick", "full")
 FINGERPRINT_JOB_STATUSES: tuple[str, ...] = (
     "queued", "running", "completed", "partial", "failed",
 )
+
+
+# ============================================================
+# PR-C Gate B 历史"已使用"路径证据（受控 String 白名单，免迁移扩展）
+# ============================================================
+
+# LegacyUsageRule.match_target（本阶段不支持任意正则 —— 无 ReDoS 面）
+LEGACY_MATCH_TARGETS: tuple[str, ...] = (
+    "directory_segment",  # 路径目录段（逐段匹配，不含文件名）
+    "filename",           # 完整文件名
+    "filename_stem",      # 去扩展名的文件名
+    "extension",          # 小写扩展名（不含点）
+    "relative_path",      # 整条归一化相对路径
+)
+# LegacyUsageRule.match_operator（纯字符串算子）
+LEGACY_MATCH_OPERATORS: tuple[str, ...] = (
+    "equals", "contains", "starts_with", "ends_with",
+)
+
+# LegacyUsageImportRun.status
+LEGACY_IMPORT_RUN_STATUSES: tuple[str, ...] = (
+    "pending", "running", "completed", "completed_with_errors", "failed", "cancelled",
+)
+
+# LegacyUsageEvidence.evidence_type / review_status
+LEGACY_EVIDENCE_TYPES: tuple[str, ...] = ("directory_marker", "filename_marker")
+LEGACY_REVIEW_STATUSES: tuple[str, ...] = ("pending", "accepted", "rejected", "conflict")
+
+# LegacyUsageEvidenceEvent.action（append-only）
+LEGACY_EVIDENCE_EVENT_ACTIONS: tuple[str, ...] = (
+    "detected", "observed_again", "accepted", "rejected",
+    "marked_conflict", "reset_to_pending", "bulk_accepted", "bulk_rejected",
+)
+
+# Asset 派生的历史使用状态（summary 只读字段；优先级 conflict > accepted >
+# pending > rejected > none —— accepted 显示 legacy_used_unknown：次数仍未知）
+LEGACY_USAGE_STATES: tuple[str, ...] = (
+    "no_legacy_evidence",
+    "legacy_evidence_pending",
+    "legacy_used_unknown",
+    "legacy_evidence_rejected",
+    "legacy_evidence_conflict",
+)

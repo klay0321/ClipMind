@@ -58,12 +58,19 @@ class UsageFeatures:
     usage_state: str = "never_confirmed_used"
 
     def days_since_last_confirmed_use(self, now: datetime) -> float | None:
+        """距最近 confirmed 使用的**整天数**（floor）。
+
+        PR-E.1：量化到天粒度——连续小数天会让 recent/lru 调整随每次请求的
+        now 微变，同分候选在临界点排序翻转（同一请求重复执行顺序不稳）。
+        整数天与产品语义（"N 天没用"）一致；同一天内所有请求特征恒定，
+        跨天变化是"越久未用越优先"的预期业务推移。
+        """
         if self.shot_last_confirmed_used_at is None:
             return None
         ts = self.shot_last_confirmed_used_at
         if ts.tzinfo is None:
             ts = ts.replace(tzinfo=UTC)
-        return max(0.0, (now - ts).total_seconds() / 86400.0)
+        return max(0.0, float(int((now - ts).total_seconds() // 86400)))
 
 
 def _derive_state(f: UsageFeatures) -> str:

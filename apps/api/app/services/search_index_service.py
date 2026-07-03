@@ -230,10 +230,11 @@ async def get_suggestions(db: AsyncSession, q: str | None, limit: int) -> Sugges
             seen.add(key)
             out.append(SearchSuggestion(value=value, type=type_))
 
-    # 产品名
+    # 产品名（PR-E.1：LIMIT 必须配确定 ORDER BY，否则行序随执行计划漂移）
     pstmt = select(Product.name, Product.brand).where(Product.status == ProductStatus.ACTIVE)
     if nq:
         pstmt = pstmt.where(Product.normalized_name.like(f"%{nq}%"))
+    pstmt = pstmt.order_by(Product.normalized_name, Product.id)
     for name, brand in (await db.execute(pstmt.limit(limit))).all():
         add(name, "product")
         if brand:
@@ -243,6 +244,7 @@ async def get_suggestions(db: AsyncSession, q: str | None, limit: int) -> Sugges
     astmt = select(ProductAlias.alias)
     if nq:
         astmt = astmt.where(ProductAlias.normalized_alias.like(f"%{nq}%"))
+    astmt = astmt.order_by(ProductAlias.normalized_alias, ProductAlias.id)
     for (alias,) in (await db.execute(astmt.limit(limit))).all():
         add(alias, "product")
 
@@ -259,6 +261,7 @@ async def get_suggestions(db: AsyncSession, q: str | None, limit: int) -> Sugges
     )
     if nq:
         tstmt = tstmt.where(Tag.normalized_name.like(f"%{nq}%"))
+    tstmt = tstmt.order_by(Tag.normalized_name, Tag.id)
     for tname, ttype in (await db.execute(tstmt.limit(limit * 2))).all():
         add(tname, type_map.get(ttype, "tag"))
 

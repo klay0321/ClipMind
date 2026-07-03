@@ -95,6 +95,14 @@ describe("UsageEvidenceView 待审核", () => {
     );
   });
 
+  it("展示证据来源规则版本（快照冻结）", () => {
+    vi.mocked(hooks.useLegacyEvidence).mockReturnValue(
+      listData([makeEvidence({ rule_version: 3 })]),
+    );
+    render(<UsageEvidenceView />);
+    expect(screen.getByTestId("evidence-rule-version-11")).toHaveTextContent("v3");
+  });
+
   it("对照列展示正式使用（confirmed 独立于证据）", () => {
     vi.mocked(hooks.useLegacyEvidence).mockReturnValue(
       listData([makeEvidence({ confirmed_usage_count: 2 })]),
@@ -110,6 +118,7 @@ describe("UsageEvidenceView 规则管理", () => {
     render(<UsageEvidenceView />);
     await user.click(screen.getByTestId("tab-rules"));
     const row = screen.getByTestId("rule-row-1");
+    expect(screen.getByTestId("rule-version-1")).toHaveTextContent("v1");
     expect(row).toHaveTextContent("目录名");
     expect(row).toHaveTextContent("等于");
     expect(row).toHaveTextContent("historical-marker");

@@ -85,6 +85,9 @@ export function RulesPanel() {
                   <td className="max-w-[200px] px-3 py-2">
                     <div className="truncate font-medium text-gray-800" title={rule.name}>
                       {rule.name}
+                      <span className="ml-1 text-xs font-normal text-gray-400" data-testid={`rule-version-${rule.id}`}>
+                        v{rule.version}
+                      </span>
                     </div>
                     {rule.description ? (
                       <div className="truncate text-xs text-gray-400" title={rule.description}>

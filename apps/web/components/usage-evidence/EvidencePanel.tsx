@@ -193,6 +193,9 @@ export function EvidencePanel({ mode }: { mode: "pending" | "reviewed" }) {
                     </td>
                     <td className="max-w-[140px] truncate px-3 py-2 text-xs text-gray-500" title={ev.rule_name ?? undefined}>
                       {ev.rule_name ?? "（规则已删除）"}
+                      <span className="ml-1 text-gray-400" data-testid={`evidence-rule-version-${ev.id}`}>
+                        v{ev.rule_version}
+                      </span>
                     </td>
                     <td className="px-3 py-2 text-gray-600">{ev.observation_count}</td>
                     <td className="px-3 py-2 text-xs text-gray-500">

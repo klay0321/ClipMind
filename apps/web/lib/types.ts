@@ -2235,6 +2235,9 @@ export interface LegacyUsageRule {
   include_historical_locations: boolean;
   enabled: boolean;
   priority: number;
+  // 语义版本（影响匹配语义的修改 +1；展示字段修改不加）
+  version: number;
+  snapshot_hash: string | null;
   created_at: string;
   updated_at: string;
   archived_at: string | null;
@@ -2340,6 +2343,8 @@ export interface LegacyEvidence {
   source_root_name: string | null;
   rule_id: number | null;
   rule_name: string | null;
+  // 证据来源规则的语义版本（快照冻结）
+  rule_version: number;
   evidence_type: string;
   matched_target: LegacyMatchTarget;
   matched_component: string;

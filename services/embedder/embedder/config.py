@@ -29,6 +29,15 @@ class EmbedderSettings(BaseSettings):
     # 本服务不加 E5 前缀、不归一化（由调用端 provider 负责）
     embedder_normalize: bool = False
 
+    # PR-F 视觉嵌入（实验）：惰性加载——只有首个 /visual-embeddings 请求才
+    # 下载/加载权重（CI 与纯文本部署永不触发）。权重落 cache_dir 卷，不进镜像。
+    visual_model: str = "google/siglip-base-patch16-224"  # Apache-2.0
+    visual_model_revision: str = ""  # 可选固定 revision
+    visual_dimension: int = 768
+    visual_device: str = "cpu"
+    visual_max_batch: int = 8
+    visual_max_image_bytes: int = 20 * 1024 * 1024
+
     log_level: str = "INFO"
 
 

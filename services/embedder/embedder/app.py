@@ -74,6 +74,138 @@ def ready() -> dict[str, Any]:
     raise HTTPException(status_code=503, detail=_state["error"] or "模型加载中")
 
 
+# ---------------- PR-F 视觉嵌入（实验；惰性单例加载） ----------------
+# 与文本 e5 完全独立：不影响启动、/ready 与文本端点；只有首个视觉请求才加载
+# 权重（下载至 cache_dir 卷）。加载失败显式 503 并保留原因，绝不静默回退。
+
+_visual_state: dict[str, Any] = {"model": None, "processor": None, "ready": False,
+                                 "error": None, "loading": False}
+_visual_lock = threading.Lock()
+
+
+class VisualEmbeddingRequest(BaseModel):
+    images: list[str]  # base64（不落盘、不记录内容）
+    model: str | None = None
+
+
+def _load_visual_model() -> None:
+    settings = get_settings()
+    try:
+        import torch  # noqa: F401 —— 校验 torch 可用
+
+        # 只加载视觉塔：图像嵌入不需要文本塔/tokenizer（避免 SentencePiece 依赖，
+        # 内存也减半）。SigLIP 视觉 pooler 输出即对齐空间向量（无独立投影层）。
+        from transformers import SiglipImageProcessor, SiglipVisionModel
+
+        kwargs: dict[str, Any] = {"cache_dir": settings.embedder_cache_dir}
+        if settings.visual_model_revision:
+            kwargs["revision"] = settings.visual_model_revision
+        processor = SiglipImageProcessor.from_pretrained(settings.visual_model, **kwargs)
+        model = SiglipVisionModel.from_pretrained(settings.visual_model, **kwargs)
+        model = model.to(settings.visual_device)
+        model.eval()
+        with _visual_lock:
+            _visual_state.update(model=model, processor=processor, ready=True, loading=False)
+        logger.info("视觉模型已加载: %s", settings.visual_model)
+    except Exception as exc:  # noqa: BLE001
+        with _visual_lock:
+            _visual_state.update(error=f"{type(exc).__name__}: {exc}", loading=False)
+        logger.error("视觉模型加载失败: %s", type(exc).__name__)
+
+
+def _ensure_visual_loading() -> None:
+    with _visual_lock:
+        if _visual_state["ready"] or _visual_state["loading"] or _visual_state["error"]:
+            return
+        _visual_state["loading"] = True
+    threading.Thread(target=_load_visual_model, name="visual-load", daemon=True).start()
+
+
+@app.get("/visual-ready")
+def visual_ready() -> dict[str, Any]:
+    """视觉模型状态（不触发加载）。"""
+    s = get_settings()
+    return {
+        "ready": bool(_visual_state["ready"]),
+        "loading": bool(_visual_state["loading"]),
+        "error": _visual_state["error"],
+        "model": s.visual_model,
+        "dimension": s.visual_dimension,
+        "device": s.visual_device,
+    }
+
+
+@app.post("/visual-embeddings")
+def visual_embeddings(req: VisualEmbeddingRequest) -> dict[str, Any]:
+    """图片批量嵌入：base64 → 统一预处理（解码/RGB/resize/归一化/batch）→
+    L2 归一化向量。首次调用触发惰性加载（加载中返回 503 + retry 提示）。"""
+    import base64 as b64
+    import io
+
+    settings = get_settings()
+    if not req.images:
+        raise HTTPException(status_code=400, detail="images 不能为空")
+    if len(req.images) > settings.visual_max_batch:
+        raise HTTPException(
+            status_code=400,
+            detail=f"批量超限：{len(req.images)} > {settings.visual_max_batch}",
+        )
+    _ensure_visual_loading()
+    if not _visual_state["ready"]:
+        detail = _visual_state["error"] or "视觉模型加载中，请稍后重试"
+        raise HTTPException(status_code=503, detail=detail)
+
+    from PIL import Image
+
+    pil_images = []
+    for idx, payload in enumerate(req.images):
+        try:
+            raw = b64.b64decode(payload, validate=True)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail=f"图片 {idx} base64 非法") from exc
+        if len(raw) > settings.visual_max_image_bytes:
+            raise HTTPException(status_code=400, detail=f"图片 {idx} 超过大小上限")
+        try:
+            img = Image.open(io.BytesIO(raw))
+            img.load()
+            pil_images.append(img.convert("RGB"))
+        except Exception as exc:  # noqa: BLE001 —— 解码失败必须显式报错，绝不产生零向量
+            raise HTTPException(
+                status_code=422, detail=f"图片 {idx} 解码失败: {type(exc).__name__}"
+            ) from exc
+
+    import torch
+
+    model = _visual_state["model"]
+    processor = _visual_state["processor"]
+    try:
+        with torch.no_grad():
+            inputs = processor(images=pil_images, return_tensors="pt").to(
+                settings.visual_device
+            )
+            feats = model(**inputs).pooler_output  # SiglipVisionModel 视觉塔输出
+            feats = torch.nn.functional.normalize(feats, p=2, dim=-1)
+    except Exception as exc:  # noqa: BLE001 - OOM/推理错误统一 500，安全失败
+        logger.error("视觉推理失败: %s", type(exc).__name__)
+        raise HTTPException(status_code=500, detail=f"视觉推理失败: {type(exc).__name__}") from exc
+
+    data = [
+        {"object": "embedding", "index": i, "embedding": vec.tolist()}
+        for i, vec in enumerate(feats.cpu())
+    ]
+    if data and len(data[0]["embedding"]) != settings.visual_dimension:
+        raise HTTPException(
+            status_code=500,
+            detail=f"维度不符：{len(data[0]['embedding'])} != {settings.visual_dimension}",
+        )
+    return {
+        "object": "list",
+        "data": data,
+        "model": settings.visual_model,
+        "dimension": settings.visual_dimension,
+    }
+
+
 @app.post("/embeddings")
 def embeddings(req: EmbeddingRequest) -> dict[str, Any]:
     settings = get_settings()

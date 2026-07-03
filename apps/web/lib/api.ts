@@ -165,6 +165,24 @@ import type {
   UsageEvent,
   UsageOccurrence,
 } from "./types";
+import type {
+  AssetLegacySummary,
+  LegacyBulkReviewRequest,
+  LegacyBulkReviewResult,
+  LegacyEvidence,
+  LegacyEvidenceEvent,
+  LegacyEvidenceListResponse,
+  LegacyImportRequest,
+  LegacyImportRun,
+  LegacyImportRunListResponse,
+  LegacyPreview,
+  LegacyReviewActionRequest,
+  LegacyReviewStatus,
+  LegacyRuleCreateRequest,
+  LegacyRuleListResponse,
+  LegacyRuleUpdateRequest,
+  LegacyUsageRule,
+} from "./types";
 
 // 入驻审核动作 → 后端路径段（受控映射，不拼接任意字符串）
 export const ONBOARDING_ACTION_PATHS = {
@@ -1395,6 +1413,98 @@ export const api = {
     return http<PageResult<Shot>>(
       `/assets/${assetId}/shots?page=1&page_size=100&generation=${generation}`,
     );
+  },
+
+  // ===== PR-C Gate B 历史使用证据（弱证据；绝不影响 confirmed 统计） =====
+  listLegacyRules(includeArchived = false): Promise<LegacyRuleListResponse> {
+    return http<LegacyRuleListResponse>(
+      `/legacy-usage-rules?include_archived=${includeArchived}`,
+    );
+  },
+  createLegacyRule(payload: LegacyRuleCreateRequest): Promise<LegacyUsageRule> {
+    return http<LegacyUsageRule>(`/legacy-usage-rules`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  updateLegacyRule(id: number, payload: LegacyRuleUpdateRequest): Promise<LegacyUsageRule> {
+    return http<LegacyUsageRule>(`/legacy-usage-rules/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+  },
+  legacyRuleAction(
+    id: number,
+    action: "enable" | "disable" | "archive" | "restore",
+  ): Promise<LegacyUsageRule> {
+    return http<LegacyUsageRule>(`/legacy-usage-rules/${id}/${action}`, {
+      method: "POST",
+    });
+  },
+  previewLegacyImport(payload: LegacyImportRequest): Promise<LegacyPreview> {
+    return http<LegacyPreview>(`/legacy-usage-imports/preview`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  createLegacyImport(payload: LegacyImportRequest): Promise<LegacyImportRun> {
+    return http<LegacyImportRun>(`/legacy-usage-imports`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  listLegacyImports(page = 1, pageSize = 20): Promise<LegacyImportRunListResponse> {
+    return http<LegacyImportRunListResponse>(
+      `/legacy-usage-imports?page=${page}&page_size=${pageSize}`,
+    );
+  },
+  getLegacyImport(id: number): Promise<LegacyImportRun> {
+    return http<LegacyImportRun>(`/legacy-usage-imports/${id}`);
+  },
+  cancelLegacyImport(id: number): Promise<LegacyImportRun> {
+    return http<LegacyImportRun>(`/legacy-usage-imports/${id}/cancel`, {
+      method: "POST",
+    });
+  },
+  listLegacyEvidence(query: {
+    page: number;
+    page_size: number;
+    review_status?: LegacyReviewStatus;
+    asset_id?: number;
+    rule_id?: number;
+  }): Promise<LegacyEvidenceListResponse> {
+    const p = new URLSearchParams();
+    p.set("page", String(query.page));
+    p.set("page_size", String(query.page_size));
+    if (query.review_status) p.set("review_status", query.review_status);
+    if (query.asset_id != null) p.set("asset_id", String(query.asset_id));
+    if (query.rule_id != null) p.set("rule_id", String(query.rule_id));
+    return http<LegacyEvidenceListResponse>(`/legacy-usage-evidence?${p.toString()}`);
+  },
+  legacyEvidenceAction(
+    id: number,
+    action: "accept" | "reject" | "mark-conflict" | "reset",
+    payload: LegacyReviewActionRequest = {},
+  ): Promise<LegacyEvidence> {
+    return http<LegacyEvidence>(`/legacy-usage-evidence/${id}/${action}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  legacyBulkReview(
+    action: "bulk-accept" | "bulk-reject",
+    payload: LegacyBulkReviewRequest,
+  ): Promise<LegacyBulkReviewResult> {
+    return http<LegacyBulkReviewResult>(`/legacy-usage-evidence/${action}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  listLegacyEvidenceEvents(id: number): Promise<{ items: LegacyEvidenceEvent[] }> {
+    return http<{ items: LegacyEvidenceEvent[] }>(`/legacy-usage-evidence/${id}/events`);
+  },
+  getAssetLegacySummary(assetId: number): Promise<AssetLegacySummary> {
+    return http<AssetLegacySummary>(`/assets/${assetId}/legacy-usage-summary`);
   },
 };
 

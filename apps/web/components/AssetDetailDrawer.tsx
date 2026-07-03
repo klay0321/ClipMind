@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import { AssetIdentityPanel } from "@/components/assets/AssetIdentityPanel";
 import { ProcessingChain } from "@/components/assets/ProcessingChain";
+import { AssetLegacyPanel } from "@/components/usage-evidence/AssetLegacyPanel";
 import { AssetStatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
@@ -116,6 +117,9 @@ export function AssetDetailDrawer({
 
         {/* PR-C：素材身份 / 文件位置历史 / 分析代次（只读派生） */}
         <AssetIdentityPanel assetId={asset.id} onOpenShot={onPreview} />
+
+        {/* PR-C Gate B：历史使用证据（弱证据只读区；绝不显示"已使用 N 次"） */}
+        <AssetLegacyPanel assetId={asset.id} />
       </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-4">

@@ -124,7 +124,11 @@ def make_video(path: str, colors: list[str], seg_seconds: float = 2.5) -> None:
         sys.exit(1)
 
 
-def upload_video(local_path: str, filename: str) -> int:
+def upload_video(local_path: str, filename: str) -> tuple[int, str]:
+    """上传并返回 (source_directory_id, 服务端实际落盘文件名)。
+
+    以服务端返回名为准（重名去重会追加后缀），并打印响应便于 CI 诊断。
+    """
     boundary = uuid.uuid4().hex
     with open(local_path, "rb") as f:
         content = f.read()
@@ -136,7 +140,10 @@ def upload_video(local_path: str, filename: str) -> int:
         "POST", "/api/uploads", raw=body,
         content_type=f"multipart/form-data; boundary={boundary}", expect=(202,),
     )
-    return int(res["source_directory_id"])
+    print(f"[upload] {res.get('filename')} bytes={res.get('bytes')} "
+          f"sd={res.get('source_directory_id')} scan_run={res.get('scan_run_id')}")
+    check(int(res.get("bytes") or 0) > 0, f"上传字节数为 0: {res}")
+    return int(res["source_directory_id"]), str(res["filename"])
 
 
 def wait_asset(filename: str, sd_id: int | None = None, *, status="indexed") -> dict:
@@ -162,6 +169,10 @@ def wait_asset(filename: str, sd_id: int | None = None, *, status="indexed") -> 
             _req("POST", f"/api/source-directories/{sd_id}/scan")
             rescan_at = time.time() + 45
         time.sleep(3)
+    if sd_id is not None:
+        st, s = _req("GET", f"/api/source-directories/{sd_id}/status")
+        print(f"E2E DIAG: sd={sd_id} status={st} latest_run={s.get('latest_run')}",
+              file=sys.stderr)
     print(f"E2E FAIL: 等待素材 {filename} 超时", file=sys.stderr)
     sys.exit(1)
 
@@ -183,6 +194,10 @@ def scan_and_wait(sd_id: int) -> None:
         desc=f"扫描 root={sd_id}",
     )
     check(done["latest_run"]["status"] == "completed", f"扫描失败: {done['latest_run']}")
+    lr = done["latest_run"]
+    print(f"[scan] run={lr.get('id')} discovered={lr.get('files_discovered')} "
+          f"new={lr.get('files_new')} missing={lr.get('files_missing')} "
+          f"errored={lr.get('files_errored')}")
 
 
 def run_fingerprint(asset_id: int, kind: str) -> None:
@@ -249,14 +264,17 @@ def run_full() -> None:
 
     # 1) 上传 A/B/C + 成片文件 → 显式扫描（等前序活动 run 结束再开新 run，
     #    避免上传撞上旧 run 被幂等合并而错过快照）→ 索引
-    make_video(os.path.join(tmp, "a.mp4"), ["red", "blue"])
-    make_video(os.path.join(tmp, "b.mp4"), ["yellow"])
-    make_video(os.path.join(tmp, "c.mp4"), ["gray"])
-    make_video(os.path.join(tmp, "f.mp4"), ["green"])
-    sd_id = upload_video(os.path.join(tmp, "a.mp4"), a_name)
-    upload_video(os.path.join(tmp, "b.mp4"), b_name)
-    upload_video(os.path.join(tmp, "c.mp4"), c_name)
-    upload_video(os.path.join(tmp, "f.mp4"), fin_name)
+    # tag 作为颜色段混入内容：ffmpeg 合成是字节确定性的，若与其他 E2E 的
+    # 视频同字节，会被 PR-C 复制/歧义检测挂为已有 Asset 的位置而不建新 Asset
+    uniq = f"#{tag}"  # uuid hex[:6] 恰为合法 RGB
+    make_video(os.path.join(tmp, "a.mp4"), ["red", "blue", uniq])
+    make_video(os.path.join(tmp, "b.mp4"), ["yellow", uniq])
+    make_video(os.path.join(tmp, "c.mp4"), ["gray", uniq])
+    make_video(os.path.join(tmp, "f.mp4"), ["green", uniq])
+    sd_id, a_name = upload_video(os.path.join(tmp, "a.mp4"), a_name)
+    _, b_name = upload_video(os.path.join(tmp, "b.mp4"), b_name)
+    _, c_name = upload_video(os.path.join(tmp, "c.mp4"), c_name)
+    _, fin_name = upload_video(os.path.join(tmp, "f.mp4"), fin_name)
     scan_and_wait(sd_id)
     asset_a = wait_asset(a_name, sd_id)
     asset_b = wait_asset(b_name, sd_id)

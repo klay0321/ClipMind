@@ -65,6 +65,10 @@ async def client(engine, monkeypatch):
         "app.services.identity_service.enqueue_fingerprint_job", lambda jid: f"fptask-{jid}"
     )
     monkeypatch.setattr(
+        "app.services.legacy_evidence_service.enqueue_legacy_import",
+        lambda rid: f"lutask-{rid}",
+    )
+    monkeypatch.setattr(
         "app.routers.review.enqueue_rebuild_shot_search_doc", lambda sid: f"searchtask-{sid}"
     )
 

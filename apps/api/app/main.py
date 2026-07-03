@@ -21,6 +21,7 @@ from app.routers import (
     final_video_usages,
     final_videos,
     health,
+    legacy_evidence,
     product_attributes,
     product_catalog,
     product_governance,
@@ -87,3 +88,7 @@ app.include_router(final_videos.router, prefix="/api")
 app.include_router(final_video_usages.router, prefix="/api")
 app.include_router(final_video_usages.occurrence_router, prefix="/api")
 app.include_router(final_video_usages.summary_router, prefix="/api")
+# PR-C Gate B 历史使用证据（弱证据，与正式血缘零关联）
+app.include_router(legacy_evidence.rules_router, prefix="/api")
+app.include_router(legacy_evidence.imports_router, prefix="/api")
+app.include_router(legacy_evidence.evidence_router, prefix="/api")

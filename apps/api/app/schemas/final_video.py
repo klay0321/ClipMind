@@ -341,6 +341,15 @@ class AssetUsageSummaryOut(BaseModel):
     distinct_final_video_count: int = 0  # 引用过本素材镜头的去重成片数（confirmed）
     usage_distribution: dict[str, int] = {}  # {"0":n, "1":m, "2":k, ...}
     last_used_at: datetime | None = None
+    # PR-C Gate B：历史弱证据（独立展示，绝不并入上面的 confirmed 统计）
+    confirmed_usage_count: int = 0                # 本素材 confirmed 使用总次数
+    accepted_legacy_evidence_count: int = 0
+    pending_legacy_evidence_count: int = 0
+    rejected_legacy_evidence_count: int = 0
+    conflict_legacy_evidence_count: int = 0
+    legacy_usage_state: str = "no_legacy_evidence"
+    usage_count_known: bool = False               # = confirmed_usage_count > 0
+    final_video_known: bool = False               # = distinct_final_video_count > 0
 
 
 class UsageWithOccurrencesOut(UsageOut):

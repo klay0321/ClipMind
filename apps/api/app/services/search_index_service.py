@@ -63,7 +63,9 @@ async def get_index_status(
     total_shots = int(
         (
             await db.execute(
-                select(func.count()).select_from(Shot).where(Shot.status == ShotStatus.READY)
+                select(func.count())
+                .select_from(Shot)
+                .where(Shot.status == ShotStatus.READY, Shot.retired_at.is_(None))
             )
         ).scalar()
         or 0
@@ -143,7 +145,9 @@ async def get_shot_completeness(db: AsyncSession) -> ShotCompletenessResponse:
     total_shots = int(
         (
             await db.execute(
-                select(func.count()).select_from(Shot).where(Shot.status == ShotStatus.READY)
+                select(func.count())
+                .select_from(Shot)
+                .where(Shot.status == ShotStatus.READY, Shot.retired_at.is_(None))
             )
         ).scalar()
         or 0

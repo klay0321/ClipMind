@@ -81,6 +81,8 @@ export interface Shot {
   id: number;
   asset_id: number;
   asset_filename: string | null;
+  generation?: number;
+  retired?: boolean; // PR-C：历史分析代次（只读）
   sequence_no: number;
   start_time: number;
   end_time: number;
@@ -2179,4 +2181,80 @@ export interface FinalVideoListQuery {
   project_id?: number;
   q?: string;
   include_archived?: boolean;
+}
+
+// ============================================================
+// PR-C 稳定素材身份 / 位置历史 / 指纹任务 / 分析代次
+// 哈希只有缩短形式;绝不含绝对路径。
+// ============================================================
+
+export type LocationStatus = "present" | "missing" | "historical" | "conflict";
+export type FingerprintState = "pending" | "quick_ready" | "full_ready" | "failed" | "stale";
+
+export interface AssetLocationEntry {
+  id: number;
+  source_root_id: number;
+  source_root_name: string | null;
+  relative_path: string;
+  location_status: LocationStatus;
+  is_primary: boolean;
+  file_size: number | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  missing_at: string | null;
+  verified_at: string | null;
+}
+
+export interface AssetIdentity {
+  asset_id: number;
+  fingerprint_state: FingerprintState;
+  quick_fingerprint_short: string | null;
+  quick_fingerprint_version: string | null;
+  full_hash_short: string | null;
+  full_hash_algorithm: string | null;
+  full_hash_available: boolean;
+  content_size: number | null;
+  fingerprinted_at: string | null;
+  fingerprint_error: string | null;
+  location_count: number;
+  present_location_count: number;
+  missing_location_count: number;
+  conflict_location_count: number;
+  primary_location: AssetLocationEntry | null;
+  locations: AssetLocationEntry[];
+  current_generation: number | null;
+  historical_generation_count: number;
+}
+
+export interface FingerprintJob {
+  id: number;
+  kind: "quick" | "full";
+  status: "queued" | "running" | "completed" | "partial" | "failed";
+  total_count: number;
+  completed_count: number;
+  skipped_count: number;
+  failed_count: number;
+  progress: number;
+  error_message: string | null;
+  results: Record<string, string> | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface AnalysisGeneration {
+  generation: number;
+  run_id: number;
+  status: string;
+  is_current: boolean;
+  shot_count: number;
+  usage_referenced_count: number;
+  created_at: string | null;
+  finished_at: string | null;
+}
+
+export interface AnalysisGenerations {
+  asset_id: number;
+  current_generation: number | null;
+  items: AnalysisGeneration[];
 }

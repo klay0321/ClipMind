@@ -23,6 +23,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -56,6 +57,13 @@ class Shot(Base):
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # PR-C 代次保留：NULL = 当前代次；非 NULL = 已被新代次替代（retired，只读历史）。
+    # 重新分析不再物理删除旧 Shot——FinalVideoUsage 等血缘继续引用历史 Shot（审计事实）。
+    # 默认业务查询（列表/搜索/匹配/项目/统计）一律过滤 retired_at IS NULL。
+    retired_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # 派生文件相对路径（相对 data_dir）
     keyframe_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     thumbnail_path: Mapped[str | None] = mapped_column(String(2048), nullable=True)
@@ -76,4 +84,10 @@ class Shot(Base):
         CheckConstraint("end_time > start_time", name="end_gt_start"),
         CheckConstraint("duration >= 0", name="duration_nonneg"),
         Index("ix_shot_asset_status", "asset_id", "status"),
+        # 当前代次热路径（默认查询只看 retired_at IS NULL 的 READY 镜头）
+        Index(
+            "ix_shot_asset_current",
+            "asset_id",
+            postgresql_where=text("retired_at IS NULL"),
+        ),
     )

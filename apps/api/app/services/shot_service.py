@@ -17,12 +17,18 @@ async def list_shots(
     status: ShotStatus | None = ShotStatus.READY,
     page: int = 1,
     page_size: int = 24,
+    generation: int | None = None,
 ) -> tuple[Sequence[Shot], int]:
+    """默认只返回当前代次；``generation=N`` 显式查看历史代次（PR-C）。"""
     filters = []
     if asset_id is not None:
         filters.append(Shot.asset_id == asset_id)
     if status is not None:
         filters.append(Shot.status == status)
+    if generation is None:
+        filters.append(Shot.retired_at.is_(None))
+    else:
+        filters.append(Shot.generation == generation)
 
     count_stmt = select(func.count()).select_from(Shot)
     list_stmt = select(Shot).order_by(Shot.asset_id.desc(), Shot.sequence_no.asc())
@@ -45,7 +51,11 @@ async def count_ready_shots(db: AsyncSession, asset_id: int) -> int:
     stmt = (
         select(func.count())
         .select_from(Shot)
-        .where(Shot.asset_id == asset_id, Shot.status == ShotStatus.READY)
+        .where(
+            Shot.asset_id == asset_id,
+            Shot.status == ShotStatus.READY,
+            Shot.retired_at.is_(None),
+        )
     )
     return (await db.execute(stmt)).scalar_one()
 
@@ -57,7 +67,11 @@ async def ready_counts_for_assets(
         return {}
     stmt = (
         select(Shot.asset_id, func.count())
-        .where(Shot.asset_id.in_(list(asset_ids)), Shot.status == ShotStatus.READY)
+        .where(
+            Shot.asset_id.in_(list(asset_ids)),
+            Shot.status == ShotStatus.READY,
+            Shot.retired_at.is_(None),
+        )
         .group_by(Shot.asset_id)
     )
     return {aid: cnt for aid, cnt in (await db.execute(stmt)).all()}
@@ -71,7 +85,11 @@ async def cover_shots_for_assets(
         return {}
     stmt = (
         select(Shot.asset_id, Shot.id)
-        .where(Shot.asset_id.in_(list(asset_ids)), Shot.status == ShotStatus.READY)
+        .where(
+            Shot.asset_id.in_(list(asset_ids)),
+            Shot.status == ShotStatus.READY,
+            Shot.retired_at.is_(None),
+        )
         .order_by(Shot.asset_id, Shot.sequence_no.asc())
         .distinct(Shot.asset_id)
     )

@@ -30,6 +30,10 @@ class WorkerSettings(BaseSettings):
     ffprobe_timeout: float = 30.0
     # 单次 ffmpeg 调用超时（拆镜头/转码比探测更耗时）
     ffmpeg_timeout: float = 300.0
+    # PR-C：单次扫描内用于移动识别的 full SHA256 计算总字节预算。
+    # 候选文件累计超过预算后不再当场算完整哈希，转 ambiguous 交人工/指纹任务处理，
+    # 避免一次扫描长时间顺序读占满 NAS。
+    scan_full_hash_budget_bytes: int = 16 * 1024 * 1024 * 1024
     # 写派生文件前要求 data_dir 至少剩余的空间（MiB）
     disk_min_free_mb: int = 500
 

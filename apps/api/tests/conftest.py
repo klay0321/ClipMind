@@ -62,6 +62,9 @@ async def client(engine, monkeypatch):
     )
     # PR-04：审核动作会入队检索文档重建（search 队列）；测试不连真实 broker
     monkeypatch.setattr(
+        "app.services.identity_service.enqueue_fingerprint_job", lambda jid: f"fptask-{jid}"
+    )
+    monkeypatch.setattr(
         "app.routers.review.enqueue_rebuild_shot_search_doc", lambda sid: f"searchtask-{sid}"
     )
 

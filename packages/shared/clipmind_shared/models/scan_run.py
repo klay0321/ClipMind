@@ -13,6 +13,7 @@ from sqlalchemy import (
     Text,
     text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from clipmind_shared.db.base import Base, pg_enum, utcnow
@@ -44,6 +45,10 @@ class ScanRun(Base):
     files_errored: Mapped[int] = mapped_column(Integer, default=0)
 
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # PR-C 移动/复制识别结果（八类计数 + 脱敏明细：只存 asset/location id 与安全
+    # 相对路径，绝不存绝对路径）。结构见 clipmind_worker.scanning.reconcile。
+    reconciliation: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
         # 每个目录同一时刻至多一个活动扫描（queued/running）——数据库层防重

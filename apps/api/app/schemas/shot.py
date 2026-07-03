@@ -17,6 +17,8 @@ class ShotOut(BaseModel):
     id: int
     asset_id: int
     asset_filename: str | None = None
+    generation: int = 0
+    retired: bool = False  # PR-C：历史分析代次（只读；默认查询不返回）
     sequence_no: int
     start_time: float
     end_time: float
@@ -76,6 +78,8 @@ def to_shot_out(shot: Shot, asset_filename: str | None = None) -> ShotOut:
         id=shot.id,
         asset_id=shot.asset_id,
         asset_filename=asset_filename,
+        generation=shot.generation,
+        retired=shot.retired_at is not None,
         sequence_no=shot.sequence_no,
         start_time=shot.start_time,
         end_time=shot.end_time,

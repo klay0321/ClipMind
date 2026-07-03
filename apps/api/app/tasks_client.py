@@ -16,6 +16,7 @@ from clipmind_shared.constants import (
     TASK_EXPORT_BUNDLE,
     TASK_EXPORT_SCRIPT_CSV,
     TASK_EXPORT_SHOT_CLIP,
+    TASK_FINGERPRINT_JOB,
     TASK_GENERATE_ASSET_POSTER,
     TASK_REBUILD_ASSET_SEARCH_DOCS,
     TASK_REBUILD_SHOT_SEARCH_DOC,
@@ -46,6 +47,14 @@ def enqueue_scan(scan_run_id: int) -> str:
 def enqueue_rescan_asset(asset_id: int) -> str:
     """入队单素材重扫任务，返回 celery_task_id。"""
     result = celery_client.send_task(TASK_RESCAN_ASSET, args=[asset_id], queue=QUEUE_SCAN)
+    return result.id
+
+
+def enqueue_fingerprint_job(job_id: int) -> str:
+    """入队指纹计算任务（PR-C；scan 队列顺序读，批量任务内部串行）。"""
+    result = celery_client.send_task(
+        TASK_FINGERPRINT_JOB, args=[job_id], queue=QUEUE_SCAN
+    )
     return result.id
 
 

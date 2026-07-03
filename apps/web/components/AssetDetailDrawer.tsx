@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 
+import { AssetIdentityPanel } from "@/components/assets/AssetIdentityPanel";
 import { ProcessingChain } from "@/components/assets/ProcessingChain";
 import { AssetStatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/Button";
@@ -112,6 +113,9 @@ export function AssetDetailDrawer({
             分析失败：{asset.error_message}
           </div>
         ) : null}
+
+        {/* PR-C：素材身份 / 文件位置历史 / 分析代次（只读派生） */}
+        <AssetIdentityPanel assetId={asset.id} onOpenShot={onPreview} />
       </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-4">

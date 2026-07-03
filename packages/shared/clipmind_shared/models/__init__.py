@@ -11,15 +11,21 @@ from clipmind_shared.models.ai_analysis import (
     AIShotAnalysis,
 )
 from clipmind_shared.models.asset import Asset
+from clipmind_shared.models.asset_location import AssetLocation, FingerprintJob
 from clipmind_shared.models.bundle_export import BundleExport
 from clipmind_shared.models.collection import Collection, CollectionShot
 from clipmind_shared.models.download_log import DownloadLog
 from clipmind_shared.models.dynamic_collection import DynamicCollection
 from clipmind_shared.models.enums import (
     ACTIVE_AI_RUN_STATUSES,
+    ACTIVE_LOCATION_STATUSES,
     ACTIVE_MEDIA_RUN_STATUSES,
     ACTIVE_SCAN_RUN_STATUSES,
     CONFIRMABLE_EVIDENCE_METHODS,
+    FINGERPRINT_JOB_STATUSES,
+    FINGERPRINT_KINDS,
+    FINGERPRINT_STATES,
+    LOCATION_STATUSES,
     EXCLUDED_FROM_SEARCH_STATUSES,
     HUMAN_EFFECTIVE_STATUSES,
     SEARCHABLE_DOCUMENT_STATUS,
@@ -206,4 +212,12 @@ __all__ = [
     "USAGE_EVIDENCE_METHODS",
     "CONFIRMABLE_EVIDENCE_METHODS",
     "USAGE_EVENT_ACTIONS",
+    # PR-C 稳定素材身份 / 位置历史 / 指纹
+    "AssetLocation",
+    "FingerprintJob",
+    "LOCATION_STATUSES",
+    "ACTIVE_LOCATION_STATUSES",
+    "FINGERPRINT_STATES",
+    "FINGERPRINT_KINDS",
+    "FINGERPRINT_JOB_STATUSES",
 ]

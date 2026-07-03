@@ -76,7 +76,9 @@ async def compute_summary(db: AsyncSession, asset: Asset) -> AssetSummary:
         (
             await db.execute(
                 select(Shot).where(
-                    Shot.asset_id == asset.id, Shot.status == ShotStatus.READY
+                    Shot.asset_id == asset.id,
+                    Shot.status == ShotStatus.READY,
+                    Shot.retired_at.is_(None),
                 )
             )
         ).scalars().all()

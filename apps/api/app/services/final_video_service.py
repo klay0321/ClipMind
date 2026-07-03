@@ -113,9 +113,16 @@ async def _get_usage_locked(db: AsyncSession, usage_id: int) -> FinalVideoUsage:
 
 
 def _ensure_shot_usable(shot: Shot, asset: Asset) -> None:
-    """Source Shot 必须可用：READY 镜头 + 源素材未缺失。"""
+    """Source Shot 必须可用：当前代次 READY 镜头 + 源素材未缺失。
+
+    PR-C：retired（历史代次）镜头不允许**新增**引用；既有历史引用继续保留可查。
+    """
     if shot.status != ShotStatus.READY:
         raise HTTPException(status_code=409, detail="来源镜头不可用（非 ready 状态）")
+    if shot.retired_at is not None:
+        raise HTTPException(
+            status_code=409, detail="来源镜头属于历史分析代次，请使用当前代次镜头"
+        )
     if asset.status == AssetStatus.SOURCE_MISSING:
         raise HTTPException(status_code=409, detail="来源素材源文件缺失，不能建立引用")
 
@@ -956,6 +963,7 @@ async def propose_from_project(
         if (
             asset is None
             or shot.status != ShotStatus.READY
+            or shot.retired_at is not None
             or asset.status == AssetStatus.SOURCE_MISSING
         ):
             out.skipped_unavailable += 1
@@ -1110,7 +1118,9 @@ async def get_asset_usage_summary(
     total_shots = int(
         await db.scalar(
             select(func.count(Shot.id)).where(
-                Shot.asset_id == asset_id, Shot.status == ShotStatus.READY
+                Shot.asset_id == asset_id,
+                Shot.status == ShotStatus.READY,
+                Shot.retired_at.is_(None),
             )
         )
         or 0

@@ -391,6 +391,9 @@ def run_full():
         "default_order": [i["shot_id"] for i in old["items"]],
         "default_scores": [i["score"] for i in old["items"]],
         "query": query, "created_from": created_from,
+        # 上下界时间窗：重启前若有其他 E2E 继续造数（如 CI 里 PR-D/PR-06B 在本
+        # 脚本之后运行），check-persist 仍只看本次运行的镜头集合
+        "created_to": datetime.now(UTC).isoformat(),
     }
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f)
@@ -401,7 +404,7 @@ def run_check_persist():
     with open(STATE_FILE, encoding="utf-8") as f:
         st = json.load(f)
     base_req = {"query": st["query"], "search_mode": "lexical", "page": 1, "page_size": 100,
-                "created_from": st["created_from"]}
+                "created_from": st["created_from"], "created_to": st["created_to"]}
     res = search(base_req)
     check([i["shot_id"] for i in res["items"]] == st["default_order"],
           "重启后 default 顺序变化")

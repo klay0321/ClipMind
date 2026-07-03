@@ -256,16 +256,7 @@ jobs:
           for flag in PR_C_B_RULE_ENGINE_OK PR_C_B_DRY_RUN_OK PR_C_B_DISTINCT_STATS_OK \n                      PR_C_B_IMPORT_OK PR_C_B_IMPORT_IDEMPOTENT_OK PR_C_B_REVIEW_WORKFLOW_OK \n                      PR_C_B_LEGACY_STATE_OK PR_C_B_USAGE_COUNT_UNCHANGED_OK PR_C_B_USAGE_ISOLATION_OK \n                      PR_C_B_LOCATION_HISTORY_OK PR_C_B_IMMUTABLE_RULE_SNAPSHOT_OK \n                      PR_C_B_RULE_VERSIONED_EVIDENCE_OK PR_C_B_IMPORT_SERIALIZATION_OK \n                      PR_C_B_IMPORT_CANCEL_OK PR_C_B_BACKWARD_COMPAT_OK PR_C_B_API_E2E_OK; do
             grep -q "$flag" prcb.log || { echo "缺少标志 $flag"; exit 1; }
           done
-      - name: 统一使用记录中心 端到端（PR-D；Read Model→typed bulk→clue 补录→隔离；纯 API 中性数据）
-        env:
-          API_BASE: http://localhost:8000
-        run: |
-          set -o pipefail
-          python scripts/ci_pr_d_usage_review_e2e.py --mode full | tee prd.log
-          for flag in PR_D_UNIFIED_READ_MODEL_OK PR_D_FORMAL_BULK_REVIEW_OK                       PR_D_LEGACY_BULK_REVIEW_OK PR_D_MIXED_TYPE_GUARD_OK                       PR_D_MANUAL_LINEAGE_FROM_CLUE_OK PR_D_USAGE_COUNT_ISOLATION_OK                       PR_D_BACKWARD_COMPAT_OK PR_D_API_E2E_OK; do
-            grep -q "$flag" prd.log || { echo "缺少标志 $flag"; exit 1; }
-          done
-      - name: 使用感知检索 端到端（PR-E；中性排名基准：空查询浏览 base 全 0 + created_from 隔离）
+      - name: 使用感知检索 端到端（PR-E；中性排名基准：空查询浏览 base 全 0 + 时间窗隔离；先于 PR-D 的全库快照）
         env:
           API_BASE: http://localhost:8000
         run: |
@@ -276,6 +267,15 @@ jobs:
                       PR_E_CANDIDATE_EXPANSION_OK PR_E_LEGACY_WEIGHT_ISOLATION_OK \
                       PR_E_BACKWARD_COMPAT_OK PR_E_API_E2E_OK; do
             grep -q "$flag" pre.log || { echo "缺少标志 $flag"; exit 1; }
+          done
+      - name: 统一使用记录中心 端到端（PR-D；Read Model→typed bulk→clue 补录→隔离；置于 PR-E 之后——其全库 usage 行数快照须为重启前最后写入）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_pr_d_usage_review_e2e.py --mode full | tee prd.log
+          for flag in PR_D_UNIFIED_READ_MODEL_OK PR_D_FORMAL_BULK_REVIEW_OK                       PR_D_LEGACY_BULK_REVIEW_OK PR_D_MIXED_TYPE_GUARD_OK                       PR_D_MANUAL_LINEAGE_FROM_CLUE_OK PR_D_USAGE_COUNT_ISOLATION_OK                       PR_D_BACKWARD_COMPAT_OK PR_D_API_E2E_OK; do
+            grep -q "$flag" prd.log || { echo "缺少标志 $flag"; exit 1; }
           done
       - name: 导出中心/多格式/Bundle/保存搜索/收藏/动态集合 端到端（PR-06B；FakeProvider；export+media worker）
         env:

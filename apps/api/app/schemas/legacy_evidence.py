@@ -84,6 +84,9 @@ class RuleOut(BaseModel):
     include_historical_locations: bool
     enabled: bool
     priority: int
+    # 语义版本（影响匹配语义的修改 +1；展示字段修改不加）与当前语义指纹
+    version: int = 1
+    snapshot_hash: str | None = None
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None
@@ -127,8 +130,8 @@ class PreviewOut(BaseModel):
     existing_evidence_count: int
     conflict_count: int
     error_count: int
-    by_rule: dict[str, int]            # rule_id → 命中位置数
-    by_location_status: dict[str, int]  # present/missing/historical → 命中位置数
+    by_rule: dict[str, int]            # rule_id → 命中的不同 AssetLocation 数
+    by_location_status: dict[str, int]  # 位置状态 → 命中的不同 AssetLocation 数
     samples: list[PreviewSampleOut]
 
 
@@ -173,6 +176,8 @@ class EvidenceOut(BaseModel):
     source_root_name: str | None = None
     rule_id: int | None
     rule_name: str | None = None
+    # 证据来源规则的语义版本（快照冻结，不随规则后续修改变化）
+    rule_version: int = 1
     evidence_type: str
     matched_target: str
     matched_component: str

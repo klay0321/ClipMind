@@ -74,6 +74,14 @@ class LegacyUsageRule(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     priority: Mapped[int] = mapped_column(Integer, default=100)
 
+    # 语义版本：影响匹配语义的字段（target/operator/pattern/case/来源/位置范围）
+    # 任一变化 +1；展示字段（name/description/priority）与 enable/disable/
+    # archive/restore 不加版本
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    # 当前语义指纹 sha256(rule_id + 规范化语义字段, 排序稳定 JSON)；
+    # 不含 version/updated_at/描述/展示状态 —— 语义等价 ⇒ 同 hash（改回即幂等）
+    snapshot_hash: Mapped[str] = mapped_column(String(64))
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
@@ -148,8 +156,12 @@ class LegacyUsageEvidence(Base):
         ForeignKey("legacy_usage_import_run.id", ondelete="SET NULL"), nullable=True
     )
 
-    # sha256(rule_id|asset_id|match_target|normalized_component) —— 幂等锚
+    # sha256(snapshot_hash|asset_id|match_target|normalized_component) —— 幂等锚。
+    # snapshot_hash 覆盖规则语义 ⇒ 同规则同语义幂等；语义变更（新版本）产生
+    # 独立证据；语义改回等价则回到原证据（观察数累计）
     evidence_key: Mapped[str] = mapped_column(String(64))
+    # 证据来源规则的语义版本（UI 展示；快照冻结，不随规则后续修改变化）
+    rule_version: Mapped[int] = mapped_column(Integer, default=1)
     # 受控 LEGACY_EVIDENCE_TYPES：directory_marker / filename_marker
     evidence_type: Mapped[str] = mapped_column(String(32))
     matched_target: Mapped[str] = mapped_column(String(32))

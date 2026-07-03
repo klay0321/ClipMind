@@ -4,8 +4,10 @@
 - legacy_usage_rule：可配置路径规则（受控 target/operator 白名单，无任意正则；
   **不预置任何公司真实规则** —— 真实规则一律经 UI/API 创建）
 - legacy_usage_import_run：预演/导入运行（进度与错误事实来源；脱敏 rule_snapshot）
-- legacy_usage_evidence：弱使用证据（绑定 Asset；evidence_key 唯一 ⇒ 幂等；
-  与 final_video_usage 零关联，绝不影响 confirmed 使用次数）
+- legacy_usage_evidence：弱使用证据（绑定 Asset；evidence_key =
+  sha256(snapshot_hash|asset|target|片段) 唯一 ⇒ 同规则版本幂等、
+  语义新版本产生独立证据；与 final_video_usage 零关联，
+  绝不影响 confirmed 使用次数）。规则带 version + snapshot_hash（语义指纹）
 - legacy_usage_evidence_event：append-only 审核审计
 
 迁移不读取真实媒体、不修改 AssetLocation、不导入证据、不更新 usage_count、
@@ -55,6 +57,9 @@ def upgrade() -> None:
         ),
         sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("priority", sa.Integer(), nullable=False, server_default="100"),
+        # 语义版本（影响匹配语义的修改 +1）与语义指纹（排序稳定 JSON 的 sha256）
+        sa.Column("version", sa.Integer(), nullable=False, server_default="1"),
+        sa.Column("snapshot_hash", sa.String(length=64), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("archived_at", sa.DateTime(timezone=True), nullable=True),
@@ -112,6 +117,8 @@ def upgrade() -> None:
         sa.Column("rule_id", sa.Integer(), nullable=True),
         sa.Column("import_run_id", sa.Integer(), nullable=True),
         sa.Column("evidence_key", sa.String(length=64), nullable=False),
+        # 证据来源规则的语义版本（快照冻结，UI 展示）
+        sa.Column("rule_version", sa.Integer(), nullable=False, server_default="1"),
         sa.Column("evidence_type", sa.String(length=32), nullable=False),
         sa.Column("matched_target", sa.String(length=32), nullable=False),
         sa.Column("matched_component", sa.String(length=256), nullable=False),

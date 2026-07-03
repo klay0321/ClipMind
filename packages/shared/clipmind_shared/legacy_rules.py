@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import unicodedata
 from dataclasses import dataclass
 
@@ -131,6 +132,159 @@ def match_rule(relative_path: str, rule: RuleSpec) -> list[MatchHit]:
     return hits
 
 
-def compute_evidence_key(rule_id: int, asset_id: int, match_target: str, component: str) -> str:
-    raw = f"{rule_id}|{asset_id}|{match_target}|{component}"
+# snapshot_hash 覆盖的语义字段（影响匹配结果的全部配置；排序稳定）。
+# 不含：version / name / description / priority / enabled / archived_at /
+# updated_at / 展示状态 / 绝对路径 —— 语义等价 ⇒ 同 hash（改回即回到原证据）。
+SNAPSHOT_SEMANTIC_FIELDS = (
+    "rule_id",
+    "match_target",
+    "match_operator",
+    "normalized_pattern",
+    "case_sensitive",
+    "source_directory_id",
+    "include_present_locations",
+    "include_missing_locations",
+    "include_historical_locations",
+)
+
+
+def compute_snapshot_hash(
+    *,
+    rule_id: int,
+    match_target: str,
+    match_operator: str,
+    normalized_pattern: str,
+    case_sensitive: bool,
+    source_directory_id: int | None,
+    include_present_locations: bool,
+    include_missing_locations: bool,
+    include_historical_locations: bool,
+) -> str:
+    """规则语义指纹：规范化语义字段的排序稳定 JSON 的 sha256。"""
+    payload = json.dumps(
+        {
+            "rule_id": rule_id,
+            "match_target": match_target,
+            "match_operator": match_operator,
+            "normalized_pattern": normalized_pattern,
+            "case_sensitive": bool(case_sensitive),
+            "source_directory_id": source_directory_id,
+            "include_present_locations": bool(include_present_locations),
+            "include_missing_locations": bool(include_missing_locations),
+            "include_historical_locations": bool(include_historical_locations),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def compute_evidence_key(
+    snapshot_hash: str, asset_id: int, match_target: str, component: str
+) -> str:
+    """幂等锚：sha256(snapshot_hash|asset_id|match_target|归一化匹配片段)。
+
+    同规则版本重复导入幂等；语义变更（新 snapshot_hash）产生独立证据；
+    语义改回等价（hash 复原）则回到原证据、观察数累计。
+    """
+    raw = f"{snapshot_hash}|{asset_id}|{match_target}|{component}"
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+SNAPSHOT_REQUIRED_KEYS = (
+    "rule_id",
+    "rule_version",
+    "match_target",
+    "match_operator",
+    "normalized_pattern",
+    "case_sensitive",
+    "source_directory_id",
+    "include_present_locations",
+    "include_missing_locations",
+    "include_historical_locations",
+    "snapshot_hash",
+)
+
+
+@dataclass(frozen=True)
+class FrozenRule:
+    """由 run.rule_snapshot 完整重建的不可变规则（worker 唯一匹配依据）。
+
+    执行语义**零依赖**实时 LegacyUsageRule 行：pattern / 位置范围 /
+    来源范围 / 大小写全部来自快照；规则在任务创建后被修改、禁用、
+    归档均不影响本次运行。
+    """
+
+    rule_id: int
+    rule_version: int
+    match_target: str
+    match_operator: str
+    normalized_pattern: str
+    case_sensitive: bool
+    source_directory_id: int | None
+    include_present_locations: bool
+    include_missing_locations: bool
+    include_historical_locations: bool
+    snapshot_hash: str
+
+    @property
+    def spec(self) -> RuleSpec:
+        return RuleSpec(
+            rule_id=self.rule_id,
+            match_target=self.match_target,
+            match_operator=self.match_operator,
+            normalized_pattern=self.normalized_pattern,
+            case_sensitive=self.case_sensitive,
+        )
+
+    def location_statuses(self) -> set[str]:
+        scope: set[str] = set()
+        if self.include_present_locations:
+            scope.add("present")
+        if self.include_missing_locations:
+            scope.add("missing")
+        if self.include_historical_locations:
+            scope.add("historical")
+        return scope
+
+
+def frozen_rule_from_snapshot(snap: dict) -> FrozenRule:
+    """校验并重建快照规则；校验失败抛 RuleValidationError（调用方计入 error）。"""
+    if not isinstance(snap, dict):
+        raise RuleValidationError("快照不是对象")
+    missing = [k for k in SNAPSHOT_REQUIRED_KEYS if k not in snap]
+    if missing:
+        raise RuleValidationError(f"快照缺少字段: {','.join(missing)}")
+    if snap["match_target"] not in MATCH_TARGETS:
+        raise RuleValidationError(f"快照 match_target 非法: {snap['match_target']}")
+    if snap["match_operator"] not in MATCH_OPERATORS:
+        raise RuleValidationError(f"快照 match_operator 非法: {snap['match_operator']}")
+    if not snap["normalized_pattern"]:
+        raise RuleValidationError("快照 normalized_pattern 为空")
+    expected = compute_snapshot_hash(
+        rule_id=snap["rule_id"],
+        match_target=snap["match_target"],
+        match_operator=snap["match_operator"],
+        normalized_pattern=snap["normalized_pattern"],
+        case_sensitive=snap["case_sensitive"],
+        source_directory_id=snap["source_directory_id"],
+        include_present_locations=snap["include_present_locations"],
+        include_missing_locations=snap["include_missing_locations"],
+        include_historical_locations=snap["include_historical_locations"],
+    )
+    if expected != snap["snapshot_hash"]:
+        raise RuleValidationError("快照 snapshot_hash 校验失败（语义字段被篡改或漂移）")
+    return FrozenRule(
+        rule_id=int(snap["rule_id"]),
+        rule_version=int(snap["rule_version"]),
+        match_target=snap["match_target"],
+        match_operator=snap["match_operator"],
+        normalized_pattern=snap["normalized_pattern"],
+        case_sensitive=bool(snap["case_sensitive"]),
+        source_directory_id=snap["source_directory_id"],
+        include_present_locations=bool(snap["include_present_locations"]),
+        include_missing_locations=bool(snap["include_missing_locations"]),
+        include_historical_locations=bool(snap["include_historical_locations"]),
+        snapshot_hash=snap["snapshot_hash"],
+    )

@@ -18,6 +18,7 @@ from clipmind_shared.legacy_rules import (
     RuleSpec,
     RuleValidationError,
     compute_evidence_key,
+    compute_snapshot_hash,
     match_rule,
     normalize_text,
     validate_rule_config,
@@ -68,6 +69,34 @@ def _normalized_pattern(pattern: str, case_sensitive: bool) -> str:
     return normalize_text(pattern, case_sensitive=case_sensitive)
 
 
+def _semantic_tuple(rule: LegacyUsageRule) -> tuple:
+    """影响匹配语义的字段元组（任一变化 => version+1）。"""
+    return (
+        rule.match_target,
+        rule.match_operator,
+        rule.normalized_pattern,
+        rule.case_sensitive,
+        rule.source_directory_id,
+        rule.include_present_locations,
+        rule.include_missing_locations,
+        rule.include_historical_locations,
+    )
+
+
+def _rule_snapshot_hash(rule: LegacyUsageRule) -> str:
+    return compute_snapshot_hash(
+        rule_id=rule.id,
+        match_target=rule.match_target,
+        match_operator=rule.match_operator,
+        normalized_pattern=rule.normalized_pattern,
+        case_sensitive=rule.case_sensitive,
+        source_directory_id=rule.source_directory_id,
+        include_present_locations=rule.include_present_locations,
+        include_missing_locations=rule.include_missing_locations,
+        include_historical_locations=rule.include_historical_locations,
+    )
+
+
 async def create_rule(db: AsyncSession, req: RuleCreateRequest) -> LegacyUsageRule:
     try:
         pattern = validate_rule_config(req.match_target, req.match_operator, req.pattern)
@@ -89,8 +118,12 @@ async def create_rule(db: AsyncSession, req: RuleCreateRequest) -> LegacyUsageRu
         include_missing_locations=req.include_missing_locations,
         include_historical_locations=req.include_historical_locations,
         priority=req.priority,
+        version=1,
+        snapshot_hash="",
     )
     db.add(rule)
+    await db.flush()  # 先拿 id，语义指纹含 rule_id
+    rule.snapshot_hash = _rule_snapshot_hash(rule)
     await db.commit()
     await db.refresh(rule)
     return rule
@@ -161,11 +194,17 @@ async def update_rule(
     if data.get("source_directory_id") is not None:
         if await db.get(SourceDirectory, data["source_directory_id"]) is None:
             raise HTTPException(status_code=404, detail="来源目录不存在")
+    semantic_before = _semantic_tuple(rule)
     for field, value in data.items():
         setattr(rule, field, value)
     rule.pattern = pattern
     rule.normalized_pattern = _normalized_pattern(pattern, rule.case_sensitive)
-    # 修改只影响后续 preview/import（快照另存）；既有证据不被重解释
+    # 语义字段（target/operator/pattern/case/来源/位置范围）任一变化 => 版本 +1；
+    # 展示字段（name/description/priority）不加版本（display-only 策略，测试锁定）。
+    # 修改只影响后续 preview/import（快照另存）；既有证据不被重解释。
+    if _semantic_tuple(rule) != semantic_before:
+        rule.version += 1
+    rule.snapshot_hash = _rule_snapshot_hash(rule)  # 语义等价则 hash 不变
     await db.commit()
     await db.refresh(rule)
     return rule
@@ -204,18 +243,26 @@ async def restore_rule(db: AsyncSession, rule_id: int) -> LegacyUsageRule:
 
 
 def rule_snapshot(rule: LegacyUsageRule) -> dict[str, Any]:
-    """脱敏业务快照（无路径、无密钥、无媒体内容）。"""
+    """完整冻结快照（脱敏：无绝对路径、无密钥、无媒体内容）。
+
+    worker 执行**只**依据本快照重建规则语义 —— 创建 run 后规则被修改/
+    禁用/归档均不影响该 run 的匹配行为；实时 Rule 行仅用于展示与存在性审计。
+    """
     return {
         "rule_id": rule.id,
+        "rule_version": rule.version,
         "name": rule.name,
         "match_target": rule.match_target,
         "match_operator": rule.match_operator,
         "pattern": rule.pattern,
+        "normalized_pattern": rule.normalized_pattern,
         "case_sensitive": rule.case_sensitive,
+        "source_directory_id": rule.source_directory_id,
         "include_present_locations": rule.include_present_locations,
         "include_missing_locations": rule.include_missing_locations,
         "include_historical_locations": rule.include_historical_locations,
-        "source_directory_id": rule.source_directory_id,
+        "priority": rule.priority,
+        "snapshot_hash": rule.snapshot_hash,
     }
 
 
@@ -260,7 +307,9 @@ async def collect_matches(
     locations = list((await db.scalars(loc_q.order_by(AssetLocation.id))).all())
 
     matched: dict[str, dict[str, Any]] = {}
-    by_status: dict[str, int] = defaultdict(int)
+    # 统计口径（distinct）：同一 Location 被多规则/多 hit 命中只计一次
+    matched_location_ids: set[int] = set()
+    status_locations: dict[str, set[int]] = defaultdict(set)
     for loc in locations:
         for rule in rules:
             if (
@@ -278,12 +327,15 @@ async def collect_matches(
                 case_sensitive=rule.case_sensitive,
             )
             for hit in match_rule(loc.relative_path, spec):
+                # 与 worker 同口径：evidence_key 基于规则语义指纹（版本化幂等锚）
                 key = compute_evidence_key(
-                    rule.id, loc.asset_id, hit.match_target, hit.matched_component
+                    rule.snapshot_hash, loc.asset_id, hit.match_target,
+                    hit.matched_component,
                 )
-                by_status[loc.location_status] += 1
+                matched_location_ids.add(loc.id)
+                status_locations[loc.location_status].add(loc.id)
                 if key in matched:
-                    matched[key]["observed_locations"] += 1
+                    matched[key]["locations"].add(loc.id)
                 else:
                     matched[key] = {
                         "asset_id": loc.asset_id,
@@ -292,9 +344,10 @@ async def collect_matches(
                         "matched_target": hit.match_target,
                         "matched_component": hit.matched_component,
                         "evidence_type": hit.evidence_type,
-                        "observed_locations": 1,
+                        "locations": {loc.id},
                     }
-    return rules, matched, dict(by_status), len(locations)
+    by_status = {k: len(v) for k, v in status_locations.items()}
+    return rules, matched, by_status, len(locations)
 
 
 async def preview_import(db: AsyncSession, req: ImportRequest) -> PreviewOut:
@@ -313,14 +366,14 @@ async def preview_import(db: AsyncSession, req: ImportRequest) -> PreviewOut:
                 )
             ).all()
         )
-    by_rule: dict[str, int] = defaultdict(int)
+    by_rule_locations: dict[str, set[int]] = defaultdict(set)
     samples: list[PreviewSampleOut] = []
     matched_assets = set()
-    matched_locations = 0
+    all_location_ids: set[int] = set()
     for key, hit in matched.items():
-        by_rule[str(hit["rule"].id)] += hit["observed_locations"]
+        by_rule_locations[str(hit["rule"].id)] |= hit["locations"]
         matched_assets.add(hit["asset_id"])
-        matched_locations += hit["observed_locations"]
+        all_location_ids |= hit["locations"]
         if len(samples) < PREVIEW_SAMPLE_MAX:
             samples.append(
                 PreviewSampleOut(
@@ -334,14 +387,16 @@ async def preview_import(db: AsyncSession, req: ImportRequest) -> PreviewOut:
                 )
             )
     return PreviewOut(
+        # 统一口径：matched_location_count = 命中的不同 AssetLocation 数；
+        # existing_evidence_count = 本次命中的不同既有 Evidence 数
         scanned_location_count=scanned,
-        matched_location_count=matched_locations,
+        matched_location_count=len(all_location_ids),
         matched_asset_count=len(matched_assets),
         would_create_count=len([k for k in matched if k not in existing_keys]),
         existing_evidence_count=len(existing_keys),
         conflict_count=0,
         error_count=0,
-        by_rule=dict(by_rule),
+        by_rule={k: len(v) for k, v in by_rule_locations.items()},
         by_location_status=by_status,
         samples=samples,
     )

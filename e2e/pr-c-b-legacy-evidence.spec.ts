@@ -53,6 +53,8 @@ test.describe.serial("PR-C Gate B 历史使用证据 UI", () => {
     await expect(page.getByRole("heading", { name: "历史使用证据" })).toBeVisible();
     await page.getByTestId("tab-rules").click();
     await expect(page.getByTestId(`rule-row-${seedRule!.id}`)).toBeVisible();
+    // 规则语义版本可见（加固：E2E 中该规则经历多次语义修改）
+    await expect(page.getByTestId(`rule-version-${seedRule!.id}`)).toHaveText(/^v\d+$/);
     await expect(page.getByText("不支持自由正则表达式")).toBeVisible();
 
     // 新建规则：只有白名单下拉，无正则输入
@@ -104,12 +106,13 @@ test.describe.serial("PR-C Gate B 历史使用证据 UI", () => {
     await page.getByTestId(`reset-evidence-${eid}`).click();
     await expect(page.getByTestId(`evidence-row-${eid}`)).toBeHidden();
 
-    // 待审核：固定接受警示 + 单条接受
+    // 待审核：固定接受警示 + 单条接受；证据来源规则版本可见
     await page.getByTestId("tab-pending").click();
     await expect(page.getByTestId("accept-warning")).toContainText(
       "接受历史证据不等于确认使用次数，也不等于确认对应成片或具体镜头",
     );
     await expect(page.getByTestId(`evidence-row-${eid}`)).toBeVisible();
+    await expect(page.getByTestId(`evidence-rule-version-${eid}`)).toHaveText(/^v\d+$/);
     await page.getByTestId(`accept-evidence-${eid}`).click();
     await expect(page.getByTestId(`evidence-row-${eid}`)).toBeHidden();
 

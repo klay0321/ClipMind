@@ -98,6 +98,18 @@ def psql(sql: str) -> str:
     return out.stdout.strip()
 
 
+def compose_ctl(action: str, service: str) -> None:
+    """docker compose pause/unpause（用于制造确定性的任务时序窗口）。"""
+    out = subprocess.run(
+        ["docker", "compose", action, service], capture_output=True, text=True,
+        check=False,
+    )
+    if out.returncode != 0:
+        print(f"E2E FAIL: compose {action} {service}: {out.stderr[:200]}",
+              file=sys.stderr)
+        sys.exit(1)
+
+
 def container_sh(cmd: str) -> None:
     check("/app/uploads/" in cmd, f"容器命令必须限定 /app/uploads: {cmd}")
     out = subprocess.run(
@@ -343,6 +355,10 @@ def run_full() -> None:
           f"by_rule 缺失: {prev['by_rule']}")
     check(legacy_counts() == before, "预览发生写入！")
     print("PR_C_B_DRY_RUN_OK")
+    # distinct 统计口径：matched_location_count = 不同位置数（A 目录位置 + B 文件位置）
+    check(prev["by_rule"] == {str(r1["id"]): 1, str(r2["id"]): 1},
+          f"by_rule 应为每规则 1 个 distinct 位置: {prev['by_rule']}")
+    print("PR_C_B_DISTINCT_STATS_OK")
 
     # 6) 正式导入 → 2 条 pending 证据（绑定 Asset，绝不绑定 Shot/成片）
     done = run_import_and_wait(scope)
@@ -414,6 +430,7 @@ def run_full() -> None:
     shot_sum = jreq("GET", f"/api/shots/{shots[0]['id']}/usage-summary")
     check(shot_sum["confirmed_usage_count"] == 1, "Shot confirmed 被证据影响")
     print("PR_C_B_USAGE_COUNT_UNCHANGED_OK")
+    print("PR_C_B_USAGE_ISOLATION_OK")
 
     # 11) 再移动 A（离开标记目录）：证据仍绑 Asset、审核结论不变、位置历史保留
     container_sh(
@@ -442,18 +459,113 @@ def run_full() -> None:
     check(snap_pattern == marker_dir, f"证据快照被改写: {snap_pattern}")
     jreq("PATCH", f"/api/legacy-usage-rules/{r1['id']}", {"pattern": marker_dir})
 
-    # 13) 旧业务兼容
+    # 13) 不可变快照竞态：暂停 worker 制造确定窗口 → 发起 run → 修改规则语义
+    #     （version+1、hash 变）→ 恢复 worker → run 必须按创建时快照命中
+    r1v = jreq("GET", f"/api/legacy-usage-rules/{r1['id']}")
+    ver_before_race = r1v["version"]
+    obs_before_race = evidence_for_asset(asset_a["id"])[0]["observation_count"]
+    compose_ctl("pause", "worker")
+    try:
+        race_run = jreq("POST", "/api/legacy-usage-imports",
+                        {"source_directory_id": sd_id, "rule_ids": [r1["id"]]},
+                        expect=(202,))
+        # worker 开始前修改规则语义（pattern 改为绝不命中的值）
+        jreq("PATCH", f"/api/legacy-usage-rules/{r1['id']}",
+             {"pattern": f"race-changed-{tag}"})
+    finally:
+        compose_ctl("unpause", "worker")
+    race_done = poll(
+        lambda: jreq("GET", f"/api/legacy-usage-imports/{race_run['id']}"),
+        lambda r: r["status"] in ("completed", "completed_with_errors", "failed"),
+        timeout=180, desc="竞态 run",
+    )
+    check(race_done["status"] == "completed", f"竞态 run 未成功: {race_done}")
+    # 语义等价快照（v1 hash）命中既有证据：existing=1、created=0、观察数 +1、
+    # accepted 结论保持 —— 全部证明执行用的是创建时快照而非改后的规则行
+    check(race_done["created_evidence_count"] == 0
+          and race_done["existing_evidence_count"] == 1,
+          f"竞态 run 未按旧快照命中: {race_done}")
+    ev_race = evidence_for_asset(asset_a["id"])
+    check(len(ev_race) == 1 and ev_race[0]["review_status"] == "accepted",
+          f"竞态后证据被改动: {ev_race}")
+    check(ev_race[0]["observation_count"] == obs_before_race + 1, "竞态观察数未累计")
+    check(ev_race[0]["matched_component"] == marker_dir, "竞态命中片段漂移")
+    r1_after = jreq("GET", f"/api/legacy-usage-rules/{r1['id']}")
+    check(r1_after["version"] == ver_before_race + 1, "语义修改未加版本")
+    print("PR_C_B_IMMUTABLE_RULE_SNAPSHOT_OK")
+
+    # 14) 版本化独立证据：新语义（operator 变化）→ 新版本导入产生独立证据；
+    #     旧 accepted 证据不被覆盖、观察数不被累计
+    jreq("PATCH", f"/api/legacy-usage-rules/{r1['id']}",
+         {"pattern": "hist-marker", "match_operator": "contains"})
+    obs_v1 = evidence_for_asset(asset_a["id"])[0]["observation_count"]
+    v_run = run_import_and_wait({"source_directory_id": sd_id, "rule_ids": [r1["id"]]})
+    check(v_run["created_evidence_count"] == 1, f"新版本未产生独立证据: {v_run}")
+    ev_all = evidence_for_asset(asset_a["id"])
+    check(len(ev_all) == 2, f"应有两代证据并存: {len(ev_all)}")
+    old_ev = next(e for e in ev_all if e["review_status"] == "accepted")
+    new_ev = next(e for e in ev_all if e["review_status"] == "pending")
+    check(old_ev["observation_count"] == obs_v1, "新版本把观察数累计到旧证据！")
+    check(new_ev["rule_version"] > old_ev["rule_version"],
+          f"新证据应携带更高规则版本: old={old_ev['rule_version']} new={new_ev['rule_version']}")
+    print("PR_C_B_RULE_VERSIONED_EVIDENCE_OK")
+
+    # 15) 并发导入串行化：连发两个 run（不等第一个完成）→ 全局锁下都最终成功且幂等
+    ca = jreq("POST", "/api/legacy-usage-imports",
+              {"source_directory_id": sd_id, "rule_ids": [r1["id"]]}, expect=(202,))
+    cb = jreq("POST", "/api/legacy-usage-imports",
+              {"source_directory_id": sd_id, "rule_ids": [r1["id"]]}, expect=(202,))
+    for rid in (ca["id"], cb["id"]):
+        done_c = poll(
+            lambda rid=rid: jreq("GET", f"/api/legacy-usage-imports/{rid}"),
+            lambda r: r["status"] in ("completed", "completed_with_errors", "failed"),
+            timeout=240, desc=f"并发 run={rid}",
+        )
+        check(done_c["status"] == "completed", f"并发 run 失败: {done_c}")
+        check(done_c["created_evidence_count"] == 0
+              and done_c["existing_evidence_count"] == 1,
+              f"并发 run 破坏幂等: {done_c}")
+    check(len(evidence_for_asset(asset_a["id"])) == 2, "并发导入产生了重复证据")
+    print("PR_C_B_IMPORT_SERIALIZATION_OK")
+
+    # 16) 真实取消：暂停 worker → 发起 run → cancel → 恢复 worker →
+    #     任务跳过、状态保持 cancelled、证据零变化、重复 cancel 409
+    ev_count_before_cancel = psql("select count(*) from legacy_usage_evidence")
+    compose_ctl("pause", "worker")
+    try:
+        c_run = jreq("POST", "/api/legacy-usage-imports",
+                     {"source_directory_id": sd_id, "rule_ids": [r1["id"]]},
+                     expect=(202,))
+        cancelled = jreq("POST", f"/api/legacy-usage-imports/{c_run['id']}/cancel")
+        check(cancelled["status"] == "cancelled" and cancelled["completed_at"],
+              f"cancel 未生效: {cancelled}")
+    finally:
+        compose_ctl("unpause", "worker")
+    time.sleep(6)  # 给 worker 消费被取消任务的时间（应直接 skip）
+    c_final = jreq("GET", f"/api/legacy-usage-imports/{c_run['id']}")
+    check(c_final["status"] == "cancelled", f"cancelled 被覆盖: {c_final['status']}")
+    check(psql("select count(*) from legacy_usage_evidence") == ev_count_before_cancel,
+          "取消的 run 产生了证据")
+    expect_status("POST", f"/api/legacy-usage-imports/{c_run['id']}/cancel", None, 409)
+    print("PR_C_B_IMPORT_CANCEL_OK")
+
+    # 17) 旧业务兼容
     for path in ("/api/products?limit=1", "/api/final-videos?page=1&page_size=1",
                  f"/api/assets/{asset_c['id']}", "/health/ready"):
         jreq("GET", path)
     print("PR_C_B_BACKWARD_COMPAT_OK")
 
+    r1_final = jreq("GET", f"/api/legacy-usage-rules/{r1['id']}")
     state = {
         "tag": tag, "sd_id": sd_id,
         "asset_a": asset_a["id"], "asset_b": asset_b["id"], "asset_c": asset_c["id"],
         "rule_ids": rule_ids, "eid_a": eid_a, "eid_b": eid_b,
         "marker_dir": marker_dir, "usage_rows": prefix_usage_rows(),
         "shot_id": shots[0]["id"],
+        # 加固段多次语义修改后的最终规则形态（重启后必须原样保留）
+        "r1_pattern": r1_final["pattern"],
+        "r1_version": r1_final["version"],
+        "r1_hash": r1_final["snapshot_hash"],
     }
     with open(STATE_FILE, "w", encoding="utf-8") as f:
         json.dump(state, f)
@@ -463,13 +575,16 @@ def run_full() -> None:
 def run_check_persist() -> None:
     with open(STATE_FILE, encoding="utf-8") as f:
         st = json.load(f)
-    # 规则仍在且配置完整
+    # 规则仍在且配置完整（含加固段修改后的最终语义版本与指纹）
     r1 = jreq("GET", f"/api/legacy-usage-rules/{st['rule_ids'][0]}")
-    check(r1["pattern"] == st["marker_dir"], "重启后规则配置丢失")
+    check(r1["pattern"] == st["r1_pattern"], "重启后规则配置丢失")
+    check(r1["version"] == st["r1_version"] and r1["snapshot_hash"] == st["r1_hash"],
+          "重启后规则版本/语义指纹变化")
     # 证据状态/观察数/事件轨迹仍在
     ev_a = jreq("GET", f"/api/legacy-usage-evidence/{st['eid_a']}")
     check(ev_a["review_status"] == "accepted" and ev_a["observation_count"] >= 2,
           f"重启后 A 证据状态丢失: {ev_a}")
+    check(ev_a["rule_version"] >= 1, "重启后证据规则版本丢失")
     # full 结束时 B=rejected；若 UI E2E 已在同栈审核过则为 accepted——两者都证明
     # 人工结论跨重启持久（丢失时会回 pending/404）
     ev_b = jreq("GET", f"/api/legacy-usage-evidence/{st['eid_b']}")

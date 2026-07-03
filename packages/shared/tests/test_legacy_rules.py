@@ -13,7 +13,9 @@ from clipmind_shared.legacy_rules import (
     RuleSpec,
     RuleValidationError,
     compute_evidence_key,
+    compute_snapshot_hash,
     evidence_type_for,
+    frozen_rule_from_snapshot,
     match_rule,
     normalize_text,
     validate_pattern,
@@ -174,13 +176,66 @@ def test_same_component_deduped_within_path():
     assert len(hits) == 1  # 同一片段值只算一次
 
 
+def _hash(**kw) -> str:
+    base = dict(
+        rule_id=1, match_target="directory_segment", match_operator="equals",
+        normalized_pattern="已使用", case_sensitive=False, source_directory_id=None,
+        include_present_locations=True, include_missing_locations=True,
+        include_historical_locations=True,
+    )
+    base.update(kw)
+    return compute_snapshot_hash(**base)
+
+
+def test_snapshot_hash_semantic_fields_only():
+    h = _hash()
+    assert len(h) == 64
+    assert h == _hash()  # 排序稳定、可重现
+    # 任一语义字段变化 → hash 变
+    assert h != _hash(rule_id=2)
+    assert h != _hash(match_operator="contains")
+    assert h != _hash(normalized_pattern="其他")
+    assert h != _hash(case_sensitive=True)
+    assert h != _hash(source_directory_id=3)
+    assert h != _hash(include_historical_locations=False)
+    # 语义改回等价 → hash 复原（幂等回到原证据）
+    assert _hash(normalized_pattern="x") != h
+    assert _hash() == h
+
+
+def test_frozen_rule_from_snapshot_validates():
+    snap = {
+        "rule_id": 1, "rule_version": 2, "match_target": "directory_segment",
+        "match_operator": "equals", "normalized_pattern": "已使用",
+        "case_sensitive": False, "source_directory_id": None,
+        "include_present_locations": True, "include_missing_locations": True,
+        "include_historical_locations": False, "snapshot_hash": _hash(
+            include_historical_locations=False),
+    }
+    fr = frozen_rule_from_snapshot(snap)
+    assert fr.rule_version == 2
+    assert fr.location_statuses() == {"present", "missing"}
+    assert fr.spec.normalized_pattern == "已使用"
+    # 缺字段 → 校验错误
+    bad = dict(snap)
+    del bad["snapshot_hash"]
+    with pytest.raises(RuleValidationError):
+        frozen_rule_from_snapshot(bad)
+    # hash 与语义字段不符（篡改/漂移）→ 校验错误
+    tampered = dict(snap)
+    tampered["normalized_pattern"] = "其他"
+    with pytest.raises(RuleValidationError):
+        frozen_rule_from_snapshot(tampered)
+
+
 def test_evidence_key_stable_and_distinct():
-    k1 = compute_evidence_key(1, 10, "directory_segment", "已使用")
-    assert k1 == compute_evidence_key(1, 10, "directory_segment", "已使用")
+    h1, h2 = _hash(), _hash(rule_id=2)
+    k1 = compute_evidence_key(h1, 10, "directory_segment", "已使用")
+    assert k1 == compute_evidence_key(h1, 10, "directory_segment", "已使用")
     assert len(k1) == 64
-    assert k1 != compute_evidence_key(2, 10, "directory_segment", "已使用")  # 规则不同
-    assert k1 != compute_evidence_key(1, 11, "directory_segment", "已使用")  # 素材不同
-    assert k1 != compute_evidence_key(1, 10, "filename", "已使用")  # target 不同
+    assert k1 != compute_evidence_key(h2, 10, "directory_segment", "已使用")  # 语义/规则不同
+    assert k1 != compute_evidence_key(h1, 11, "directory_segment", "已使用")  # 素材不同
+    assert k1 != compute_evidence_key(h1, 10, "filename", "已使用")  # target 不同
 
 
 def test_evidence_type_mapping():

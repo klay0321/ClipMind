@@ -253,10 +253,7 @@ jobs:
         run: |
           set -o pipefail
           python scripts/ci_pr_c_b_legacy_e2e.py --mode full | tee prcb.log
-          for flag in PR_C_B_RULE_ENGINE_OK PR_C_B_DRY_RUN_OK PR_C_B_IMPORT_OK \
-                      PR_C_B_IMPORT_IDEMPOTENT_OK PR_C_B_REVIEW_WORKFLOW_OK \
-                      PR_C_B_LEGACY_STATE_OK PR_C_B_USAGE_COUNT_UNCHANGED_OK \
-                      PR_C_B_LOCATION_HISTORY_OK PR_C_B_BACKWARD_COMPAT_OK PR_C_B_API_E2E_OK; do
+          for flag in PR_C_B_RULE_ENGINE_OK PR_C_B_DRY_RUN_OK PR_C_B_DISTINCT_STATS_OK \n                      PR_C_B_IMPORT_OK PR_C_B_IMPORT_IDEMPOTENT_OK PR_C_B_REVIEW_WORKFLOW_OK \n                      PR_C_B_LEGACY_STATE_OK PR_C_B_USAGE_COUNT_UNCHANGED_OK PR_C_B_USAGE_ISOLATION_OK \n                      PR_C_B_LOCATION_HISTORY_OK PR_C_B_IMMUTABLE_RULE_SNAPSHOT_OK \n                      PR_C_B_RULE_VERSIONED_EVIDENCE_OK PR_C_B_IMPORT_SERIALIZATION_OK \n                      PR_C_B_IMPORT_CANCEL_OK PR_C_B_BACKWARD_COMPAT_OK PR_C_B_API_E2E_OK; do
             grep -q "$flag" prcb.log || { echo "缺少标志 $flag"; exit 1; }
           done
       - name: 导出中心/多格式/Bundle/保存搜索/收藏/动态集合 端到端（PR-06B；FakeProvider；export+media worker）

@@ -71,14 +71,15 @@ async def _seed_asset(session, sd, rel="clip.mp4") -> Asset:
     return asset
 
 
-async def _seed_location(session, sd, asset, rel, status="present") -> AssetLocation:
+async def _seed_location(session, sd, asset, rel, status="present",
+                         primary=None) -> AssetLocation:
     loc = AssetLocation(
         asset_id=asset.id,
         source_root_id=sd.id,
         relative_path=rel,
         normalized_path=rel.lower(),
         location_status=status,
-        is_primary=status == "present",
+        is_primary=(status == "present") if primary is None else primary,
     )
     session.add(loc)
     await session.commit()
@@ -120,19 +121,23 @@ async def _create_rule(client, *, pattern="historical-marker", target="directory
     return r.json()
 
 
-async def _seed_evidence(session, asset, rule_id, *, component="historical-marker",
+async def _seed_evidence(session, asset, rule, *, component="historical-marker",
                          target="directory_segment", location_id=None,
                          status="pending") -> LegacyUsageEvidence:
-    """模拟 worker 导入产物（API 测试不跑 Celery）。"""
+    """模拟 worker 导入产物（API 测试不跑 Celery）；rule 为 API 返回 dict。"""
     ev = LegacyUsageEvidence(
         asset_id=asset.id,
         asset_location_id=location_id,
-        rule_id=rule_id,
-        evidence_key=compute_evidence_key(rule_id, asset.id, target, component),
+        rule_id=rule["id"],
+        evidence_key=compute_evidence_key(
+            rule["snapshot_hash"], asset.id, target, component
+        ),
+        rule_version=rule.get("version", 1),
         evidence_type="directory_marker" if target == "directory_segment" else "filename_marker",
         matched_target=target,
         matched_component=component,
-        rule_snapshot={"rule_id": rule_id, "pattern": component},
+        rule_snapshot={"rule_id": rule["id"], "pattern": component,
+                       "snapshot_hash": rule["snapshot_hash"]},
         review_status=status,
     )
     session.add(ev)
@@ -197,7 +202,7 @@ async def test_rule_update_recomputes_normalized_but_freezes_history(client, ses
     sd = await _seed_root(session)
     asset = await _seed_asset(session, sd, "historical-marker/a.mp4")
     rule = await _create_rule(client, pattern="historical-marker")
-    ev = await _seed_evidence(session, asset, rule["id"])
+    ev = await _seed_evidence(session, asset, rule)
     old_snapshot = dict(ev.rule_snapshot)
 
     r = await client.patch(
@@ -215,7 +220,7 @@ async def test_archive_rule_keeps_evidence(client, session):
     sd = await _seed_root(session)
     asset = await _seed_asset(session, sd, "historical-marker/k.mp4")
     rule = await _create_rule(client)
-    await _seed_evidence(session, asset, rule["id"])
+    await _seed_evidence(session, asset, rule)
     r = await client.post(f"/api/legacy-usage-rules/{rule['id']}/archive")
     assert r.status_code == 200
     count = await session.scalar(select(func.count(LegacyUsageEvidence.id)))
@@ -231,7 +236,7 @@ async def test_preview_zero_write_and_counts(client, session):
     a2 = await _seed_asset(session, sd, "clean/b.mp4")
     await _seed_location(session, sd, a1, "historical-marker/a.mp4")
     await _seed_location(session, sd, a2, "clean/b.mp4")
-    await _create_rule(client, pattern="historical-marker")
+    rule = await _create_rule(client, pattern="historical-marker")
 
     before = await _table_counts(session)
     r = await client.post("/api/legacy-usage-imports/preview", json={})
@@ -250,8 +255,7 @@ async def test_preview_zero_write_and_counts(client, session):
     assert after == before
 
     # 幂等对照：已有证据时 preview 标注 already_exists
-    rule_id = body["samples"][0]["rule_id"]
-    await _seed_evidence(session, a1, rule_id)
+    await _seed_evidence(session, a1, rule)
     r = await client.post("/api/legacy-usage-imports/preview", json={})
     body = r.json()
     assert body["would_create_count"] == 0
@@ -321,7 +325,7 @@ async def test_review_transitions_and_events(client, session):
     sd = await _seed_root(session)
     asset = await _seed_asset(session, sd, "historical-marker/a.mp4")
     rule = await _create_rule(client)
-    ev = await _seed_evidence(session, asset, rule["id"])
+    ev = await _seed_evidence(session, asset, rule)
 
     # accept 携带操作人与备注
     r = await client.post(
@@ -363,7 +367,7 @@ async def test_review_event_same_transaction(client, session):
     sd = await _seed_root(session)
     asset = await _seed_asset(session, sd, "historical-marker/x.mp4")
     rule = await _create_rule(client)
-    ev = await _seed_evidence(session, asset, rule["id"])
+    ev = await _seed_evidence(session, asset, rule)
     await client.post(f"/api/legacy-usage-evidence/{ev.id}/accept")
     n_events = await session.scalar(
         select(func.count(LegacyUsageEvidenceEvent.id)).where(
@@ -379,9 +383,9 @@ async def test_bulk_review_explicit_ids_and_skip(client, session):
     sd = await _seed_root(session)
     asset = await _seed_asset(session, sd, "historical-marker/a.mp4")
     rule = await _create_rule(client)
-    e1 = await _seed_evidence(session, asset, rule["id"], component="m1")
-    e2 = await _seed_evidence(session, asset, rule["id"], component="m2")
-    e3 = await _seed_evidence(session, asset, rule["id"], component="m3", status="rejected")
+    e1 = await _seed_evidence(session, asset, rule, component="m1")
+    e2 = await _seed_evidence(session, asset, rule, component="m2")
+    e3 = await _seed_evidence(session, asset, rule, component="m3", status="rejected")
 
     r = await client.post(
         "/api/legacy-usage-evidence/bulk-accept",
@@ -406,9 +410,9 @@ async def test_evidence_list_filters(client, session):
     a2 = await _seed_asset(session, sd, "historical-marker/b.mp4")
     r1 = await _create_rule(client)
     r2 = await _create_rule(client)
-    await _seed_evidence(session, a1, r1["id"], component="c1")
-    await _seed_evidence(session, a1, r2["id"], component="c2", status="accepted")
-    await _seed_evidence(session, a2, r1["id"], component="c3")
+    await _seed_evidence(session, a1, r1, component="c1")
+    await _seed_evidence(session, a1, r2, component="c2", status="accepted")
+    await _seed_evidence(session, a2, r1, component="c3")
 
     r = await client.get("/api/legacy-usage-evidence?page=1&page_size=20")
     assert r.json()["total"] == 3
@@ -450,7 +454,7 @@ async def test_accept_never_creates_usage_or_changes_confirmed_counts(client, se
     await session.commit()
 
     rule = await _create_rule(client)
-    ev = await _seed_evidence(session, src, rule["id"])
+    ev = await _seed_evidence(session, src, rule)
 
     async def _confirmed_state():
         usage_rows = int(
@@ -482,7 +486,7 @@ async def test_no_final_video_usage_row_references_evidence(client, session):
     sd = await _seed_root(session)
     asset = await _seed_asset(session, sd, "historical-marker/only.mp4")
     rule = await _create_rule(client)
-    ev = await _seed_evidence(session, asset, rule["id"])
+    ev = await _seed_evidence(session, asset, rule)
     before = int(await session.scalar(select(func.count(FinalVideoUsage.id))) or 0)
     await client.post(f"/api/legacy-usage-evidence/{ev.id}/accept")
     after = int(await session.scalar(select(func.count(FinalVideoUsage.id))) or 0)
@@ -510,7 +514,7 @@ async def test_asset_usage_summary_legacy_fields_and_priority(client, session):
     assert summary["accepted_legacy_evidence_count"] == 0
 
     # pending
-    e1 = await _seed_evidence(session, asset, rule["id"], component="m1")
+    e1 = await _seed_evidence(session, asset, rule, component="m1")
     summary = (await client.get(f"/api/assets/{asset.id}/usage-summary")).json()
     assert summary["legacy_usage_state"] == "legacy_evidence_pending"
     assert summary["pending_legacy_evidence_count"] == 1
@@ -521,13 +525,13 @@ async def test_asset_usage_summary_legacy_fields_and_priority(client, session):
     assert summary["legacy_usage_state"] == "legacy_evidence_rejected"
 
     # accepted 优先于 pending/rejected
-    e2 = await _seed_evidence(session, asset, rule["id"], component="m2")
+    e2 = await _seed_evidence(session, asset, rule, component="m2")
     await client.post(f"/api/legacy-usage-evidence/{e2.id}/accept")
     summary = (await client.get(f"/api/assets/{asset.id}/usage-summary")).json()
     assert summary["legacy_usage_state"] == "legacy_used_unknown"
 
     # conflict 最高优先级
-    e3 = await _seed_evidence(session, asset, rule["id"], component="m3")
+    e3 = await _seed_evidence(session, asset, rule, component="m3")
     await client.post(f"/api/legacy-usage-evidence/{e3.id}/mark-conflict")
     summary = (await client.get(f"/api/assets/{asset.id}/usage-summary")).json()
     assert summary["legacy_usage_state"] == "legacy_evidence_conflict"
@@ -539,7 +543,7 @@ async def test_asset_legacy_summary_endpoint(client, session):
     asset = await _seed_asset(session, sd, "historical-marker/q.mp4")
     loc = await _seed_location(session, sd, asset, "historical-marker/q.mp4")
     rule = await _create_rule(client)
-    await _seed_evidence(session, asset, rule["id"], location_id=loc.id)
+    await _seed_evidence(session, asset, rule, location_id=loc.id)
 
     r = await client.get(f"/api/assets/{asset.id}/legacy-usage-summary")
     assert r.status_code == 200, r.text
@@ -560,8 +564,158 @@ async def test_shot_summary_not_affected_by_evidence(client, session):
     asset = await _seed_asset(session, sd, "historical-marker/s.mp4")
     shot = await _seed_shot(session, asset)
     rule = await _create_rule(client)
-    ev = await _seed_evidence(session, asset, rule["id"])
+    ev = await _seed_evidence(session, asset, rule)
     await client.post(f"/api/legacy-usage-evidence/{ev.id}/accept")
     summary = (await client.get(f"/api/shots/{shot.id}/usage-summary")).json()
     assert summary["confirmed_usage_count"] == 0
     assert summary["final_videos"] == []
+
+
+# ============================ 规则版本策略（§三） ============================
+
+
+async def test_rule_semantic_update_increments_version(client):
+    rule = await _create_rule(client, pattern="historical-marker")
+    assert rule["version"] == 1
+    h1 = rule["snapshot_hash"]
+    assert h1 and len(h1) == 64
+
+    # 每个语义字段变化都 +1 且 hash 变
+    r = await client.patch(f"/api/legacy-usage-rules/{rule['id']}",
+                           json={"pattern": "other"})
+    assert r.json()["version"] == 2 and r.json()["snapshot_hash"] != h1
+    r = await client.patch(f"/api/legacy-usage-rules/{rule['id']}",
+                           json={"match_operator": "contains"})
+    assert r.json()["version"] == 3
+    r = await client.patch(f"/api/legacy-usage-rules/{rule['id']}",
+                           json={"case_sensitive": True})
+    assert r.json()["version"] == 4
+    r = await client.patch(f"/api/legacy-usage-rules/{rule['id']}",
+                           json={"include_historical_locations": False})
+    assert r.json()["version"] == 5
+
+    # 语义改回等价 → 版本继续 +1，但 hash 复原（幂等锚回到原证据）
+    r = await client.patch(
+        f"/api/legacy-usage-rules/{rule['id']}",
+        json={"pattern": "historical-marker", "match_operator": "equals",
+              "case_sensitive": False, "include_historical_locations": True},
+    )
+    body = r.json()
+    assert body["version"] == 6
+    assert body["snapshot_hash"] == h1
+
+
+async def test_rule_display_only_update_version_policy(client):
+    """展示字段（name/description/priority）与启停/归档/恢复不增加版本。"""
+    rule = await _create_rule(client)
+    rid, h1 = rule["id"], rule["snapshot_hash"]
+    r = await client.patch(f"/api/legacy-usage-rules/{rid}",
+                           json={"name": "新名字", "description": "新描述", "priority": 5})
+    assert r.json()["version"] == 1 and r.json()["snapshot_hash"] == h1
+    await client.post(f"/api/legacy-usage-rules/{rid}/disable")
+    await client.post(f"/api/legacy-usage-rules/{rid}/enable")
+    await client.post(f"/api/legacy-usage-rules/{rid}/archive")
+    r = await client.post(f"/api/legacy-usage-rules/{rid}/restore")
+    assert r.json()["version"] == 1 and r.json()["snapshot_hash"] == h1
+
+
+# ============================ 取消（§六 API 侧） ============================
+
+
+async def test_cancel_pending_import(client, session):
+    sd = await _seed_root(session)
+    asset = await _seed_asset(session, sd, "historical-marker/cp.mp4")
+    await _seed_location(session, sd, asset, "historical-marker/cp.mp4")
+    await _create_rule(client)
+    run = (await client.post("/api/legacy-usage-imports", json={})).json()
+    assert run["status"] == "pending"
+    r = await client.post(f"/api/legacy-usage-imports/{run['id']}/cancel")
+    assert r.status_code == 200 and r.json()["status"] == "cancelled"
+    assert r.json()["completed_at"] is not None
+    # 重复取消 → 明确 409（幂等拒绝）
+    r = await client.post(f"/api/legacy-usage-imports/{run['id']}/cancel")
+    assert r.status_code == 409
+
+
+async def test_cancel_completed_run_rejected(client, session):
+    sd = await _seed_root(session)
+    asset = await _seed_asset(session, sd, "historical-marker/cc.mp4")
+    await _seed_location(session, sd, asset, "historical-marker/cc.mp4")
+    await _create_rule(client)
+    run = (await client.post("/api/legacy-usage-imports", json={})).json()
+    from clipmind_shared.models import LegacyUsageImportRun as _Run
+    db_run = await session.get(_Run, run["id"])
+    db_run.status = "completed"
+    db_run.completed_at = utcnow()
+    await session.commit()
+    r = await client.post(f"/api/legacy-usage-imports/{run['id']}/cancel")
+    assert r.status_code == 409
+    # failed 同样拒绝
+    db_run.status = "failed"
+    await session.commit()
+    r = await client.post(f"/api/legacy-usage-imports/{run['id']}/cancel")
+    assert r.status_code == 409
+
+
+# ============================ 统计口径 distinct（§七） ============================
+
+
+async def test_matched_location_count_is_distinct(client, session):
+    """同一路径中出现两次相同目录段：1 个位置只计 1 次（证据也只 1 条）。"""
+    sd = await _seed_root(session)
+    a = await _seed_asset(session, sd, "historical-marker/sub/historical-marker/f.mp4")
+    await _seed_location(session, sd, a, "historical-marker/sub/historical-marker/f.mp4")
+    await _create_rule(client, pattern="historical-marker")
+    body = (await client.post("/api/legacy-usage-imports/preview", json={})).json()
+    assert body["matched_location_count"] == 1
+    assert body["matched_asset_count"] == 1
+    assert body["would_create_count"] == 1
+
+
+async def test_multiple_rules_same_location_count_once(client, session):
+    """一个位置被两条规则命中：位置计 1 次；证据按规则语义各 1 条。"""
+    sd = await _seed_root(session)
+    a = await _seed_asset(session, sd, "historical-marker/f.used-tag.mp4")
+    await _seed_location(session, sd, a, "historical-marker/f.used-tag.mp4")
+    r1 = await _create_rule(client, pattern="historical-marker")
+    r2 = await _create_rule(client, target="filename", operator="contains",
+                            pattern=".used-tag")
+    body = (await client.post(
+        "/api/legacy-usage-imports/preview",
+        json={"rule_ids": [r1["id"], r2["id"]]},
+    )).json()
+    assert body["matched_location_count"] == 1  # distinct 位置
+    assert body["matched_asset_count"] == 1
+    assert body["would_create_count"] == 2      # 两条规则各自的匹配事实
+    assert body["by_rule"] == {str(r1["id"]): 1, str(r2["id"]): 1}
+
+
+async def test_multiple_hits_same_location_count_once(client, session):
+    """一条规则在同一位置产生多个 hit（不同片段）：位置仍只计 1 次。"""
+    sd = await _seed_root(session)
+    a = await _seed_asset(session, sd, "marker-a/marker-b/f.mp4")
+    await _seed_location(session, sd, a, "marker-a/marker-b/f.mp4")
+    rule = await _create_rule(client, operator="starts_with", pattern="marker-")
+    body = (await client.post(
+        "/api/legacy-usage-imports/preview", json={"rule_ids": [rule["id"]]}
+    )).json()
+    assert body["matched_location_count"] == 1
+    assert body["would_create_count"] == 2  # marker-a / marker-b 两个匹配事实
+    assert body["by_rule"] == {str(rule["id"]): 1}
+
+
+async def test_existing_evidence_count_is_distinct(client, session):
+    """existing_evidence_count = 本次命中的不同既有 Evidence 数（非观察次数）。"""
+    sd = await _seed_root(session)
+    a = await _seed_asset(session, sd, "historical-marker/f1.mp4")
+    await _seed_location(session, sd, a, "historical-marker/f1.mp4")
+    # 同一 Asset 第二个位置命中同一目录段 → 同一匹配事实（同 key）
+    await _seed_location(session, sd, a, "sub/historical-marker/f2.mp4", primary=False)
+    rule = await _create_rule(client, pattern="historical-marker")
+    await _seed_evidence(session, a, rule)  # 既有证据（同 key）
+    body = (await client.post(
+        "/api/legacy-usage-imports/preview", json={"rule_ids": [rule["id"]]}
+    )).json()
+    assert body["matched_location_count"] == 2  # 两个不同位置
+    assert body["existing_evidence_count"] == 1  # 但只命中 1 条既有证据
+    assert body["would_create_count"] == 0

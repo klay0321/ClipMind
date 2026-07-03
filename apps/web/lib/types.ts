@@ -2481,3 +2481,119 @@ export interface AnalysisGenerations {
   current_generation: number | null;
   items: AnalysisGeneration[];
 }
+
+// ============================================================
+// PR-D 统一使用记录中心（展示统一、事实分离）
+// confirmed lineage 永远高于 legacy evidence；两类计数绝不相加；
+// 正式使用次数只来自 confirmed FinalVideoUsage。
+// ============================================================
+
+export type ReviewItemType = "final_video_usage" | "legacy_usage_evidence";
+export type ReviewGroup =
+  | "needs_review"
+  | "accepted_or_confirmed"
+  | "rejected"
+  | "conflict"
+  | "revoked";
+export type SourceStrength =
+  | "confirmed_lineage"
+  | "manual_proposed_lineage"
+  | "project_proposed_lineage"
+  | "suspected_lineage"
+  | "accepted_legacy_evidence"
+  | "pending_legacy_evidence"
+  | "rejected_or_conflict";
+
+export interface ReviewItem {
+  item_type: ReviewItemType;
+  item_id: number;
+  review_group: ReviewGroup;
+  source_strength: SourceStrength;
+  review_status: string;
+  asset_id: number | null;
+  asset_filename: string | null;
+  shot_id: number | null;          // legacy 恒 null（证据没有 Shot）
+  shot_sequence_no: number | null;
+  final_video_id: number | null;   // legacy 恒 null（证据没有成片）
+  final_video_title: string | null;
+  product: string | null;
+  source_label: string | null;
+  evidence_summary: string | null;
+  created_at: string;
+  last_observed_at: string | null;
+  reviewed_at: string | null;
+  available_actions: string[];
+}
+
+export interface ReviewListResponse {
+  items: ReviewItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface ReviewSummary {
+  formal: {
+    confirmed: number;
+    proposed: number;
+    suspected: number;
+    rejected: number;
+    revoked: number;
+  };
+  legacy: {
+    pending: number;
+    accepted: number;
+    rejected: number;
+    conflict: number;
+  };
+  needs_review_total: number;
+}
+
+export interface ReviewItemDetail {
+  item: ReviewItem;
+  formal_usage: Record<string, unknown> | null;
+  legacy_evidence: Record<string, unknown> | null;
+  events: {
+    id: number;
+    action: string;
+    before_status: string | null;
+    after_status: string | null;
+    actor_label: string | null;
+    note: string | null;
+    created_at: string;
+  }[];
+}
+
+export interface ReviewListQuery {
+  page: number;
+  page_size: number;
+  item_type?: ReviewItemType;
+  review_group?: ReviewGroup;
+  source_strength?: SourceStrength;
+  asset_id?: number;
+  final_video_id?: number;
+  source_directory_id?: number;
+  product_family_id?: number;
+  product_variant_id?: number;
+  q?: string;
+  sort?: string;
+}
+
+export interface ReviewBulkRequest {
+  items: { item_type: ReviewItemType; item_id: number }[];
+  action: string;
+  actor_label?: string;
+  note?: string;
+}
+
+export interface ReviewBulkResult {
+  succeeded: number;
+  skipped: number;
+  failed: number;
+  results: {
+    item_type: ReviewItemType;
+    item_id: number;
+    outcome: "succeeded" | "skipped" | "failed";
+    reason: string | null;
+  }[];
+}

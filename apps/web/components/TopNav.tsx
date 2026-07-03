@@ -11,6 +11,7 @@ type NavKey =
   | "search"
   | "script"
   | "final-videos"
+  | "usage-review"
   | "usage-evidence"
   | "exports"
   | "favorites";
@@ -23,6 +24,7 @@ const PRIMARY: { key: NavKey; href: string; label: string; testId?: string }[] =
   { key: "script", href: "/script", label: "脚本剪辑", testId: "nav-script" },
   { key: "projects", href: "/projects", label: "项目", testId: "nav-projects" },
   { key: "final-videos", href: "/final-videos", label: "成片与使用记录", testId: "nav-final-videos" },
+  { key: "usage-review", href: "/usage-review", label: "使用记录中心", testId: "nav-usage-review" },
   { key: "exports", href: "/exports", label: "导出", testId: "nav-exports" },
 ];
 

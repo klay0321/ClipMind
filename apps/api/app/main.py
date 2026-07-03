@@ -37,6 +37,7 @@ from app.routers import (
     system,
     tags,
     uploads,
+    usage_review,
 )
 
 settings = get_settings()
@@ -92,3 +93,5 @@ app.include_router(final_video_usages.summary_router, prefix="/api")
 app.include_router(legacy_evidence.rules_router, prefix="/api")
 app.include_router(legacy_evidence.imports_router, prefix="/api")
 app.include_router(legacy_evidence.evidence_router, prefix="/api")
+# PR-D 统一使用记录中心（只读投影 + typed bulk；事实仍在两张领域表）
+app.include_router(usage_review.router, prefix="/api")

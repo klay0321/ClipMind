@@ -166,6 +166,15 @@ import type {
   UsageOccurrence,
 } from "./types";
 import type {
+  ReviewBulkRequest,
+  ReviewBulkResult,
+  ReviewItemDetail,
+  ReviewItemType,
+  ReviewListQuery,
+  ReviewListResponse,
+  ReviewSummary,
+} from "./types";
+import type {
   AssetLegacySummary,
   LegacyBulkReviewRequest,
   LegacyBulkReviewResult,
@@ -1505,6 +1514,39 @@ export const api = {
   },
   getAssetLegacySummary(assetId: number): Promise<AssetLegacySummary> {
     return http<AssetLegacySummary>(`/assets/${assetId}/legacy-usage-summary`);
+  },
+
+  // ===== PR-D 统一使用记录中心（只读投影 + typed bulk） =====
+  getReviewSummary(): Promise<ReviewSummary> {
+    return http<ReviewSummary>(`/usage-review/summary`);
+  },
+  listReviewItems(query: ReviewListQuery): Promise<ReviewListResponse> {
+    const p = new URLSearchParams();
+    p.set("page", String(query.page));
+    p.set("page_size", String(query.page_size));
+    if (query.item_type) p.set("item_type", query.item_type);
+    if (query.review_group) p.set("review_group", query.review_group);
+    if (query.source_strength) p.set("source_strength", query.source_strength);
+    if (query.asset_id != null) p.set("asset_id", String(query.asset_id));
+    if (query.final_video_id != null) p.set("final_video_id", String(query.final_video_id));
+    if (query.source_directory_id != null)
+      p.set("source_directory_id", String(query.source_directory_id));
+    if (query.product_family_id != null)
+      p.set("product_family_id", String(query.product_family_id));
+    if (query.product_variant_id != null)
+      p.set("product_variant_id", String(query.product_variant_id));
+    if (query.q) p.set("q", query.q);
+    if (query.sort) p.set("sort", query.sort);
+    return http<ReviewListResponse>(`/usage-review/items?${p.toString()}`);
+  },
+  getReviewItemDetail(itemType: ReviewItemType, itemId: number): Promise<ReviewItemDetail> {
+    return http<ReviewItemDetail>(`/usage-review/items/${itemType}/${itemId}`);
+  },
+  reviewBulk(payload: ReviewBulkRequest): Promise<ReviewBulkResult> {
+    return http<ReviewBulkResult>(`/usage-review/bulk`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
 };
 

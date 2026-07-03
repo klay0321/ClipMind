@@ -87,6 +87,10 @@ import type {
   UsageCreateRequest,
 } from "./types";
 import type {
+  ReviewBulkRequest,
+  ReviewListQuery,
+} from "./types";
+import type {
   LegacyBulkReviewRequest,
   LegacyImportRequest,
   LegacyReviewActionRequest,
@@ -2233,5 +2237,58 @@ export function useAssetLegacySummary(assetId: number | null) {
     queryKey: ["asset-legacy-summary", assetId],
     queryFn: () => api.getAssetLegacySummary(assetId as number),
     enabled: assetId != null,
+  });
+}
+
+// ============================================================
+// PR-D 统一使用记录中心
+// ============================================================
+
+export function useUsageReviewSummary() {
+  return useQuery({
+    queryKey: ["usage-review-summary"],
+    queryFn: () => api.getReviewSummary(),
+  });
+}
+
+export function useUsageReviewItems(query: ReviewListQuery) {
+  return useQuery({
+    queryKey: ["usage-review-items", query],
+    queryFn: () => api.listReviewItems(query),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useUsageReviewItemDetail(
+  itemType: "final_video_usage" | "legacy_usage_evidence" | null,
+  itemId: number | null,
+) {
+  return useQuery({
+    queryKey: ["usage-review-detail", itemType, itemId],
+    queryFn: () =>
+      api.getReviewItemDetail(
+        itemType as "final_video_usage" | "legacy_usage_evidence",
+        itemId as number,
+      ),
+    enabled: itemType != null && itemId != null,
+  });
+}
+
+export function useUsageReviewBulk() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ReviewBulkRequest) => api.reviewBulk(payload),
+    onSuccess: () => {
+      // 统一中心 + 两个领域视图 + 汇总全部失效（事实变更来自原领域 Service）
+      void qc.invalidateQueries({ queryKey: ["usage-review-summary"] });
+      void qc.invalidateQueries({ queryKey: ["usage-review-items"] });
+      void qc.invalidateQueries({ queryKey: ["usage-review-detail"] });
+      void qc.invalidateQueries({ queryKey: ["legacy-evidence"] });
+      void qc.invalidateQueries({ queryKey: ["final-videos"] });
+      void qc.invalidateQueries({ queryKey: ["final-video-lineage"] });
+      void qc.invalidateQueries({ queryKey: ["shot-usage"] });
+      void qc.invalidateQueries({ queryKey: ["asset-usage"] });
+      void qc.invalidateQueries({ queryKey: ["asset-legacy-summary"] });
+    },
   });
 }

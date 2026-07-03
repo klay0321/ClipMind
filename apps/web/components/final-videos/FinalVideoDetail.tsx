@@ -219,6 +219,14 @@ export function FinalVideoDetail({ finalVideoId }: { finalVideoId: number }) {
           <b className="text-emerald-700">{fv.usage_stats.confirmed_count}</b> · 候选{" "}
           {fv.usage_stats.proposed_count} · 已驳回 {fv.usage_stats.rejected_count} · 已撤销{" "}
           {fv.usage_stats.revoked_count}
+          {" · "}
+          <Link
+            href="/usage-review"
+            className="text-brand hover:underline"
+            data-testid="fv-open-review-center"
+          >
+            进入统一审核中心 →
+          </Link>
         </span>
       </div>
 

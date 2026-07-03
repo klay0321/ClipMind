@@ -5,6 +5,7 @@ import Link from "next/link";
 import { AssetIdentityPanel } from "@/components/assets/AssetIdentityPanel";
 import { ProcessingChain } from "@/components/assets/ProcessingChain";
 import { AssetLegacyPanel } from "@/components/usage-evidence/AssetLegacyPanel";
+import { AssetUsagePanel } from "@/components/usage-review/AssetUsagePanel";
 import { AssetStatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
@@ -117,6 +118,9 @@ export function AssetDetailDrawer({
 
         {/* PR-C：素材身份 / 文件位置历史 / 分析代次（只读派生） */}
         <AssetIdentityPanel assetId={asset.id} onOpenShot={onPreview} />
+
+        {/* PR-D：统一使用摘要（正式与历史并列，口径不同不相加） */}
+        <AssetUsagePanel assetId={asset.id} />
 
         {/* PR-C Gate B：历史使用证据（弱证据只读区；绝不显示"已使用 N 次"） */}
         <AssetLegacyPanel assetId={asset.id} />

@@ -67,6 +67,9 @@ class Settings(BaseSettings):
     search_query_parser: str = ""
     search_parser_model: str = ""          # mimo 文本解析模型（默认 mimo-v2.5-pro）
     search_parser_timeout: float = 8.0     # 解析超时（秒），超时降级规则解析，不阻断词法
+    # PR-E.1：LLM 解析结果缓存 TTL（秒）。同一查询文本在 TTL 内解析结果确定，
+    # 消除 LLM 非确定输出导致的检索顺序/分数抖动。0=禁用。仅作用于 mimo 解析器。
+    search_parser_cache_ttl_seconds: int = 604800
     search_candidate_pool: int = 200       # 每通道候选池上限（有界融合）
     # PR-E：usage hard filter 触发候选扩张时的池上限（防饥饿；仍有界）
     search_candidate_pool_max: int = 1000

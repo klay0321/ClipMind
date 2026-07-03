@@ -492,6 +492,60 @@ export interface ShotSearchRequest {
   sort?: SearchSort;
   page: number;
   page_size: number;
+  // ---- PR-E 使用感知（省略=default，与旧行为逐位一致）----
+  usage_mode?: UsageMode;
+  usage_scope?: UsageScope;
+  max_confirmed_usage_count?: number | null;
+  min_days_since_last_use?: number | null;
+  exclude_recently_used_days?: number | null;
+  include_legacy_unknown?: boolean;
+  usage_preset?: UsagePreset;
+  usage_weights?: Record<string, number> | null;
+  include_usage_explanation?: boolean;
+}
+
+export type UsageMode =
+  | "default"
+  | "prefer_unused"
+  | "only_never_confirmed"
+  | "exclude_high_frequency"
+  | "least_recently_used";
+export type UsageScope = "shot" | "asset" | "combined";
+export type UsagePreset = "balanced" | "strong_unused" | "relevance_first";
+export type SearchUsageState =
+  | "confirmed_used"
+  | "legacy_used_unknown"
+  | "usage_needs_review"
+  | "never_confirmed_used";
+
+export interface SearchUsageInfo {
+  shot_confirmed_usage_count: number;
+  shot_distinct_final_video_count: number;
+  asset_confirmed_usage_count: number;
+  asset_distinct_final_video_count: number;
+  asset_used_shot_count: number;
+  asset_total_current_shot_count: number;
+  last_confirmed_used_at: string | null;
+  days_since_last_confirmed_use: number | null;
+  accepted_legacy_evidence_count: number;
+  pending_formal_count: number;
+  usage_state: SearchUsageState;
+}
+
+export interface SearchUsageReason {
+  code: string;
+  adjustment: number;
+  message: string;
+}
+
+export interface SearchUsageStats {
+  requested_top_k: number;
+  candidate_pool_size: number;
+  filtered_count: number;
+  returned_count: number;
+  candidate_limit_reached: boolean;
+  expansion_rounds: number;
+  usage_projection_ms: number;
 }
 
 export interface AssetBrief {
@@ -539,6 +593,12 @@ export interface SearchResultItem {
   risk_penalty: number;
   matched_reasons: string[];
   unmatched_requirements: string[];
+  // PR-E 使用感知（可选；default 模式 adjustment=0）
+  base_score?: number | null;
+  usage_adjustment?: number | null;
+  final_score?: number | null;
+  usage?: SearchUsageInfo | null;
+  usage_reasons?: SearchUsageReason[];
   risk_warnings: string[];
   review_status: string | null;
   review_is_stale: boolean;
@@ -596,6 +656,7 @@ export interface ShotSearchResponse {
   degradation_reasons: string[];
   elapsed_ms: number;
   query_plan_summary: Record<string, unknown>;
+  usage_stats?: SearchUsageStats | null;
   parsed_query: ParsedSearchQuery;
 }
 

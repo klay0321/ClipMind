@@ -2292,3 +2292,31 @@ export function useUsageReviewBulk() {
     },
   });
 }
+
+// ===== PR-F 产品视觉识别实验 =====
+
+export function useVisualStatus() {
+  return useQuery({ queryKey: ["visual-status"], queryFn: () => api.getVisualStatus() });
+}
+
+export function useVisualCoverage(enabled = true) {
+  return useQuery({
+    queryKey: ["visual-coverage"],
+    queryFn: () => api.getVisualCoverage(),
+    enabled,
+  });
+}
+
+export function useVisualShotCandidates() {
+  return useMutation({
+    mutationFn: (vars: { shotId: number; top_k?: number; aggregation?: string }) =>
+      api.visualCandidatesForShot(vars.shotId, {
+        top_k: vars.top_k,
+        aggregation: vars.aggregation,
+      }),
+  });
+}
+
+export function useVisualImageCandidates() {
+  return useMutation({ mutationFn: (file: File) => api.visualCandidatesForImage(file) });
+}

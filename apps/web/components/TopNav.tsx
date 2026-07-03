@@ -13,6 +13,7 @@ type NavKey =
   | "final-videos"
   | "usage-review"
   | "usage-evidence"
+  | "visual-experiments"
   | "exports"
   | "favorites";
 
@@ -32,7 +33,8 @@ export function TopNav({ active }: { active?: NavKey }) {
   const linkCls = (key: NavKey) =>
     active === key ? "text-brand font-medium" : "text-gray-500 hover:text-gray-800";
   const moreActive =
-    active === "products" || active === "favorites" || active === "usage-evidence";
+    active === "products" || active === "favorites" || active === "usage-evidence" ||
+    active === "visual-experiments";
 
   return (
     <header className="border-b border-gray-100 bg-white">
@@ -64,6 +66,11 @@ export function TopNav({ active }: { active?: NavKey }) {
             items={[
               { key: "products", label: "产品库", href: "/products" },
               { key: "usage-evidence", label: "历史使用证据", href: "/usage-evidence" },
+              {
+                key: "visual-experiments",
+                label: "视觉识别实验",
+                href: "/product-visual-experiments",
+              },
               { key: "favorites", label: "收藏", href: "/favorites" },
             ]}
           />

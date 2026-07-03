@@ -256,6 +256,15 @@ jobs:
           for flag in PR_C_B_RULE_ENGINE_OK PR_C_B_DRY_RUN_OK PR_C_B_DISTINCT_STATS_OK \n                      PR_C_B_IMPORT_OK PR_C_B_IMPORT_IDEMPOTENT_OK PR_C_B_REVIEW_WORKFLOW_OK \n                      PR_C_B_LEGACY_STATE_OK PR_C_B_USAGE_COUNT_UNCHANGED_OK PR_C_B_USAGE_ISOLATION_OK \n                      PR_C_B_LOCATION_HISTORY_OK PR_C_B_IMMUTABLE_RULE_SNAPSHOT_OK \n                      PR_C_B_RULE_VERSIONED_EVIDENCE_OK PR_C_B_IMPORT_SERIALIZATION_OK \n                      PR_C_B_IMPORT_CANCEL_OK PR_C_B_BACKWARD_COMPAT_OK PR_C_B_API_E2E_OK; do
             grep -q "$flag" prcb.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: 统一使用记录中心 端到端（PR-D；Read Model→typed bulk→clue 补录→隔离；纯 API 中性数据）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_pr_d_usage_review_e2e.py --mode full | tee prd.log
+          for flag in PR_D_UNIFIED_READ_MODEL_OK PR_D_FORMAL_BULK_REVIEW_OK                       PR_D_LEGACY_BULK_REVIEW_OK PR_D_MIXED_TYPE_GUARD_OK                       PR_D_MANUAL_LINEAGE_FROM_CLUE_OK PR_D_USAGE_COUNT_ISOLATION_OK                       PR_D_BACKWARD_COMPAT_OK PR_D_API_E2E_OK; do
+            grep -q "$flag" prd.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: 导出中心/多格式/Bundle/保存搜索/收藏/动态集合 端到端（PR-06B；FakeProvider；export+media worker）
         env:
           API_BASE: http://localhost:8000
@@ -331,6 +340,8 @@ jobs:
           grep -q "PR_C_PERSIST_OK" prc_persist.log
           python scripts/ci_pr_c_b_legacy_e2e.py --mode check-persist | tee prcb_persist.log
           grep -q "PR_C_B_RESTART_PERSIST_OK" prcb_persist.log
+          python scripts/ci_pr_d_usage_review_e2e.py --mode check-persist | tee prd_persist.log
+          grep -q "PR_D_RESTART_PERSIST_OK" prd_persist.log
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |
@@ -546,6 +557,19 @@ jobs:
           for flag in PR_C_B_UI_RULES_OK PR_C_B_UI_IMPORT_OK PR_C_B_UI_REVIEW_OK PR_C_B_UI_E2E_OK; do
             grep -q "$flag" pr-c-b-ui.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: PR-D 统一使用记录中心 UI E2E（先 API 播种，再驱动真实页面）
+        env:
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_pr_d_usage_review_e2e.py --mode seed-ui | tee prd-ui-seed.log
+          grep -q "PR_D_UI_SEED_OK" prd-ui-seed.log
+          cd e2e
+          npx playwright test pr-d-usage-review.spec.ts --grep-invert @persist | tee pr-d-ui.log
+          for flag in PR_D_UI_READ_MODEL_OK PR_D_UI_MIXED_GUARD_OK PR_D_UI_LEGACY_BULK_OK                       PR_D_UI_FORMAL_REVIEW_OK PR_D_UI_CLUE_OK PR_D_UI_E2E_OK; do
+            grep -q "$flag" pr-d-ui.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: 重启 API/web/search-worker/export-worker 后持久化
         env:
           WEB_BASE: http://localhost:3000
@@ -583,6 +607,8 @@ jobs:
           grep -q "PR_C_UI_PERSIST_OK" e2e/pr-c-persist.log
           ( cd e2e && npx playwright test pr-c-b-legacy-evidence.spec.ts --grep @persist | tee pr-c-b-persist.log )
           grep -q "PR_C_B_UI_PERSIST_OK" e2e/pr-c-b-persist.log
+          ( cd e2e && npx playwright test pr-d-usage-review.spec.ts --grep @persist | tee pr-d-persist.log )
+          grep -q "PR_D_UI_PERSIST_OK" e2e/pr-d-persist.log
       - name: 失败时上传脱敏证据（trace/截图/报告；不含 .env/key/endpoint）
         if: failure()
         uses: actions/upload-artifact@v4

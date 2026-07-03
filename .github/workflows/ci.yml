@@ -247,6 +247,15 @@ jobs:
           for flag in PR_C_FULL_HASH_AUTHORITY_OK PR_C_STABLE_ASSET_ID_OK PR_C_MOVE_RELINK_OK                       PR_C_HISTORICAL_SHOT_PRESERVED_OK PR_C_CURRENT_GENERATION_FILTER_OK                       PR_C_REANALYSIS_WITH_LINEAGE_OK PR_C_MULTIPLE_LOCATIONS_OK                       PR_C_QUICK_HASH_NOT_AUTHORITATIVE_OK PR_C_BACKWARD_COMPAT_OK PR_C_API_E2E_OK; do
             grep -q "$flag" prc.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: 历史使用证据 端到端（PR-C Gate B；受控规则→预览→幂等导入→审核→confirmed 隔离；纯 API 中性数据）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_pr_c_b_legacy_e2e.py --mode full | tee prcb.log
+          for flag in PR_C_B_RULE_ENGINE_OK PR_C_B_DRY_RUN_OK PR_C_B_DISTINCT_STATS_OK \n                      PR_C_B_IMPORT_OK PR_C_B_IMPORT_IDEMPOTENT_OK PR_C_B_REVIEW_WORKFLOW_OK \n                      PR_C_B_LEGACY_STATE_OK PR_C_B_USAGE_COUNT_UNCHANGED_OK PR_C_B_USAGE_ISOLATION_OK \n                      PR_C_B_LOCATION_HISTORY_OK PR_C_B_IMMUTABLE_RULE_SNAPSHOT_OK \n                      PR_C_B_RULE_VERSIONED_EVIDENCE_OK PR_C_B_IMPORT_SERIALIZATION_OK \n                      PR_C_B_IMPORT_CANCEL_OK PR_C_B_BACKWARD_COMPAT_OK PR_C_B_API_E2E_OK; do
+            grep -q "$flag" prcb.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: 导出中心/多格式/Bundle/保存搜索/收藏/动态集合 端到端（PR-06B；FakeProvider；export+media worker）
         env:
           API_BASE: http://localhost:8000
@@ -258,7 +267,7 @@ jobs:
                       DYNAMIC_COLLECTION_E2E_OK PR06B_E2E_OK; do
             grep -q "$flag" pr06b.log || { echo "缺少标志 $flag"; exit 1; }
           done
-      - name: 已有数据库升级路径端到端（0008→head 含 0009-0017 + 幂等；独立测试库，不碰业务库）
+      - name: 已有数据库升级路径端到端（0008→head 含 0009-0018 + 幂等；独立测试库，不碰业务库）
         run: |
           set -o pipefail
           python scripts/ci_db_upgrade_e2e.py | tee db_upgrade.log
@@ -270,6 +279,7 @@ jobs:
           grep -q "GOVERNANCE_DB_UPGRADE_OK" db_upgrade.log
           grep -q "LINEAGE_DB_UPGRADE_OK" db_upgrade.log
           grep -q "IDENTITY_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "LEGACY_DB_UPGRADE_OK" db_upgrade.log
           grep -q "SCRIPT_DB_UPGRADE_IDEMPOTENT_OK" db_upgrade.log
       - name: AI 链路 DB 级持久化断言（不以 Celery task 自报成功为准）
         run: |
@@ -319,6 +329,8 @@ jobs:
           python scripts/ci_pr_c_identity_e2e.py --mode check-persist | tee prc_persist.log
           grep -q "PR_C_RESTART_PERSIST_OK" prc_persist.log
           grep -q "PR_C_PERSIST_OK" prc_persist.log
+          python scripts/ci_pr_c_b_legacy_e2e.py --mode check-persist | tee prcb_persist.log
+          grep -q "PR_C_B_RESTART_PERSIST_OK" prcb_persist.log
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |
@@ -521,6 +533,19 @@ jobs:
           for flag in PR_C_UI_IDENTITY_OK PR_C_UI_LOCATIONS_OK PR_C_UI_GENERATIONS_OK PR_C_UI_E2E_OK; do
             grep -q "$flag" pr-c-ui.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: PR-C Gate B 历史使用证据 UI E2E（先 API 播种规则/证据，再驱动真实页面）
+        env:
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_pr_c_b_legacy_e2e.py --mode full | tee prcb-ui-seed.log
+          grep -q "PR_C_B_API_E2E_OK" prcb-ui-seed.log
+          cd e2e
+          npx playwright test pr-c-b-legacy-evidence.spec.ts --grep-invert @persist | tee pr-c-b-ui.log
+          for flag in PR_C_B_UI_RULES_OK PR_C_B_UI_IMPORT_OK PR_C_B_UI_REVIEW_OK PR_C_B_UI_E2E_OK; do
+            grep -q "$flag" pr-c-b-ui.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: 重启 API/web/search-worker/export-worker 后持久化
         env:
           WEB_BASE: http://localhost:3000
@@ -556,6 +581,8 @@ jobs:
           grep -q "PR_B_UI_PERSIST_OK" e2e/pr-b-persist.log
           ( cd e2e && npx playwright test pr-c-asset-identity.spec.ts --grep @persist | tee pr-c-persist.log )
           grep -q "PR_C_UI_PERSIST_OK" e2e/pr-c-persist.log
+          ( cd e2e && npx playwright test pr-c-b-legacy-evidence.spec.ts --grep @persist | tee pr-c-b-persist.log )
+          grep -q "PR_C_B_UI_PERSIST_OK" e2e/pr-c-b-persist.log
       - name: 失败时上传脱敏证据（trace/截图/报告；不含 .env/key/endpoint）
         if: failure()
         uses: actions/upload-artifact@v4

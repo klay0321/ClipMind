@@ -21,6 +21,7 @@ celery_app = Celery(
     include=[
         "clipmind_worker.tasks.scan",
         "clipmind_worker.tasks.fingerprint",  # PR-C 分级指纹计算
+        "clipmind_worker.tasks.legacy_import",  # PR-C Gate B 历史证据导入
         "clipmind_worker.media.tasks",  # PR-02 拆镜头/派生/导出
         "clipmind_worker.media.bundle",  # PR-06B 多镜头 ZIP 打包导出
         "clipmind_worker.ai.tasks",  # PR-03A AI 理解分析

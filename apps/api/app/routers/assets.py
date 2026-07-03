@@ -19,6 +19,7 @@ from app.schemas.identity import (
     FingerprintJobOut,
     FingerprintRequest,
 )
+from app.schemas.legacy_evidence import AssetLegacySummaryOut
 from app.schemas.shot import (
     AnalyzeAcceptedOut,
     ShotAnalysisOut,
@@ -32,6 +33,7 @@ from app.services import (
     files,
     final_video_service,
     identity_service,
+    legacy_evidence_service,
     scan_dispatch,
     shot_dispatch,
     shot_service,
@@ -149,6 +151,14 @@ async def get_asset_usage_summary(
 ) -> AssetUsageSummaryOut:
     """素材使用统计（PR-B 只读派生值：按内部镜头 confirmed usage 聚合）。"""
     return await final_video_service.get_asset_usage_summary(db, asset_id)
+
+
+@router.get("/{asset_id}/legacy-usage-summary", response_model=AssetLegacySummaryOut)
+async def get_asset_legacy_usage_summary(
+    asset_id: int, db: AsyncSession = Depends(get_db)
+) -> AssetLegacySummaryOut:
+    """历史使用证据汇总（弱证据，只读；绝不代表 confirmed 使用次数）。"""
+    return await legacy_evidence_service.get_asset_legacy_summary(db, asset_id)
 
 
 @router.get("/{asset_id}/poster")

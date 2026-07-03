@@ -5,6 +5,7 @@ from __future__ import annotations
 from celery import Celery
 from clipmind_shared.constants import (
     QUEUE_AI,
+    QUEUE_DEFAULT,
     QUEUE_EXPORT,
     QUEUE_MEDIA,
     QUEUE_SCAN,
@@ -18,6 +19,7 @@ from clipmind_shared.constants import (
     TASK_EXPORT_SHOT_CLIP,
     TASK_FINGERPRINT_JOB,
     TASK_GENERATE_ASSET_POSTER,
+    TASK_LEGACY_IMPORT,
     TASK_REBUILD_ASSET_SEARCH_DOCS,
     TASK_REBUILD_SHOT_SEARCH_DOC,
     TASK_RESCAN_ASSET,
@@ -55,6 +57,12 @@ def enqueue_fingerprint_job(job_id: int) -> str:
     result = celery_client.send_task(
         TASK_FINGERPRINT_JOB, args=[job_id], queue=QUEUE_SCAN
     )
+    return result.id
+
+
+def enqueue_legacy_import(run_id: int) -> str:
+    """入队历史证据导入任务（PR-C Gate B；只读 AssetLocation，零文件 IO）。"""
+    result = celery_client.send_task(TASK_LEGACY_IMPORT, args=[run_id], queue=QUEUE_DEFAULT)
     return result.id
 
 

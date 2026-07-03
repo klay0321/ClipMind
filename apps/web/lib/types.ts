@@ -2163,6 +2163,15 @@ export interface AssetUsageSummary {
   distinct_final_video_count: number;
   usage_distribution: Record<string, number>;
   last_used_at: string | null;
+  // PR-C Gate B：历史弱证据（并列展示，绝不并入 confirmed 统计）
+  confirmed_usage_count: number;
+  accepted_legacy_evidence_count: number;
+  pending_legacy_evidence_count: number;
+  rejected_legacy_evidence_count: number;
+  conflict_legacy_evidence_count: number;
+  legacy_usage_state: LegacyUsageState;
+  usage_count_known: boolean;
+  final_video_known: boolean;
 }
 
 export interface UsageWithOccurrences extends FinalVideoUsage {
@@ -2181,6 +2190,220 @@ export interface FinalVideoListQuery {
   project_id?: number;
   q?: string;
   include_archived?: boolean;
+}
+
+// ============================================================
+// PR-C Gate B 历史使用证据（弱证据）
+// accept 只代表"该素材很可能曾被使用过"——次数/来源 Shot/成片均未知；
+// 绝不等于 confirmed 使用次数，前端绝不显示为"已使用 N 次"。
+// ============================================================
+
+export type LegacyMatchTarget =
+  | "directory_segment"
+  | "filename"
+  | "filename_stem"
+  | "extension"
+  | "relative_path";
+export type LegacyMatchOperator = "equals" | "contains" | "starts_with" | "ends_with";
+export type LegacyReviewStatus = "pending" | "accepted" | "rejected" | "conflict";
+export type LegacyUsageState =
+  | "no_legacy_evidence"
+  | "legacy_evidence_pending"
+  | "legacy_used_unknown"
+  | "legacy_evidence_rejected"
+  | "legacy_evidence_conflict";
+export type LegacyImportRunStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "completed_with_errors"
+  | "failed"
+  | "cancelled";
+
+export interface LegacyUsageRule {
+  id: number;
+  name: string;
+  description: string | null;
+  source_directory_id: number | null;
+  source_directory_name: string | null;
+  match_target: LegacyMatchTarget;
+  match_operator: LegacyMatchOperator;
+  pattern: string;
+  case_sensitive: boolean;
+  include_present_locations: boolean;
+  include_missing_locations: boolean;
+  include_historical_locations: boolean;
+  enabled: boolean;
+  priority: number;
+  // 语义版本（影响匹配语义的修改 +1；展示字段修改不加）
+  version: number;
+  snapshot_hash: string | null;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+  evidence_count: number;
+}
+
+export interface LegacyRuleCreateRequest {
+  name: string;
+  description?: string;
+  source_directory_id?: number;
+  match_target: LegacyMatchTarget;
+  match_operator: LegacyMatchOperator;
+  pattern: string;
+  case_sensitive?: boolean;
+  include_present_locations?: boolean;
+  include_missing_locations?: boolean;
+  include_historical_locations?: boolean;
+  priority?: number;
+}
+
+export interface LegacyRuleUpdateRequest {
+  name?: string;
+  description?: string | null;
+  source_directory_id?: number | null;
+  match_target?: LegacyMatchTarget;
+  match_operator?: LegacyMatchOperator;
+  pattern?: string;
+  case_sensitive?: boolean;
+  include_present_locations?: boolean;
+  include_missing_locations?: boolean;
+  include_historical_locations?: boolean;
+  priority?: number;
+}
+
+export interface LegacyRuleListResponse {
+  items: LegacyUsageRule[];
+  total: number;
+}
+
+export interface LegacyImportRequest {
+  source_directory_id?: number;
+  rule_ids?: number[];
+  dry_run?: boolean;
+  actor_label?: string;
+}
+
+export interface LegacyPreviewSample {
+  asset_id: number;
+  relative_path: string;
+  location_status: string;
+  rule_id: number;
+  rule_name: string;
+  matched_component: string;
+  already_exists: boolean;
+}
+
+export interface LegacyPreview {
+  scanned_location_count: number;
+  matched_location_count: number;
+  matched_asset_count: number;
+  would_create_count: number;
+  existing_evidence_count: number;
+  conflict_count: number;
+  error_count: number;
+  by_rule: Record<string, number>;
+  by_location_status: Record<string, number>;
+  samples: LegacyPreviewSample[];
+}
+
+export interface LegacyImportRun {
+  id: number;
+  source_directory_id: number | null;
+  status: LegacyImportRunStatus;
+  dry_run: boolean;
+  location_scope: string[] | null;
+  scanned_location_count: number;
+  matched_location_count: number;
+  matched_asset_count: number;
+  created_evidence_count: number;
+  existing_evidence_count: number;
+  conflict_count: number;
+  error_count: number;
+  error_summary: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+}
+
+export interface LegacyImportRunListResponse {
+  items: LegacyImportRun[];
+  total: number;
+}
+
+export interface LegacyEvidence {
+  id: number;
+  asset_id: number;
+  asset_filename: string | null;
+  asset_status: string | null;
+  product_name: string | null;
+  asset_location_id: number | null;
+  location_relative_path: string | null;
+  location_status: string | null;
+  source_root_name: string | null;
+  rule_id: number | null;
+  rule_name: string | null;
+  // 证据来源规则的语义版本（快照冻结）
+  rule_version: number;
+  evidence_type: string;
+  matched_target: LegacyMatchTarget;
+  matched_component: string;
+  review_status: LegacyReviewStatus;
+  review_note: string | null;
+  actor_label: string | null;
+  first_observed_at: string;
+  last_observed_at: string;
+  observation_count: number;
+  reviewed_at: string | null;
+  created_at: string;
+  confirmed_usage_count: number;
+  has_final_video_usage: boolean;
+}
+
+export interface LegacyEvidenceListResponse {
+  items: LegacyEvidence[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface LegacyReviewActionRequest {
+  actor_label?: string;
+  note?: string;
+}
+
+export interface LegacyBulkReviewRequest {
+  evidence_ids: number[];
+  actor_label?: string;
+  note?: string;
+}
+
+export interface LegacyBulkReviewResult {
+  succeeded: number;
+  skipped: number;
+  failed: number;
+  skipped_ids: number[];
+}
+
+export interface LegacyEvidenceEvent {
+  id: number;
+  evidence_id: number;
+  action: string;
+  before_status: string | null;
+  after_status: string | null;
+  actor_label: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+export interface AssetLegacySummary {
+  asset_id: number;
+  legacy_usage_state: LegacyUsageState;
+  accepted_count: number;
+  pending_count: number;
+  rejected_count: number;
+  conflict_count: number;
+  evidences: LegacyEvidence[];
 }
 
 // ============================================================

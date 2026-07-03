@@ -11,6 +11,7 @@ type NavKey =
   | "search"
   | "script"
   | "final-videos"
+  | "usage-evidence"
   | "exports"
   | "favorites";
 
@@ -28,7 +29,8 @@ const PRIMARY: { key: NavKey; href: string; label: string; testId?: string }[] =
 export function TopNav({ active }: { active?: NavKey }) {
   const linkCls = (key: NavKey) =>
     active === key ? "text-brand font-medium" : "text-gray-500 hover:text-gray-800";
-  const moreActive = active === "products" || active === "favorites";
+  const moreActive =
+    active === "products" || active === "favorites" || active === "usage-evidence";
 
   return (
     <header className="border-b border-gray-100 bg-white">
@@ -59,6 +61,7 @@ export function TopNav({ active }: { active?: NavKey }) {
             trigger={<span>更多 ▾</span>}
             items={[
               { key: "products", label: "产品库", href: "/products" },
+              { key: "usage-evidence", label: "历史使用证据", href: "/usage-evidence" },
               { key: "favorites", label: "收藏", href: "/favorites" },
             ]}
           />

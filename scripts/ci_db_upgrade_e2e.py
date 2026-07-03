@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""已有数据库升级路径端到端（0008 → head；含 0009-0017 各阶段表结构与数据保持断言）。
+"""已有数据库升级路径端到端（0008 → head；含 0009-0018 各阶段表结构与数据保持断言）。
 
 复现并验证"已有数据库升级"可靠性：用独立测试库 ``clipmind_upgrade_test``（绝不碰真实业务库）
 migrate 至 0008 → 写入 Gate A 业务数据 → 运行**正式升级命令** ``scripts/db_upgrade.sh``
@@ -104,9 +104,9 @@ def main() -> None:
     assert up.stdout and "SCRIPT_DB_UPGRADE_OK" in up.stdout, "db_upgrade.sh 未输出 OK 标志"
     print("  db_upgrade.sh ran: SCRIPT_DB_UPGRADE_OK emitted by official command")
 
-    # 4. 自动到 head（0017）：… + 0015 入驻治理 + 0016 使用血缘 + 0017 稳定身份
+    # 4. 自动到 head（0018）：… + 0016 使用血缘 + 0017 稳定身份 + 0018 历史证据
     rev2 = psql(TEST_DB, "select version_num from alembic_version")
-    assert rev2 == "0017_asset_stable_identity", f"应到 head 0017，实际 {rev2}"
+    assert rev2 == "0018_legacy_usage_evidence", f"应到 head 0018，实际 {rev2}"
     # 0009 Gate B 仍在
     has_export = psql(TEST_DB, "select to_regclass('public.script_export')")
     assert has_export == "script_export", "应有 script_export 表（0009）"
@@ -228,12 +228,23 @@ def main() -> None:
     print("  0017 asset_location/fingerprint_job present; per-asset primary backfilled; data intact")
     print("IDENTITY_DB_UPGRADE_OK")
 
-    # 5. 再次升级幂等（仍 head 0017，无错误，数据不变）
+    # 4j. 0018 历史使用证据四表出现；不预置任何规则/证据行；既有业务数据不丢
+    for tbl in ("legacy_usage_rule", "legacy_usage_import_run",
+                "legacy_usage_evidence", "legacy_usage_evidence_event"):
+        assert psql(TEST_DB, f"select to_regclass('public.{tbl}')") == tbl, f"应有 {tbl} 表（0018）"
+    rule_rows = psql(TEST_DB, "select count(*) from legacy_usage_rule")
+    assert rule_rows == "0", "0018 升级不得写死任何规则行（真实规则须经 API 创建）"
+    seg_prcb = psql(TEST_DB, f"select count(*) from script_segment where script_project_id={pid}")
+    assert seg_prcb == seg_before, "0018 升级后业务数据丢失"
+    print("  0018 legacy evidence tables present; zero seeded rules; data intact")
+    print("LEGACY_DB_UPGRADE_OK")
+
+    # 5. 再次升级幂等（仍 head 0018，无错误，数据不变）
     up2 = db_upgrade_script(ASYNC_URL)
     assert up2.returncode == 0, f"幂等升级失败: {up2.stderr}"
     rev3 = psql(TEST_DB, "select version_num from alembic_version")
     seg_final = psql(TEST_DB, f"select count(*) from script_segment where script_project_id={pid}")
-    assert rev3 == "0017_asset_stable_identity" and seg_final == seg_before, "幂等升级破坏状态"
+    assert rev3 == "0018_legacy_usage_evidence" and seg_final == seg_before, "幂等升级破坏状态"
     print(f"  idempotent re-run: still {rev3}, data intact (segments={seg_final})")
     print("SCRIPT_DB_UPGRADE_IDEMPOTENT_OK")
 

@@ -86,6 +86,14 @@ import type {
   UsageActionRequest,
   UsageCreateRequest,
 } from "./types";
+import type {
+  LegacyBulkReviewRequest,
+  LegacyImportRequest,
+  LegacyReviewActionRequest,
+  LegacyReviewStatus,
+  LegacyRuleCreateRequest,
+  LegacyRuleUpdateRequest,
+} from "./types";
 
 const ACTIVE_SCAN: ScanStatus[] = ["queued", "scanning"];
 const ACTIVE_RUN: MediaRunStatus[] = ["queued", "running"];
@@ -2073,5 +2081,157 @@ export function useShotsByGeneration(assetId: number | null, generation: number 
     queryKey: ["shots-by-generation", assetId, generation],
     queryFn: () => api.listAssetShotsByGeneration(assetId as number, generation as number),
     enabled: assetId != null && generation != null,
+  });
+}
+
+// ============================================================
+// PR-C Gate B 历史使用证据（弱证据；审核绝不影响 confirmed 统计）
+// ============================================================
+
+export function useLegacyRules(includeArchived = false) {
+  return useQuery({
+    queryKey: ["legacy-rules", includeArchived],
+    queryFn: () => api.listLegacyRules(includeArchived),
+  });
+}
+
+function useInvalidateLegacy() {
+  const qc = useQueryClient();
+  return () => {
+    void qc.invalidateQueries({ queryKey: ["legacy-rules"] });
+    void qc.invalidateQueries({ queryKey: ["legacy-imports"] });
+    void qc.invalidateQueries({ queryKey: ["legacy-evidence"] });
+    void qc.invalidateQueries({ queryKey: ["legacy-evidence-events"] });
+    void qc.invalidateQueries({ queryKey: ["asset-legacy-summary"] });
+    void qc.invalidateQueries({ queryKey: ["asset-usage"] });
+  };
+}
+
+export function useCreateLegacyRule() {
+  const invalidate = useInvalidateLegacy();
+  return useMutation({
+    mutationFn: (payload: LegacyRuleCreateRequest) => api.createLegacyRule(payload),
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdateLegacyRule() {
+  const invalidate = useInvalidateLegacy();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: number; payload: LegacyRuleUpdateRequest }) =>
+      api.updateLegacyRule(id, payload),
+    onSuccess: invalidate,
+  });
+}
+
+export function useLegacyRuleAction() {
+  const invalidate = useInvalidateLegacy();
+  return useMutation({
+    mutationFn: ({
+      id,
+      action,
+    }: {
+      id: number;
+      action: "enable" | "disable" | "archive" | "restore";
+    }) => api.legacyRuleAction(id, action),
+    onSuccess: invalidate,
+  });
+}
+
+export function usePreviewLegacyImport() {
+  // 只读预览：零写入，不失效任何缓存
+  return useMutation({
+    mutationFn: (payload: LegacyImportRequest) => api.previewLegacyImport(payload),
+  });
+}
+
+export function useCreateLegacyImport() {
+  const invalidate = useInvalidateLegacy();
+  return useMutation({
+    mutationFn: (payload: LegacyImportRequest) => api.createLegacyImport(payload),
+    onSuccess: invalidate,
+  });
+}
+
+const ACTIVE_LEGACY_IMPORT = ["pending", "running"];
+
+export function useLegacyImports(page = 1, pageSize = 20) {
+  return useQuery({
+    queryKey: ["legacy-imports", page, pageSize],
+    queryFn: () => api.listLegacyImports(page, pageSize),
+    placeholderData: keepPreviousData,
+    // 有进行中的运行时轮询
+    refetchInterval: (q) =>
+      q.state.data?.items.some((r) => ACTIVE_LEGACY_IMPORT.includes(r.status))
+        ? 2000
+        : false,
+  });
+}
+
+export function useCancelLegacyImport() {
+  const invalidate = useInvalidateLegacy();
+  return useMutation({
+    mutationFn: (id: number) => api.cancelLegacyImport(id),
+    onSuccess: invalidate,
+  });
+}
+
+export function useLegacyEvidence(query: {
+  page: number;
+  page_size: number;
+  review_status?: LegacyReviewStatus;
+  asset_id?: number;
+  rule_id?: number;
+}) {
+  return useQuery({
+    queryKey: ["legacy-evidence", query],
+    queryFn: () => api.listLegacyEvidence(query),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useLegacyEvidenceAction() {
+  const invalidate = useInvalidateLegacy();
+  return useMutation({
+    mutationFn: ({
+      id,
+      action,
+      payload,
+    }: {
+      id: number;
+      action: "accept" | "reject" | "mark-conflict" | "reset";
+      payload?: LegacyReviewActionRequest;
+    }) => api.legacyEvidenceAction(id, action, payload ?? {}),
+    onSuccess: invalidate,
+  });
+}
+
+export function useLegacyBulkReview() {
+  const invalidate = useInvalidateLegacy();
+  return useMutation({
+    mutationFn: ({
+      action,
+      payload,
+    }: {
+      action: "bulk-accept" | "bulk-reject";
+      payload: LegacyBulkReviewRequest;
+    }) => api.legacyBulkReview(action, payload),
+    onSuccess: invalidate,
+  });
+}
+
+export function useLegacyEvidenceEvents(id: number | null) {
+  return useQuery({
+    queryKey: ["legacy-evidence-events", id],
+    queryFn: () => api.listLegacyEvidenceEvents(id as number),
+    enabled: id != null,
+  });
+}
+
+export function useAssetLegacySummary(assetId: number | null) {
+  return useQuery({
+    queryKey: ["asset-legacy-summary", assetId],
+    queryFn: () => api.getAssetLegacySummary(assetId as number),
+    enabled: assetId != null,
   });
 }

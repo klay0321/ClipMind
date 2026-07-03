@@ -1158,6 +1158,11 @@ async def get_asset_usage_summary(
     distribution["0"] = max(total_shots - used_shot_count, 0)
     for _sid, cnt in per_shot:
         distribution[str(cnt)] += 1
+    confirmed_total = int(sum(cnt for _sid, cnt in per_shot))
+    # PR-C Gate B：历史弱证据只做并列展示——绝不并入上面的 confirmed 统计
+    from app.services import legacy_evidence_service
+
+    legacy_counts = await legacy_evidence_service.legacy_counts_for_asset(db, asset_id)
     return AssetUsageSummaryOut(
         asset_id=asset_id,
         total_shots=total_shots,
@@ -1166,6 +1171,14 @@ async def get_asset_usage_summary(
         distinct_final_video_count=distinct_fv,
         usage_distribution=dict(distribution),
         last_used_at=last_used_at,
+        confirmed_usage_count=confirmed_total,
+        accepted_legacy_evidence_count=legacy_counts.get("accepted", 0),
+        pending_legacy_evidence_count=legacy_counts.get("pending", 0),
+        rejected_legacy_evidence_count=legacy_counts.get("rejected", 0),
+        conflict_legacy_evidence_count=legacy_counts.get("conflict", 0),
+        legacy_usage_state=legacy_evidence_service.derive_legacy_state(legacy_counts),
+        usage_count_known=confirmed_total > 0,
+        final_video_known=distinct_fv > 0,
     )
 
 

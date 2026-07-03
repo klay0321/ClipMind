@@ -60,6 +60,12 @@ from clipmind_shared.models.enums import (
     TagType,
 )
 from clipmind_shared.models.export import Export
+from clipmind_shared.models.legacy_evidence import (
+    LegacyUsageEvidence,
+    LegacyUsageEvidenceEvent,
+    LegacyUsageImportRun,
+    LegacyUsageRule,
+)
 from clipmind_shared.models.final_video import (
     FinalVideo,
     FinalVideoUsage,
@@ -212,6 +218,11 @@ __all__ = [
     "USAGE_EVIDENCE_METHODS",
     "CONFIRMABLE_EVIDENCE_METHODS",
     "USAGE_EVENT_ACTIONS",
+    # PR-C Gate B 历史使用证据
+    "LegacyUsageRule",
+    "LegacyUsageImportRun",
+    "LegacyUsageEvidence",
+    "LegacyUsageEvidenceEvent",
     # PR-C 稳定素材身份 / 位置历史 / 指纹
     "AssetLocation",
     "FingerprintJob",

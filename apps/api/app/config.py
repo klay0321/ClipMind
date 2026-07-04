@@ -74,6 +74,22 @@ class Settings(BaseSettings):
     # PR-E：usage hard filter 触发候选扩张时的池上限（防饥饿；仍有界）
     search_candidate_pool_max: int = 1000
 
+    # PR-F 产品视觉识别（实验；默认关闭）。候选 ≠ 确认，绝不自动绑定产品。
+    visual_recognition_enabled: bool = False
+    visual_embedding_provider: str = "fake"   # fake（CI/测试）| local（embedder SigLIP）
+    visual_model_id: str = "google/siglip-base-patch16-224"  # Apache-2.0；仅展示/缓存键
+    visual_device: str = "cpu"
+    visual_batch_size: int = 8
+    visual_top_k: int = 5
+    # 实验性阈值（未经真实 Benchmark 校准前仅为占位；见 docs/VISUAL_RECOGNITION.md）
+    visual_min_score: float = 0.55
+    visual_min_margin: float = 0.05
+    visual_confusion_margin: float = 0.10     # confusion pair 命中时的更严 margin
+    visual_min_references: int = 2            # 低于此合格图数 → insufficient_reference
+    visual_embedder_url: str = "http://embedder:8100"  # local provider 的推理服务
+    visual_upload_max_bytes: int = 15 * 1024 * 1024
+    visual_upload_max_pixels: int = 36_000_000  # 约 6000x6000
+
     # PR-05 脚本拆段解析
     # ""/auto=ai(mimo) 已配置则用 mimo，否则规则拆段 | fake | rulebased | mimo
     script_parser: str = ""

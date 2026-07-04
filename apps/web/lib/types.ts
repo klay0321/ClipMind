@@ -2658,3 +2658,76 @@ export interface ReviewBulkResult {
     reason: string | null;
   }[];
 }
+
+// ===== PR-F 产品视觉识别实验（候选 ≠ 确认；实验能力）=====
+
+export interface VisualStatus {
+  enabled: boolean;
+  provider: string;
+  model_id: string;
+  device: string;
+  ready: boolean;
+  unavailable_reason: string | null;
+  eligible_family_count: number;
+  eligible_reference_count: number;
+  total_family_count: number;
+  thresholds: Record<string, number | boolean>;
+  experimental: boolean;
+}
+
+export interface VisualCoverageItem {
+  family_id: number;
+  family_code: string;
+  family_name: string;
+  onboarding_status: string;
+  eligible: boolean;
+  ineligible_reason: string | null;
+  reference_count: number;
+  angle_coverage: string[];
+  source_levels: string[];
+}
+
+export interface VisualCoverage {
+  items: VisualCoverageItem[];
+  eligible_count: number;
+  total_count: number;
+  min_references: number;
+}
+
+export interface VisualCandidate {
+  target_level: string;
+  target_id: number;
+  family_code: string;
+  family_name: string;
+  score: number;
+  best_reference_id: number | null;
+  matched_angles: string[];
+  reference_count: number;
+  embedded_reference_count: number;
+  aggregation: string;
+  source_levels: string[];
+}
+
+export interface VisualCandidateResponse {
+  decision: string;
+  candidates: VisualCandidate[];
+  top1_score: number | null;
+  top2_score: number | null;
+  margin: number | null;
+  thresholds: Record<string, number | boolean>;
+  aggregation: string;
+  model: string;
+  provider: string;
+  device: string;
+  reference_snapshot: Record<string, number>;
+  confusion_warning: {
+    pair_id: number;
+    severity: string;
+    reason: string | null;
+    distinguishing_features: Record<string, unknown>[];
+    strict_margin: number;
+  } | null;
+  unavailable_reason: string | null;
+  query: Record<string, unknown>;
+  experimental_notice: string;
+}

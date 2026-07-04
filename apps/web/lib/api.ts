@@ -168,6 +168,9 @@ import type {
 import type {
   ReviewBulkRequest,
   ReviewBulkResult,
+  VisualCandidateResponse,
+  VisualCoverage,
+  VisualStatus,
   ReviewItemDetail,
   ReviewItemType,
   ReviewListQuery,
@@ -1547,6 +1550,36 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     });
+  },
+
+  // ===== PR-F 产品视觉识别实验（只读候选；绝不写产品归属）=====
+  getVisualStatus(): Promise<VisualStatus> {
+    return http<VisualStatus>(`/product-visual-experiments/status`);
+  },
+  getVisualCoverage(): Promise<VisualCoverage> {
+    return http<VisualCoverage>(`/product-visual-experiments/reference-coverage`);
+  },
+  visualCandidatesForShot(
+    shotId: number,
+    payload: { top_k?: number; aggregation?: string },
+  ): Promise<VisualCandidateResponse> {
+    return http<VisualCandidateResponse>(
+      `/product-visual-experiments/candidates/shot/${shotId}`,
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+  },
+  async visualCandidatesForImage(file: File): Promise<VisualCandidateResponse> {
+    const fd = new FormData();
+    fd.append("file", file);
+    const res = await fetch(`${BASE}/product-visual-experiments/candidates/image`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) {
+      const detail = await res.json().catch(() => ({}));
+      throw new Error(String((detail as { detail?: string }).detail || res.status));
+    }
+    return (await res.json()) as VisualCandidateResponse;
   },
 };
 

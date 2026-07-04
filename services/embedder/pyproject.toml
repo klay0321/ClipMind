@@ -14,6 +14,8 @@ dependencies = [
     "pydantic>=2.9,<3",
     "pydantic-settings>=2.6,<3",
     "sentence-transformers>=3.0,<6",
+    # PR-F 视觉嵌入：图片解码（SigLIP 经 transformers 加载，无新框架）
+    "pillow>=10.4,<12",
 ]
 
 [project.optional-dependencies]

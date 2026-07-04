@@ -38,6 +38,7 @@ from app.routers import (
     tags,
     uploads,
     usage_review,
+    visual_experiments,
 )
 
 settings = get_settings()
@@ -95,3 +96,5 @@ app.include_router(legacy_evidence.imports_router, prefix="/api")
 app.include_router(legacy_evidence.evidence_router, prefix="/api")
 # PR-D 统一使用记录中心（只读投影 + typed bulk；事实仍在两张领域表）
 app.include_router(usage_review.router, prefix="/api")
+# PR-F 产品视觉识别实验（默认关闭；候选 ≠ 确认，零自动绑定）
+app.include_router(visual_experiments.router, prefix="/api")

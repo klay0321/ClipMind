@@ -10,6 +10,8 @@ import { makeMatchItem, makeMatchResponse, query } from "./fixtures";
 vi.mock("@/lib/hooks", () => ({
   useDescriptionMatch: vi.fn(),
   useProducts: vi.fn(),
+  usePmSummary: vi.fn(),
+  useAssetSearch: vi.fn(),
 }));
 
 function lastReq() {
@@ -23,6 +25,8 @@ function renderView(props: Partial<React.ComponentProps<typeof DescriptionMatchV
 beforeEach(() => {
   vi.mocked(hooks.useDescriptionMatch).mockReturnValue(query());
   vi.mocked(hooks.useProducts).mockReturnValue(query({ data: [] }));
+  vi.mocked(hooks.usePmSummary).mockReturnValue({ data: [], isLoading: false } as never);
+  vi.mocked(hooks.useAssetSearch).mockReturnValue({ data: undefined, isLoading: false, isError: false, isFetching: false } as never);
 });
 
 describe("DescriptionMatchView", () => {

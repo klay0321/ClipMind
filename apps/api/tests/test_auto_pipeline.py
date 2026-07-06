@@ -73,12 +73,17 @@ async def _seed_shot(session, asset, seq=1) -> Shot:
 # ---------------- P0：AI 发起守卫（假成功修复） ----------------
 
 
-async def test_ai_analyze_image_returns_422(client, session):
+async def test_ai_analyze_image_guard(client, session):
+    """P2a 起图片走图片理解链路：无海报 409（提示生成），有海报放行 202。"""
     sd = await _seed_sd(session)
     img = await _seed_asset(session, sd, kind="image")
     r = await client.post(f"/api/assets/{img.id}/analyze")
-    assert r.status_code == 422
-    assert "图片" in r.json()["detail"]
+    assert r.status_code == 409
+    assert "海报" in r.json()["detail"]
+    img.poster_path = f"assets/{img.id}/poster.webp"
+    await session.commit()
+    r2 = await client.post(f"/api/assets/{img.id}/analyze")
+    assert r2.status_code == 202
 
 
 async def test_ai_analyze_without_ready_shots_returns_409(client, session):

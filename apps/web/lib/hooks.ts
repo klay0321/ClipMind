@@ -2404,3 +2404,34 @@ export function usePmMutations() {
   });
   return { create, update, remove, bulk };
 }
+
+// ===== OPS 运营效率增强 =====
+
+export function usePmUnassignedGroups(kind: string, groupBy: string, enabled = true) {
+  return useQuery({
+    queryKey: ["pm-groups", kind, groupBy],
+    queryFn: () => api.pmUnassignedGroups(kind, groupBy),
+    enabled,
+  });
+}
+
+export function usePmOperations(page = 1) {
+  return useQuery({
+    queryKey: ["pm-operations", page],
+    queryFn: () => api.pmOperations(page),
+  });
+}
+
+export function usePmUndo() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (operationId: number) => api.pmUndoOperation(operationId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pm-operations"] });
+      qc.invalidateQueries({ queryKey: ["pm-summary"] });
+      qc.invalidateQueries({ queryKey: ["pm-items"] });
+      qc.invalidateQueries({ queryKey: ["pm-unassigned"] });
+      qc.invalidateQueries({ queryKey: ["pm-groups"] });
+    },
+  });
+}

@@ -2762,7 +2762,11 @@ export interface FamilyMediaSummary {
   image_count: number;
   video_count: number;
   shot_link_count: number;
+  effective_shot_count?: number;
+  final_video_count?: number;
   confirmed_usage_count: number;
+  coverage_status?: string;
+  coverage_gaps?: string[];
 }
 
 export interface ProductMediaItem {
@@ -2814,4 +2818,49 @@ export interface PMBulkResult {
   completed: Record<string, unknown>[];
   skipped: Record<string, unknown>[];
   failed: Record<string, unknown>[];
+}
+
+// ===== OPS 运营效率增强 =====
+
+export interface UnassignedGroup {
+  key: string;
+  label: string;
+  meta: Record<string, unknown>;
+  count: number;
+  targets: { target_type: string; target_id: number }[];
+  preview: {
+    target_type: string;
+    target_id: number;
+    asset_id?: number;
+    shot_id?: number;
+    filename?: string;
+    sequence_no?: number;
+    suggestions: ProductSuggestion[];
+  }[];
+  suggested: ProductSuggestion[];
+}
+
+export interface UnassignedGroups {
+  kind: string;
+  group_by: string;
+  total_items: number;
+  truncated: boolean;
+  groups: UnassignedGroup[];
+}
+
+export interface PmOperation {
+  id: number;
+  kind: string;
+  family_id: number | null;
+  role: string | null;
+  origin: string | null;
+  actor_label: string | null;
+  requested_count: number;
+  completed_count: number;
+  skipped_count: number;
+  failed_count: number;
+  undone_at: string | null;
+  undoable: boolean;
+  created_at: string;
+  detail: Record<string, unknown> | null;
 }

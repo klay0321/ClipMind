@@ -502,6 +502,7 @@ export type SuggestionType =
 
 // 搜索请求（page_size ≤ 100；空字段后端按缺省处理）
 export interface ShotSearchRequest {
+  product_family_id?: number;
   query?: string;
   product_ids?: number[];
   brands?: string[];
@@ -2899,4 +2900,40 @@ export interface PmOperation {
   undoable: boolean;
   created_at: string;
   detail: Record<string, unknown> | null;
+}
+
+
+// ===== P2a 素材级检索（整视频 / 图片） =====
+
+export interface AssetSearchRequest {
+  query?: string;
+  media_kind?: "video" | "image";
+  source_directory_id?: number;
+  product_family_id?: number;
+  page: number;
+  page_size: number;
+}
+
+export interface AssetSearchResultItem {
+  asset_id: number;
+  filename: string;
+  media_kind: string;
+  duration: number | null;
+  source_directory_id: number;
+  has_poster: boolean;
+  score: number;
+  semantic_score: number | null;
+  lexical_score: number | null;
+  document_excerpt: string | null;
+  effective_source: string | null;
+  product_names: string[];
+}
+
+export interface AssetSearchResponse {
+  items: AssetSearchResultItem[];
+  total: number;
+  page: number;
+  page_size: number;
+  embedding_status: string;
+  elapsed_ms: number;
 }

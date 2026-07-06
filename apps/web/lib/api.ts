@@ -5,6 +5,8 @@ import type {
   Asset,
   AssetQuery,
   AssetReviewSummary,
+  AssetSearchRequest,
+  AssetSearchResponse,
   BatchAnalyzeResult,
   DescriptionMatchRequest,
   DescriptionMatchResponse,
@@ -327,6 +329,12 @@ export const api = {
     return http<BatchAnalyzeResult>(`/assets/batch-analyze`, {
       method: "POST",
       body: JSON.stringify(payload),
+    });
+  },
+  searchAssets(req: AssetSearchRequest): Promise<AssetSearchResponse> {
+    return http<AssetSearchResponse>(`/search/assets`, {
+      method: "POST",
+      body: JSON.stringify(req),
     });
   },
   processingOverview(): Promise<ProcessingOverview> {

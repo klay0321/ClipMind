@@ -78,6 +78,12 @@ async def create_link(
         note=body.note,
         settings=settings,
     )
+    await svc.record_operation(
+        db, kind="single_link", family_id=body.family_id, role=body.role,
+        origin=body.origin, actor_label=settings.review_default_reviewer,
+        requested=1, completed=[link.id], skipped=[], failed=[],
+        created_link_ids=[link.id],
+    )
     return await _link_out(db, link)
 
 
@@ -117,7 +123,14 @@ async def bulk_create(
         origin=body.origin,
         settings=settings,
     )
-    return BulkResultOut(**result)
+    op = await svc.record_operation(
+        db, kind="bulk_link", family_id=body.family_id, role=body.role,
+        origin=body.origin, actor_label=settings.review_default_reviewer,
+        requested=len(body.items), completed=result["completed"],
+        skipped=result["skipped"], failed=result["failed"],
+        created_link_ids=[c["link_id"] for c in result["completed"]],
+    )
+    return BulkResultOut(**result, operation_id=op.id)
 
 
 @router.post("/links/bulk-delete", response_model=BulkResultOut)
@@ -160,7 +173,11 @@ async def summary(db: AsyncSession = Depends(get_db)) -> list[FamilySummaryOut]:
             image_count=r["image_count"],
             video_count=r["video_count"],
             shot_link_count=r["shot_link_count"],
+            effective_shot_count=r["effective_shot_count"],
+            final_video_count=r["final_video_count"],
             confirmed_usage_count=r["confirmed_usage_count"],
+            coverage_status=r["coverage_status"],
+            coverage_gaps=r["coverage_gaps"],
         )
         for r in rows
     ]
@@ -250,6 +267,57 @@ async def unassigned(
     from fastapi import HTTPException
 
     raise HTTPException(status_code=422, detail=f"未知素材类型: {kind}")
+
+
+@router.get("/unassigned/groups")
+async def unassigned_groups(
+    kind: str = Query("image"),
+    group_by: str = Query("suggested_family"),  # suggested_family | directory | none
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    if group_by not in ("suggested_family", "directory", "none"):
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=422, detail=f"未知分组方式: {group_by}")
+    return await svc.unassigned_grouped(db, kind=kind, group_by=group_by)
+
+
+@router.get("/operations")
+async def operations(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    data = await svc.list_operations(db, page=page, page_size=page_size)
+    return {
+        "total": data["total"], "page": page, "page_size": page_size,
+        "items": [
+            {
+                "id": o.id, "kind": o.kind, "family_id": o.family_id,
+                "role": o.role, "origin": o.origin, "actor_label": o.actor_label,
+                "requested_count": o.requested_count,
+                "completed_count": o.completed_count,
+                "skipped_count": o.skipped_count, "failed_count": o.failed_count,
+                "undone_at": o.undone_at.isoformat() if o.undone_at else None,
+                "undoable": (
+                    o.kind in ("single_link", "bulk_link")
+                    and o.undone_at is None and bool(o.created_link_ids)
+                ),
+                "created_at": o.created_at.isoformat(),
+                "detail": o.detail,
+            }
+            for o in data["items"]
+        ],
+    }
+
+
+@router.post("/operations/{operation_id}/undo")
+async def undo(
+    operation_id: int,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    return await svc.undo_operation(db, operation_id, settings=settings)
 
 
 @router.get("/assets/{asset_id}/links", response_model=list[LinkOut])

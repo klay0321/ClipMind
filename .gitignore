@@ -60,6 +60,7 @@ e2e/test-results/
 # E2E 本地状态文件（check-persist 用，不提交）
 .pr*_e2e_state.json
 .pma_e2e_state.json
+.pops_e2e_state.json
 *.webp
 *.mp4
 *.mov

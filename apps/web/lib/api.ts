@@ -171,8 +171,10 @@ import type {
   VisualCandidateResponse,
   FamilyMediaSummary,
   PMBulkResult,
+  PmOperation,
   ProductMediaLink,
   ProductMediaPage,
+  UnassignedGroups,
   ProductSuggestion,
   ShotLinksView,
   VisualCoverage,
@@ -1614,6 +1616,22 @@ export const api = {
   },
   pmDeleteLink(linkId: number): Promise<void> {
     return http<void>(`/product-media/links/${linkId}`, { method: "DELETE" });
+  },
+  pmUnassignedGroups(kind: string, groupBy: string): Promise<UnassignedGroups> {
+    return http<UnassignedGroups>(
+      `/product-media/unassigned/groups?kind=${kind}&group_by=${groupBy}`,
+    );
+  },
+  pmOperations(page = 1): Promise<{ total: number; items: PmOperation[] }> {
+    return http<{ total: number; items: PmOperation[] }>(
+      `/product-media/operations?page=${page}&page_size=20`,
+    );
+  },
+  pmUndoOperation(operationId: number): Promise<Record<string, unknown>> {
+    return http<Record<string, unknown>>(
+      `/product-media/operations/${operationId}/undo`,
+      { method: "POST" },
+    );
   },
   pmBulkLink(body: Record<string, unknown>): Promise<PMBulkResult> {
     return http<PMBulkResult>(`/product-media/links/bulk`, {

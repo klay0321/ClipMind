@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { GroupedReview } from "@/components/product-media/GroupedReview";
 import {
   usePmFamilyItems,
   usePmMutations,
@@ -234,6 +235,16 @@ export function ProductMediaView() {
                 <span className="text-gray-400">
                   {f.onboarding_status ?? "未入驻"} / {f.status}
                 </span>
+                <span
+                  className={
+                    f.coverage_status === "资料较完整"
+                      ? "rounded bg-emerald-50 px-1 py-0.5 text-[10px] text-emerald-700"
+                      : "rounded bg-amber-50 px-1 py-0.5 text-[10px] text-amber-700"
+                  }
+                  data-testid={`coverage-${f.family_id}`}
+                >
+                  {f.coverage_status || "—"}
+                </span>
               </div>
             </button>
           ))}
@@ -387,7 +398,10 @@ export function ProductMediaView() {
         </section>
       ) : null}
 
-      {/* 未标注素材 */}
+      {/* OPS：候选批量审核（分组工作流——主入口） */}
+      <GroupedReview families={summary.data ?? []} />
+
+      {/* 未标注素材（平铺模式：逐项精修备用） */}
       <section className="rounded-lg border border-gray-200 bg-white p-4" data-testid="pm-unassigned">
         <div className="mb-2 flex flex-wrap items-center gap-3">
           <h2 className="text-sm font-medium text-gray-700">未标注素材</h2>

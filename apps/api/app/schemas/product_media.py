@@ -57,6 +57,7 @@ class BulkResultOut(BaseModel):
     completed: list[dict]
     skipped: list[dict]
     failed: list[dict]
+    operation_id: int | None = None  # OPS：本次批量的操作事件 id（撤销入口）
 
 
 class FamilySummaryOut(BaseModel):
@@ -70,7 +71,11 @@ class FamilySummaryOut(BaseModel):
     image_count: int
     video_count: int
     shot_link_count: int
+    effective_shot_count: int = 0
+    final_video_count: int = 0
     confirmed_usage_count: int
+    coverage_status: str = ""
+    coverage_gaps: list[str] = []
 
 
 class ShotLinksViewOut(BaseModel):

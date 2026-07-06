@@ -300,6 +300,15 @@ jobs:
           for flag in PRODUCT_MEDIA_MANUAL_ASSIGNMENT_OK PRODUCT_MEDIA_BULK_ASSIGNMENT_OK                       PRODUCT_MEDIA_SHOT_INHERITANCE_OK PRODUCT_MEDIA_SHOT_OVERRIDE_OK                       PRODUCT_MEDIA_PRODUCT_VIEW_OK PRODUCT_MEDIA_SEARCH_FILTER_OK                       PRODUCT_MEDIA_VISUAL_SUGGESTION_OK PRODUCT_MEDIA_NO_AI_REQUIRED_OK                       PRODUCT_MEDIA_API_E2E_OK; do
             grep -q "$flag" pma.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: 产品素材运营效率 端到端（OPS；分组审核→批量→撤销→审计）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_product_media_ops_e2e.py --mode full | tee pops.log
+          for flag in POPS_GROUPED_QUEUE_OK POPS_GROUP_CONFIRM_OK POPS_COVERAGE_OK                       POPS_UNDO_OK POPS_AUDIT_OK POPS_API_E2E_OK; do
+            grep -q "$flag" pops.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: 统一使用记录中心 端到端（PR-D；Read Model→typed bulk→clue 补录→隔离；置于 PR-E 之后——其全库 usage 行数快照须为重启前最后写入）
         env:
           API_BASE: http://localhost:8000
@@ -395,6 +404,8 @@ jobs:
           grep -q "PR_F_RESTART_PERSIST_OK" prf_persist.log
           python scripts/ci_product_media_e2e.py --mode check-persist | tee pma_persist.log
           grep -q "PRODUCT_MEDIA_RESTART_PERSIST_OK" pma_persist.log
+          python scripts/ci_product_media_ops_e2e.py --mode check-persist | tee pops_persist.log
+          grep -q "POPS_RESTART_PERSIST_OK" pops_persist.log
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |
@@ -661,6 +672,18 @@ jobs:
           cd e2e
           npx playwright test pr-media-workspace.spec.ts --grep-invert @persist | tee pm-ui.log
           grep -q "PM_UI_E2E_OK" pm-ui.log
+      - name: OPS 分组审核 UI E2E
+        env:
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_product_media_ops_e2e.py --mode cleanup
+          python scripts/ci_product_media_ops_e2e.py --mode full | tee pops-ui-seed.log
+          grep -q "POPS_API_E2E_OK" pops-ui-seed.log
+          cd e2e
+          npx playwright test pr-media-ops.spec.ts --grep-invert @persist | tee pm-ops-ui.log
+          grep -q "POPS_UI_E2E_OK" pm-ops-ui.log
       - name: 重启 API/web/search-worker/export-worker 后持久化
         env:
           WEB_BASE: http://localhost:3000
@@ -706,6 +729,8 @@ jobs:
           grep -q "PR_F_UI_PERSIST_OK" e2e/pr-f-persist.log
           ( cd e2e && npx playwright test pr-media-workspace.spec.ts --grep @persist | tee pm-persist.log )
           grep -q "PM_UI_PERSIST_OK" e2e/pm-persist.log
+          ( cd e2e && npx playwright test pr-media-ops.spec.ts --grep @persist | tee pm-ops-persist.log )
+          grep -q "POPS_UI_PERSIST_OK" e2e/pm-ops-persist.log
       - name: 失败时上传脱敏证据（trace/截图/报告；不含 .env/key/endpoint）
         if: failure()
         uses: actions/upload-artifact@v4

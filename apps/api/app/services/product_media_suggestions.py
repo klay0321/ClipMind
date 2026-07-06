@@ -155,3 +155,59 @@ async def suggest_for_target(
             s["family_name"] = fam.name_zh if fam else ""
             s["family_code"] = fam.code if fam else ""
     return ordered
+
+
+async def suggest_for_assets_batch(
+    db: AsyncSession, assets: list[Asset]
+) -> dict[int, list[dict]]:
+    """批量确定性候选（免 N+1：词表拉一次，页内本地匹配路径/文件名）。
+
+    批量场景只做零成本的 path/filename/alias 匹配；ai_text 匹配保留在
+    单目标端点（逐条按需）。每个 asset 至多返回 3 条（类型优先级排序）。
+    """
+    if not assets:
+        return {}
+    terms = await _candidate_terms(db)
+    fams = {
+        f.id: f
+        for f in (
+            await db.execute(
+                select(ProductFamily).where(
+                    ProductFamily.id.in_({t["family_id"] for t in terms} or {0})
+                )
+            )
+        ).scalars()
+    }
+    out: dict[int, list[dict]] = {}
+    for asset in assets:
+        rel = _norm(asset.relative_path).replace("\\", "/")
+        dir_part = "/".join(rel.split("/")[:-1])
+        file_part = _norm(asset.filename)
+        found: dict[tuple[int, str], dict] = {}
+        for entry in terms:
+            term = entry["term"]
+            if term in dir_part:
+                hit = "path"
+            elif term in file_part:
+                hit = "alias" if entry["source"] == "alias" else "filename"
+            else:
+                continue
+            key = (entry["family_id"], hit)
+            if key in found:
+                continue
+            fam = fams.get(entry["family_id"])
+            found[key] = {
+                "family_id": entry["family_id"],
+                "family_name": fam.name_zh if fam else "",
+                "family_code": fam.code if fam else "",
+                "suggestion_type": hit,
+                "matched_text": entry["display"],
+                "matched_in": "目录名" if hit == "path" else "文件名",
+                "origin_on_confirm": "path_or_filename_confirmed",
+            }
+        ranked = sorted(
+            found.values(),
+            key=lambda s: (_TYPE_PRIORITY.get(s["suggestion_type"], 9), s["family_id"]),
+        )[:3]
+        out[asset.id] = ranked
+    return out

@@ -1575,6 +1575,18 @@ function invalidateReferenceTarget(
 
 // ---- 属性定义 ----
 
+export function useSetAttributeDefinitionStatus() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status }: { id: number; status: CatalogStatus }) =>
+      api.setAttributeDefinitionStatus(id, status),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["attribute-definitions"] });
+      void qc.invalidateQueries({ queryKey: ["readiness"] });
+    },
+  });
+}
+
 export function useAttributeDefinitions(
   query: AttributeDefinitionListQuery = {},
   enabled = true,

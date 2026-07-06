@@ -8,6 +8,7 @@ import {
   useAttributeValues,
   useCreateAttributeDefinition,
   useDeleteAttributeValue,
+  useSetAttributeDefinitionStatus,
   useSetAttributeValue,
 } from "@/lib/hooks";
 import {
@@ -88,6 +89,7 @@ function AttributeRow({
 
   const setValue = useSetAttributeValue(level, targetId);
   const delValue = useDeleteAttributeValue(level, targetId);
+  const setDefStatus = useSetAttributeDefinitionStatus();
 
   const change = (v: AttributeValueInput) => {
     setDraft(v);
@@ -130,6 +132,11 @@ function AttributeRow({
       <Chip tone="neutral">{VALUE_TYPE_LABELS[def.value_type]}</Chip>
       {def.identity_relevant ? <Chip tone="brand">身份关键</Chip> : null}
       {def.searchable ? <Chip tone="info">可检索</Chip> : null}
+      {def.status === "draft" ? (
+        <Chip tone="warning">草稿定义</Chip>
+      ) : def.status === "paused" ? (
+        <Chip tone="warning">已暂停</Chip>
+      ) : null}
     </span>
   );
 
@@ -145,6 +152,25 @@ function AttributeRow({
       </label>
       {def.description ? (
         <p className="text-[11px] text-gray-400">{def.description}</p>
+      ) : null}
+      {def.status === "draft" ? (
+        <p
+          className="flex flex-wrap items-center gap-2 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-700"
+          data-testid={`attr-draft-notice-${def.id}`}
+        >
+          草稿定义不计入完整度统计（身份关键/必填检查只统计已启用的定义）。
+          {!readOnly ? (
+            <button
+              type="button"
+              className="font-medium text-amber-800 underline hover:text-amber-900"
+              onClick={() => setDefStatus.mutate({ id: def.id, status: "active" })}
+              disabled={setDefStatus.isPending}
+              data-testid={`attr-def-activate-${def.id}`}
+            >
+              {setDefStatus.isPending ? "启用中…" : "启用该定义"}
+            </button>
+          ) : null}
+        </p>
       ) : null}
 
       {/* 动态控件：按 value_type 渲染 */}

@@ -174,3 +174,50 @@ class AICallLog(Base):
         Index("ix_ai_call_log_asset_id", "asset_id"),
         Index("ix_ai_call_log_created_at", "created_at"),
     )
+
+
+class AssetImageAnalysis(Base):
+    """P2a 图片素材 AI 理解结果（与 AIShotAnalysis 完全对称，目标是图片 Asset）。
+
+    每张图片素材唯一一行"当前结果"；input_fingerprint 缓存去重（同图同
+    provider/model/prompt/schema 不重复计费）；输出复用镜头分析 schema
+    （one_line/detailed/product/scene 等字段对图片同样适用）。
+    """
+
+    __tablename__ = "asset_image_analysis"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    asset_id: Mapped[int] = mapped_column(
+        ForeignKey("asset.id", ondelete="CASCADE"), unique=True
+    )
+    run_id: Mapped[int | None] = mapped_column(
+        ForeignKey("ai_analysis_run.id", ondelete="SET NULL"), nullable=True
+    )
+
+    provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    prompt_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    schema_version: Mapped[int] = mapped_column(Integer, default=AI_SCHEMA_VERSION)
+
+    input_fingerprint: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    input_summary: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    parsed_result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    raw_response_excerpt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    status: Mapped[AIShotAnalysisStatus] = mapped_column(
+        pg_enum(AIShotAnalysisStatus, "ai_shot_analysis_status"),
+        default=AIShotAnalysisStatus.PENDING,
+    )
+    degraded_reason: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (
+        Index("ix_aia_status", "status"),
+        Index("ix_aia_run_id", "run_id"),
+    )

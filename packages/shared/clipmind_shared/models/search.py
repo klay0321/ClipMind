@@ -126,3 +126,85 @@ class ShotSearchDocument(Base):
             postgresql_with={"m": HNSW_M, "ef_construction": HNSW_EF_CONSTRUCTION},
         ),
     )
+
+
+class AssetSearchDocument(Base):
+    """P2a 素材级检索文档：整条视频/图片进入统一搜索。
+
+    与 ShotSearchDocument 同构（同一嵌入身份/幂等/状态机语义），差异：
+    - 目标是 Asset（asset_id 唯一），无代次维度；
+    - media_kind='image' 时文档来自 asset_image_analysis 的解析结果；
+      media_kind='video' 时文档为该素材当前代次 ready 镜头有效文档的聚合
+      （聚合模板版本独立于镜头模板版本记录）；
+    - 无审核轴引用（图片打标暂不进人工审核；视频聚合的审核语义在镜头层）。
+    """
+
+    __tablename__ = "asset_search_document"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    asset_id: Mapped[int] = mapped_column(
+        ForeignKey("asset.id", ondelete="CASCADE"), unique=True
+    )
+    # 冗余媒体类型（与 asset.media_kind 一致，检索过滤免 join 判定）
+    media_kind: Mapped[str] = mapped_column(String(8))
+
+    # 来源溯源：图片 → asset_image_analysis；视频聚合 → 无单一来源（保持 NULL）
+    effective_source: Mapped[str | None] = mapped_column(String(16), nullable=True)  # ai | aggregate
+    source_image_analysis_id: Mapped[int | None] = mapped_column(
+        ForeignKey("asset_image_analysis.id", ondelete="SET NULL"), nullable=True
+    )
+    # 视频聚合幂等：参与聚合的 (shot_id, doc hash) 集合指纹，镜头文档变化即重建
+    aggregate_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_schema_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    search_document: Mapped[str | None] = mapped_column(Text, nullable=True)
+    normalized_document: Mapped[str | None] = mapped_column(Text, nullable=True)
+    search_document_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    document_template_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIM), nullable=True)
+    embedding_provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    embedding_model_revision: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    embedding_dimension: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    embedding_version: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    normalization_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    document_status: Mapped[SearchDocumentStatus] = mapped_column(
+        pg_enum(SearchDocumentStatus, "search_document_status"),
+        default=SearchDocumentStatus.PENDING,
+    )
+    embedding_status: Mapped[SearchEmbeddingStatus] = mapped_column(
+        pg_enum(SearchEmbeddingStatus, "search_embedding_status"),
+        default=SearchEmbeddingStatus.PENDING,
+    )
+    is_searchable: Mapped[bool] = mapped_column(Boolean, default=False)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    embedded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (
+        Index("ix_asd_media_kind", "media_kind"),
+        Index("ix_asd_document_status", "document_status"),
+        Index("ix_asd_embedding_status", "embedding_status"),
+        Index("ix_asd_is_searchable", "is_searchable"),
+        Index(
+            "ix_asd_norm_trgm",
+            "normalized_document",
+            postgresql_using="gin",
+            postgresql_ops={"normalized_document": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_asd_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+            postgresql_with={"m": HNSW_M, "ef_construction": HNSW_EF_CONSTRUCTION},
+        ),
+    )

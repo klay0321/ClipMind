@@ -165,6 +165,9 @@ async def create_link(
         )
     if role == "primary":
         await _demote_existing_primary(db, asset_id=asset_id, shot_id=shot_id)
+    from clipmind_shared.db.base import utcnow as _utcnow
+
+    _now = _utcnow()  # created==updated 精确同刻：undo 以此判定"未被修改"
     link = ProductMediaLink(
         asset_id=asset_id,
         shot_id=shot_id,
@@ -174,6 +177,8 @@ async def create_link(
         origin=origin,
         actor_label=settings.review_default_reviewer,
         note=note,
+        created_at=_now,
+        updated_at=_now,
     )
     db.add(link)
     if commit:
@@ -484,6 +489,35 @@ async def family_summaries(db: AsyncSession) -> list[dict]:
                 )
             )
         ).scalar() or 0
+        fv_count = (
+            await db.execute(
+                select(func.count(func.distinct(FinalVideoUsage.final_video_id)))
+                .select_from(FinalVideoUsage)
+                .join(Shot, Shot.id == FinalVideoUsage.source_shot_id)
+                .where(
+                    FinalVideoUsage.status == FinalVideoUsageStatus.CONFIRMED,
+                    _effective_family_exists(f.id),
+                )
+            )
+        ).scalar() or 0
+        effective_shot_count = (
+            await db.execute(
+                select(func.count()).select_from(Shot).where(
+                    Shot.retired_at.is_(None), _effective_family_exists(f.id)
+                )
+            )
+        ).scalar() or 0
+        # 覆盖状态派生（通用规则；顺序即优先级，绝不按产品名硬编码）
+        gaps: list[str] = []
+        if ref_count == 0:
+            gaps.append("缺参考图")
+        if int(video_count) == 0:
+            gaps.append("缺视频")
+        if int(effective_shot_count) == 0:
+            gaps.append("缺可用 Shot")
+        if int(fv_count) == 0:
+            gaps.append("没有最终成片")
+        coverage_status = "资料较完整" if not gaps else " / ".join(gaps[:3])
         out.append({
             "family": f,
             "variant_count": int(variant_count),
@@ -491,7 +525,11 @@ async def family_summaries(db: AsyncSession) -> list[dict]:
             "image_count": int(image_count),
             "video_count": int(video_count),
             "shot_link_count": int(shot_link_count),
+            "effective_shot_count": int(effective_shot_count),
+            "final_video_count": int(fv_count),
             "confirmed_usage_count": int(usage_count),
+            "coverage_status": coverage_status,
+            "coverage_gaps": gaps,
         })
     return out
 
@@ -613,3 +651,191 @@ async def _family_or_404(db: AsyncSession, family_id: int) -> ProductFamily:
     if fam is None:
         raise HTTPException(status_code=404, detail="产品不存在")
     return fam
+
+
+# ---------------------------- OPS：操作审计 + 撤销 ----------------------------
+
+
+async def record_operation(
+    db: AsyncSession, *, kind: str, family_id: int | None, role: str | None,
+    origin: str | None, actor_label: str | None, requested: int,
+    completed: list, skipped: list, failed: list,
+    created_link_ids: list[int] | None, detail: dict | None = None,
+    commit: bool = True,
+):
+    """append-only 操作事件（撤销依据与运营审计；不复制素材事实）。"""
+    from clipmind_shared.models import ProductMediaOperation
+
+    op = ProductMediaOperation(
+        kind=kind, family_id=family_id, role=role, origin=origin,
+        actor_label=actor_label, requested_count=requested,
+        completed_count=len(completed), skipped_count=len(skipped),
+        failed_count=len(failed), created_link_ids=created_link_ids,
+        detail=detail,
+    )
+    db.add(op)
+    if commit:
+        await db.commit()
+        await db.refresh(op)
+    else:
+        await db.flush()
+    return op
+
+
+async def list_operations(db: AsyncSession, *, page: int, page_size: int) -> dict:
+    from clipmind_shared.models import ProductMediaOperation
+
+    base = select(ProductMediaOperation).order_by(ProductMediaOperation.id.desc())
+    total = (
+        await db.execute(select(func.count()).select_from(base.subquery()))
+    ).scalar() or 0
+    rows = list(
+        (await db.execute(base.offset((page - 1) * page_size).limit(page_size)))
+        .scalars()
+    )
+    return {"total": int(total), "items": rows}
+
+
+async def undo_operation(db: AsyncSession, operation_id: int, *, settings) -> dict:
+    """撤销一次绑定操作：只删该批创建、此后未被修改且仍存在的关系。
+
+    - 被后续 PATCH 过（updated_at != created_at）或已被删除的 → 记入不可撤销明细；
+    - 不删媒体、不回滚产品目录；undo 自身落一行 kind=undo 事件（append-only）。
+    """
+    from clipmind_shared.models import ProductMediaOperation
+
+    op = (
+        await db.execute(
+            select(ProductMediaOperation).where(ProductMediaOperation.id == operation_id)
+        )
+    ).scalar_one_or_none()
+    if op is None:
+        raise HTTPException(status_code=404, detail="操作不存在")
+    if op.kind not in ("single_link", "bulk_link"):
+        raise HTTPException(status_code=422, detail=f"{op.kind} 操作不支持撤销")
+    if op.undone_at is not None:
+        raise HTTPException(status_code=409, detail="该操作已被撤销")
+    link_ids = list(op.created_link_ids or [])
+    removed: list[int] = []
+    kept: list[dict] = []
+    for lid in link_ids:
+        link = (
+            await db.execute(
+                select(ProductMediaLink).where(ProductMediaLink.id == lid)
+            )
+        ).scalar_one_or_none()
+        if link is None:
+            kept.append({"link_id": lid, "reason": "已被删除"})
+            continue
+        if link.updated_at != link.created_at:
+            kept.append({"link_id": lid, "reason": "创建后已被修改（role/variant 变更）"})
+            continue
+        await db.delete(link)
+        removed.append(lid)
+    undo_op = await record_operation(
+        db, kind="undo", family_id=op.family_id, role=op.role, origin=op.origin,
+        actor_label=settings.review_default_reviewer, requested=len(link_ids),
+        completed=removed, skipped=kept, failed=[],
+        created_link_ids=None,
+        detail={"undo_of": op.id, "removed_link_ids": removed, "kept": kept},
+        commit=False,
+    )
+    op.undone_at = utcnow_op()
+    op.undone_by_operation_id = None  # flush 后补
+    op.undone_detail = {"removed": removed, "kept": kept}
+    await db.flush()
+    op.undone_by_operation_id = undo_op.id
+    await db.commit()
+    return {"undo_operation_id": undo_op.id, "removed_link_ids": removed,
+            "kept": kept, "removed_count": len(removed), "kept_count": len(kept)}
+
+
+def utcnow_op():
+    from clipmind_shared.db.base import utcnow
+
+    return utcnow()
+
+
+# ---------------------------- OPS：分组未标注队列 ----------------------------
+
+
+async def unassigned_grouped(
+    db: AsyncSession, *, kind: str, group_by: str, limit_per_group: int = 6,
+    max_items: int = 500,
+) -> dict:
+    """未标注素材分组视图（directory | suggested_family | none）。
+
+    仅 image/video（shot 无目录语义，用 suggested_family 需按 asset 归并——
+    v1 shot 按所属 asset 目录分组）。每组返回代表项 + 全量 target 列表
+    （≤200/组，供整组显式选择——绝不隐式全库）。
+    """
+    from app.services.product_media_suggestions import suggest_for_assets_batch
+
+    if kind in ("image", "video"):
+        assets, _total = await unassigned_assets(
+            db, media_kind=kind, page=1, page_size=max_items
+        )
+        targets = [{"target_type": "asset", "target_id": a.id, "asset": a}
+                   for a in assets]
+    elif kind == "shot":
+        shots, _total = await unassigned_shots(db, page=1, page_size=max_items)
+        asset_ids = {s.asset_id for s in shots}
+        amap = {
+            a.id: a
+            for a in (
+                await db.execute(select(Asset).where(Asset.id.in_(asset_ids or {0})))
+            ).scalars()
+        }
+        targets = [{"target_type": "shot", "target_id": s.id, "asset": amap.get(s.asset_id),
+                    "shot": s} for s in shots]
+    else:
+        raise HTTPException(status_code=422, detail=f"未知素材类型: {kind}")
+
+    sugg_map: dict[int, list[dict]] = {}
+    if group_by == "suggested_family" or True:  # 候选注入总是需要（组卡展示）
+        uniq_assets = {t["asset"].id: t["asset"] for t in targets if t["asset"]}
+        sugg_map = await suggest_for_assets_batch(db, list(uniq_assets.values()))
+
+    groups: dict[str, dict] = {}
+    for t in targets:
+        asset = t["asset"]
+        suggestions = sugg_map.get(asset.id, []) if asset else []
+        if group_by == "suggested_family":
+            if suggestions:
+                top = suggestions[0]
+                gkey = f"family:{top['family_id']}"
+                glabel = top["family_name"]
+                gmeta = {"family_id": top["family_id"],
+                         "family_code": top["family_code"],
+                         "suggestion_type": top["suggestion_type"]}
+            else:
+                gkey, glabel, gmeta = "none", "无候选", {}
+        elif group_by == "directory":
+            rel = (asset.relative_path if asset else "").replace("\\", "/")
+            d = rel.rsplit("/", 1)[0] if "/" in rel else "（根目录）"
+            gkey, glabel, gmeta = f"dir:{d}", d, {}
+        else:
+            gkey, glabel, gmeta = "all", "全部", {}
+        g = groups.setdefault(gkey, {
+            "key": gkey, "label": glabel, "meta": gmeta, "count": 0,
+            "targets": [], "preview": [], "suggested": [],
+        })
+        g["count"] += 1
+        if len(g["targets"]) < 200:
+            g["targets"].append({"target_type": t["target_type"],
+                                 "target_id": t["target_id"]})
+        if len(g["preview"]) < limit_per_group:
+            entry = {"target_type": t["target_type"], "target_id": t["target_id"],
+                     "suggestions": suggestions[:2]}
+            if asset:
+                entry["asset_id"] = asset.id
+                entry["filename"] = asset.filename
+            if "shot" in t:
+                entry["shot_id"] = t["shot"].id
+                entry["sequence_no"] = t["shot"].sequence_no
+            g["preview"].append(entry)
+        if suggestions and not g["suggested"]:
+            g["suggested"] = suggestions[:1]
+    ordered = sorted(groups.values(), key=lambda g: (-g["count"], g["label"]))
+    return {"kind": kind, "group_by": group_by, "total_items": len(targets),
+            "truncated": len(targets) >= max_items, "groups": ordered}

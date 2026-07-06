@@ -839,3 +839,23 @@ async def unassigned_grouped(
     ordered = sorted(groups.values(), key=lambda g: (-g["count"], g["label"]))
     return {"kind": kind, "group_by": group_by, "total_items": len(targets),
             "truncated": len(targets) >= max_items, "groups": ordered}
+
+
+async def product_names_for_assets(
+    db: AsyncSession, asset_ids: list[int]
+) -> dict[int, list[str]]:
+    """AAP：素材列表行内产品名（真实 product_media_link，替代硬编码占位）。"""
+    if not asset_ids:
+        return {}
+    rows = await db.execute(
+        select(ProductMediaLink.asset_id, ProductFamily.name_zh)
+        .join(ProductFamily, ProductFamily.id == ProductMediaLink.family_id)
+        .where(ProductMediaLink.asset_id.in_(asset_ids))
+        .order_by(ProductMediaLink.asset_id, ProductMediaLink.id)
+    )
+    out: dict[int, list[str]] = {}
+    for asset_id, name in rows:
+        names = out.setdefault(int(asset_id), [])
+        if name not in names:
+            names.append(name)
+    return out

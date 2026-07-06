@@ -20,6 +20,7 @@ class AssetOut(BaseModel):
     normalized_relative_path: str
     filename: str
     extension: str
+    media_kind: str
     file_size: int
     modified_at: datetime | None
     quick_hash: str | None
@@ -49,6 +50,8 @@ class AssetOut(BaseModel):
     # PR-03A：AI 分析概览（最近运行状态 + 已有 AI 结果的镜头数）
     ai_analysis_status: str | None = None
     ai_analyzed_total: int = 0
+    # AAP：行内真实产品绑定（product_media_link，替代硬编码"未识别"占位）
+    product_names: list[str] = []
 
 
 class RescanAcceptedOut(BaseModel):

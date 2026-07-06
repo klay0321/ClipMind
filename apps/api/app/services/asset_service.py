@@ -18,6 +18,7 @@ async def list_assets(
     q: str | None = None,
     status: AssetStatus | None = None,
     source_directory_id: int | None = None,
+    media_kind: str | None = None,
 ) -> tuple[Sequence[Asset], int]:
     filters = []
     if q:
@@ -26,6 +27,8 @@ async def list_assets(
         filters.append(Asset.status == status)
     if source_directory_id is not None:
         filters.append(Asset.source_directory_id == source_directory_id)
+    if media_kind is not None:
+        filters.append(Asset.media_kind == media_kind)
 
     count_stmt = select(func.count()).select_from(Asset)
     list_stmt = select(Asset).order_by(Asset.id.desc())

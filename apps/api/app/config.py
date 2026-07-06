@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     # PR-E：usage hard filter 触发候选扩张时的池上限（防饥饿；仍有界）
     search_candidate_pool_max: int = 1000
 
+    # ---- AAP 自动分析管线（与 worker 读同一 env；API 侧仅回显/概览用）----
+    auto_analyze_on_scan: bool = False
+    auto_ai_after_shots: bool = False
+    auto_analyze_max_per_scan: int = 200
+    ai_daily_budget: float = 0.0
+    scan_interval_minutes: int = 0
+
     # PR-F 产品视觉识别（实验；默认关闭）。候选 ≠ 确认，绝不自动绑定产品。
     visual_recognition_enabled: bool = False
     visual_embedding_provider: str = "fake"   # fake（CI/测试）| local（embedder SigLIP）

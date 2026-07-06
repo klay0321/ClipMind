@@ -91,6 +91,25 @@ describe("ReadinessPanel", () => {
     expect(missing).toHaveTextContent("参考图数量");
     expect(missing).toHaveTextContent("身份关键属性");
     expect(missing).toHaveTextContent("当前 0，要求 3");
+    // 缺失项附操作指引：告诉运营去哪里补，而不是只报缺什么
+    expect(screen.getByTestId("readiness-hint-identity_attributes")).toHaveTextContent(
+      "身份关键",
+    );
+  });
+
+  it("归属分类/上级已启用缺失时给出可执行指引", () => {
+    stub(
+      makeReadiness({
+        complete: false,
+        missing_items: [
+          { key: "category", current: false, required: true },
+          { key: "parent_active", current: false, required: true },
+        ],
+      }),
+    );
+    renderPanel();
+    expect(screen.getByTestId("readiness-hint-category")).toHaveTextContent("归属分类");
+    expect(screen.getByTestId("readiness-hint-parent_active")).toHaveTextContent("启用");
   });
 
   it("阻塞项醒目逐条显示后端 detail", () => {

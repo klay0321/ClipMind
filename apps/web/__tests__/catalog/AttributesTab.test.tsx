@@ -13,6 +13,7 @@ vi.mock("@/lib/hooks", () => ({
   useAttributeValues: vi.fn(),
   useCreateAttributeDefinition: vi.fn(),
   useSetAttributeValue: vi.fn(),
+  useSetAttributeDefinitionStatus: vi.fn(),
   useDeleteAttributeValue: vi.fn(),
 }));
 
@@ -26,6 +27,7 @@ function stub(defs: unknown[] = [], values: unknown[] = []) {
   );
   vi.mocked(hooks.useAttributeValues).mockReturnValue(query({ data: values }));
   vi.mocked(hooks.useSetAttributeValue).mockReturnValue(setValue);
+  vi.mocked(hooks.useSetAttributeDefinitionStatus).mockReturnValue(mutation());
   vi.mocked(hooks.useDeleteAttributeValue).mockReturnValue(delValue);
   vi.mocked(hooks.useCreateAttributeDefinition).mockReturnValue(createDef);
 }
@@ -80,6 +82,17 @@ describe("AttributesTab", () => {
     expect(screen.getByTestId("attr-input-6")).toHaveProperty("type", "number");
     expect(screen.getByTestId("attr-unit-6")).toHaveTextContent("mm");
     expect(screen.getByTestId("attr-input-7")).toHaveProperty("type", "date");
+  });
+
+  it("草稿定义显示提示并可一键启用（否则不计入完整度——真实卡点回归）", async () => {
+    const defStatus = mutation();
+    stub([makeAttrDef({ id: 9, name_zh: "产品型号", identity_relevant: true, status: "draft" })]);
+    vi.mocked(hooks.useSetAttributeDefinitionStatus).mockReturnValue(defStatus);
+    const user = userEvent.setup();
+    renderTab();
+    expect(screen.getByTestId("attr-draft-notice-9")).toHaveTextContent("不计入完整度");
+    await user.click(screen.getByTestId("attr-def-activate-9"));
+    expect(defStatus.mutate).toHaveBeenCalledWith({ id: 9, status: "active" });
   });
 
   it("required 有标识且未填时提示（草稿产品可保存不完整）", () => {

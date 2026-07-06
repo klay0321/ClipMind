@@ -43,6 +43,20 @@ export function checkLabel(key: string): string {
   return CHECK_LABELS[key] ?? key;
 }
 
+// 缺失项 → 操作指引（告诉运营"去哪里补"，而不是只报缺什么）
+const CHECK_HINTS: Record<string, string> = {
+  category: "在「基本信息」点「编辑」，于「归属分类」下拉中选择一个分类并保存。",
+  parent_active:
+    "产品归属的分类必须处于「已启用」状态：在左侧目录树选中该分类，点「启用」；尚未归属分类时先完成归属。",
+  identity_attributes:
+    "在「产品属性」Tab 新建属性定义时勾选「身份关键」（如型号/规格），再为该产品填写这个属性的值——普通属性不计入此项。",
+  minimum_references: "在「参考图库」Tab 上传参考图至达到要求数量。",
+  primary_reference: "在「参考图库」Tab 将一张图设为主参考图。",
+  required_angles: "在「参考图库」Tab 补齐所要求拍摄角度的参考图并标注角度。",
+  name_en: "在「基本信息」点「编辑」补充英文名称。",
+  alias: "在「基本信息」的别名区添加别名。",
+};
+
 // current/required 的通用格式化：布尔→是/否；数组→角度中文顿号连接；null→-
 function fmtVal(v: unknown): string {
   if (v == null) return "-";
@@ -407,11 +421,19 @@ export function ReadinessPanel({
               <p className="text-xs font-semibold text-amber-800">
                 缺失项（{r.missing_items.length} 项）
               </p>
-              <ul className="space-y-0.5">
+              <ul className="space-y-1">
                 {r.missing_items.map((m) => (
                   <li key={m.key} className="break-words text-xs text-amber-800">
                     <span className="font-medium">{checkLabel(m.key)}</span>
                     ：当前 {fmtVal(m.current)}，要求 {fmtVal(m.required)}
+                    {CHECK_HINTS[m.key] ? (
+                      <span
+                        className="mt-0.5 block text-[11px] text-amber-700/80"
+                        data-testid={`readiness-hint-${m.key}`}
+                      >
+                        ↳ {CHECK_HINTS[m.key]}
+                      </span>
+                    ) : null}
                   </li>
                 ))}
               </ul>

@@ -10,6 +10,7 @@ import { makeFamily, makeSku, makeVariant, mutation, query } from "./fixtures";
 
 vi.mock("@/lib/hooks", () => ({
   useCatalogNode: vi.fn(),
+  useCategories: vi.fn(),
   useCatalogAliases: vi.fn(),
   useFamilies: vi.fn(),
   useVariants: vi.fn(),
@@ -65,6 +66,7 @@ function stub() {
   vi.mocked(hooks.useDeleteCatalogAlias).mockReturnValue(delAlias);
   // profile 默认无数据（Tab 徽标不显示计数，category_id 走全局属性）
   vi.mocked(hooks.useCatalogProfile).mockReturnValue(query({ data: undefined }));
+  vi.mocked(hooks.useCategories).mockReturnValue(query({ data: { items: [], total: 0 } }));
   // Gate B 治理 hooks 默认 stub（面板惰性挂载，默认 basic Tab 下不会被调用）
   vi.mocked(hooks.useReadiness).mockReturnValue(query({ data: undefined }));
   vi.mocked(hooks.useEvaluateReadiness).mockReturnValue(mutation());
@@ -116,6 +118,32 @@ describe("EntityDetail", () => {
     await user.click(screen.getByTestId("save-rename"));
     expect(updateFamily.mutate).toHaveBeenCalledWith(
       { id: 10, req: expect.objectContaining({ name_zh: "改名后产品" }) },
+      expect.anything(),
+    );
+  });
+
+  it("family 编辑表单含归属分类下拉，保存携带 category_id（激活前置条件可在 UI 完成）", async () => {
+    vi.mocked(hooks.useCatalogNode).mockReturnValue(query({ data: makeFamily({ category_id: null }) }));
+    vi.mocked(hooks.useCategories).mockReturnValue(
+      query({
+        data: {
+          items: [
+            { id: 7, code: "c7", name_zh: "键盘类", name_en: null, description: null,
+              status: "active", sort_order: 0, created_at: "", updated_at: "", archived_at: null },
+          ],
+          total: 1,
+        },
+      }),
+    );
+    const user = userEvent.setup();
+    render(<EntityDetail selected={{ level: "family", id: 10 }} onSelect={vi.fn()} />);
+    // 未归属时基本信息给出提示
+    expect(screen.getByTestId("detail-category")).toHaveTextContent("未归属");
+    await user.click(screen.getByTestId("edit-node"));
+    await user.selectOptions(screen.getByTestId("rename-category"), "7");
+    await user.click(screen.getByTestId("save-rename"));
+    expect(updateFamily.mutate).toHaveBeenCalledWith(
+      { id: 10, req: expect.objectContaining({ category_id: 7 }) },
       expect.anything(),
     );
   });

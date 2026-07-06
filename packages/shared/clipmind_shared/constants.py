@@ -4,6 +4,26 @@ from __future__ import annotations
 
 # 支持的视频扩展名（小写，不含点）
 SUPPORTED_VIDEO_EXTENSIONS: tuple[str, ...] = ("mp4", "mov", "mkv", "avi", "webm")
+# PM：支持的图片扩展名（普通产品图等图片素材走 Asset 管线；media_kind=image，
+# 无拆镜头/代理派生；ffprobe 对图片返回 video 流+宽高、duration 为空）
+SUPPORTED_IMAGE_EXTENSIONS: tuple[str, ...] = ("jpg", "jpeg", "png", "webp")
+SUPPORTED_MEDIA_EXTENSIONS: tuple[str, ...] = (
+    SUPPORTED_VIDEO_EXTENSIONS + SUPPORTED_IMAGE_EXTENSIONS
+)
+
+# ----- PM 产品素材正式关系（product_media_link；人工确认=正式事实）-----
+# 关系类型：primary 至多一个（DB 部分唯一），related 多条（多产品同框）
+PRODUCT_LINK_ROLES: tuple[str, ...] = ("primary", "related")
+# 关系来源（String+白名单，免迁移扩展）。候选（视觉/文件名/文本）只有经人工
+# 确认才落库；visual_suggestion_confirmed 仅接受 local provider（fake 禁止）。
+PRODUCT_LINK_ORIGINS: tuple[str, ...] = (
+    "manual",
+    "bulk_manual",
+    "path_or_filename_confirmed",
+    "visual_suggestion_confirmed",
+    "text_suggestion_confirmed",
+    "migration_or_legacy",
+)
 
 # ----- Celery 任务名（稳定字符串，API 按名入队，避免 import worker 代码）-----
 TASK_SCAN_SOURCE_DIRECTORY = "clipmind.scan_source_directory"

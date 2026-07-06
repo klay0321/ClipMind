@@ -35,6 +35,11 @@ class Asset(Base):
     normalized_relative_path: Mapped[str] = mapped_column(String(2048))
     filename: Mapped[str] = mapped_column(String(512), index=True)
     extension: Mapped[str] = mapped_column(String(16))
+    # PM：媒体类型（video|image）。图片素材走同一 Asset 管线（只读源/扫描/
+    # 身份/位置），但无拆镜头、无代理派生；按扩展名判定。
+    media_kind: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="video", server_default="video"
+    )
 
     # 文件系统指纹（来自 os.stat / 头尾哈希）
     file_size: Mapped[int] = mapped_column(BigInteger)

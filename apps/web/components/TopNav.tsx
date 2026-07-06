@@ -14,6 +14,7 @@ type NavKey =
   | "usage-review"
   | "usage-evidence"
   | "visual-experiments"
+  | "product-media"
   | "exports"
   | "favorites";
 
@@ -34,7 +35,7 @@ export function TopNav({ active }: { active?: NavKey }) {
     active === key ? "text-brand font-medium" : "text-gray-500 hover:text-gray-800";
   const moreActive =
     active === "products" || active === "favorites" || active === "usage-evidence" ||
-    active === "visual-experiments";
+    active === "visual-experiments" || active === "product-media";
 
   return (
     <header className="border-b border-gray-100 bg-white">
@@ -65,6 +66,7 @@ export function TopNav({ active }: { active?: NavKey }) {
             trigger={<span>更多 ▾</span>}
             items={[
               { key: "products", label: "产品库", href: "/products" },
+              { key: "product-media", label: "产品素材库", href: "/product-media" },
               { key: "usage-evidence", label: "历史使用证据", href: "/usage-evidence" },
               {
                 key: "visual-experiments",

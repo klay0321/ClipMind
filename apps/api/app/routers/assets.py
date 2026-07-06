@@ -202,6 +202,8 @@ async def _start_analysis(asset_id: int, db: AsyncSession) -> AnalyzeAcceptedOut
         raise HTTPException(status_code=404, detail="素材不存在")
     if asset.status == AssetStatus.SOURCE_MISSING:
         raise HTTPException(status_code=409, detail="源文件缺失，无法分析")
+    if asset.media_kind == "image":
+        raise HTTPException(status_code=422, detail="图片素材没有镜头，无法拆镜头分析")
     try:
         run = await shot_dispatch.request_analysis(db, asset)
     except HTTPException:

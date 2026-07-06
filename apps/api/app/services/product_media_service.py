@@ -1,0 +1,615 @@
+"""PM：产品素材正式关系服务（docs/PRODUCT_MEDIA.md）。
+
+冻结语义：
+- 人工确认 = 正式事实；候选（视觉/文件名/文本）绝不自动写入；
+- primary 至多一个（设主自动把旧主降为 related——运营"换主"体验）；
+- merged/archived Family 拒绝新增（DRAFT/PAUSED/ACTIVE 允许——未上架产品
+  也可整理素材）；variant 必须属于该 family（绝不自动推断）；
+- origin=visual_suggestion_confirmed 仅接受 local provider（fake 禁止，422）；
+- Shot 有效产品 = 自身 links 若非空，否则继承 asset links（查询期合成）；
+- 历史（retired）Shot 的关系保留可查，允许人工修正（响应标记 generation）；
+- 批量：显式 ID 列表（≤200），逐条独立处理，返回 completed/skipped/failed
+  明细，绝不虚报整批成功。
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from clipmind_shared.constants import PRODUCT_LINK_ORIGINS, PRODUCT_LINK_ROLES
+from clipmind_shared.models import (
+    Asset,
+    ProductFamily,
+    ProductMediaLink,
+    ProductVariant,
+    Shot,
+)
+from clipmind_shared.models.enums import CatalogStatus
+from fastapi import HTTPException
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import Settings
+
+BULK_MAX = 200
+# 新增关系被禁止的 Family 生命周期状态
+_BLOCKED_FAMILY_STATUS = (CatalogStatus.MERGED, CatalogStatus.ARCHIVED)
+
+
+@dataclass
+class LinkTarget:
+    asset: Asset | None = None
+    shot: Shot | None = None
+
+    @property
+    def kind(self) -> str:
+        return "asset" if self.asset is not None else "shot"
+
+
+async def _load_target(
+    db: AsyncSession, *, target_type: str, target_id: int
+) -> LinkTarget:
+    if target_type == "asset":
+        asset = (
+            await db.execute(select(Asset).where(Asset.id == target_id))
+        ).scalar_one_or_none()
+        if asset is None:
+            raise HTTPException(status_code=404, detail=f"素材 {target_id} 不存在")
+        return LinkTarget(asset=asset)
+    if target_type == "shot":
+        shot = (
+            await db.execute(select(Shot).where(Shot.id == target_id))
+        ).scalar_one_or_none()
+        if shot is None:
+            raise HTTPException(status_code=404, detail=f"镜头 {target_id} 不存在")
+        return LinkTarget(shot=shot)
+    raise HTTPException(status_code=422, detail=f"未知目标类型: {target_type}")
+
+
+async def _validate_family(db: AsyncSession, family_id: int) -> ProductFamily:
+    fam = (
+        await db.execute(select(ProductFamily).where(ProductFamily.id == family_id))
+    ).scalar_one_or_none()
+    if fam is None:
+        raise HTTPException(status_code=404, detail=f"产品 {family_id} 不存在")
+    if fam.status in _BLOCKED_FAMILY_STATUS or fam.merged_into_id is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"产品处于 {fam.status.value}，不能新增素材关系",
+        )
+    return fam
+
+
+async def _validate_variant(
+    db: AsyncSession, *, variant_id: int, family_id: int
+) -> ProductVariant:
+    var = (
+        await db.execute(select(ProductVariant).where(ProductVariant.id == variant_id))
+    ).scalar_one_or_none()
+    if var is None:
+        raise HTTPException(status_code=404, detail=f"型号 {variant_id} 不存在")
+    if var.family_id != family_id:
+        raise HTTPException(
+            status_code=422, detail="variant 不属于该产品族（绝不自动推断层级）"
+        )
+    return var
+
+
+def _validate_role_origin(role: str, origin: str, settings: Settings) -> None:
+    if role not in PRODUCT_LINK_ROLES:
+        raise HTTPException(status_code=422, detail=f"未知关系类型: {role}")
+    if origin not in PRODUCT_LINK_ORIGINS:
+        raise HTTPException(status_code=422, detail=f"未知关系来源: {origin}")
+    if origin == "visual_suggestion_confirmed":
+        # fake provider 的候选结果禁止落正式关系（冻结安全边界）
+        if (settings.visual_embedding_provider or "").lower() != "local":
+            raise HTTPException(
+                status_code=422,
+                detail="视觉候选确认需要 local 视觉 provider（fake 结果不得写入正式关系）",
+            )
+
+
+async def _demote_existing_primary(
+    db: AsyncSession, *, asset_id: int | None, shot_id: int | None,
+    exclude_link_id: int | None = None,
+) -> None:
+    """设主自动换主：把同目标现有 primary 降为 related。"""
+    stmt = select(ProductMediaLink).where(ProductMediaLink.role == "primary")
+    stmt = (
+        stmt.where(ProductMediaLink.asset_id == asset_id)
+        if asset_id is not None
+        else stmt.where(ProductMediaLink.shot_id == shot_id)
+    )
+    if exclude_link_id is not None:
+        stmt = stmt.where(ProductMediaLink.id != exclude_link_id)
+    for link in (await db.execute(stmt)).scalars():
+        link.role = "related"
+
+
+async def create_link(
+    db: AsyncSession,
+    *,
+    target_type: str,
+    target_id: int,
+    family_id: int,
+    variant_id: int | None,
+    role: str,
+    origin: str,
+    note: str | None,
+    settings: Settings,
+    commit: bool = True,
+) -> ProductMediaLink:
+    _validate_role_origin(role, origin, settings)
+    target = await _load_target(db, target_type=target_type, target_id=target_id)
+    await _validate_family(db, family_id)
+    if variant_id is not None:
+        await _validate_variant(db, variant_id=variant_id, family_id=family_id)
+
+    asset_id = target.asset.id if target.asset else None
+    shot_id = target.shot.id if target.shot else None
+    dup = (
+        await db.execute(
+            select(ProductMediaLink).where(
+                ProductMediaLink.family_id == family_id,
+                (
+                    ProductMediaLink.asset_id == asset_id
+                    if asset_id is not None
+                    else ProductMediaLink.shot_id == shot_id
+                ),
+            )
+        )
+    ).scalar_one_or_none()
+    if dup is not None:
+        raise HTTPException(
+            status_code=409, detail=f"该目标与产品已存在关系（link {dup.id}）"
+        )
+    if role == "primary":
+        await _demote_existing_primary(db, asset_id=asset_id, shot_id=shot_id)
+    link = ProductMediaLink(
+        asset_id=asset_id,
+        shot_id=shot_id,
+        family_id=family_id,
+        variant_id=variant_id,
+        role=role,
+        origin=origin,
+        actor_label=settings.review_default_reviewer,
+        note=note,
+    )
+    db.add(link)
+    if commit:
+        await db.commit()
+        await db.refresh(link)
+    else:
+        await db.flush()
+    return link
+
+
+async def update_link(
+    db: AsyncSession,
+    link_id: int,
+    *,
+    role: str | None,
+    variant_id: int | None,
+    clear_variant: bool,
+    note: str | None,
+    settings: Settings,
+) -> ProductMediaLink:
+    link = (
+        await db.execute(
+            select(ProductMediaLink).where(ProductMediaLink.id == link_id)
+        )
+    ).scalar_one_or_none()
+    if link is None:
+        raise HTTPException(status_code=404, detail="关系不存在")
+    if role is not None:
+        if role not in PRODUCT_LINK_ROLES:
+            raise HTTPException(status_code=422, detail=f"未知关系类型: {role}")
+        if role == "primary":
+            await _demote_existing_primary(
+                db, asset_id=link.asset_id, shot_id=link.shot_id,
+                exclude_link_id=link.id,
+            )
+        link.role = role
+    if clear_variant:
+        link.variant_id = None
+    elif variant_id is not None:
+        await _validate_variant(db, variant_id=variant_id, family_id=link.family_id)
+        link.variant_id = variant_id
+    if note is not None:
+        link.note = note
+    link.actor_label = settings.review_default_reviewer
+    await db.commit()
+    await db.refresh(link)
+    return link
+
+
+async def delete_link(db: AsyncSession, link_id: int) -> None:
+    link = (
+        await db.execute(
+            select(ProductMediaLink).where(ProductMediaLink.id == link_id)
+        )
+    ).scalar_one_or_none()
+    if link is None:
+        raise HTTPException(status_code=404, detail="关系不存在")
+    await db.delete(link)
+    await db.commit()
+
+
+async def bulk_create(
+    db: AsyncSession,
+    *,
+    items: list[dict],
+    family_id: int,
+    variant_id: int | None,
+    role: str,
+    origin: str,
+    settings: Settings,
+) -> dict:
+    """批量绑定（显式目标列表；≤BULK_MAX；逐条独立，明细返回）。"""
+    if not items:
+        raise HTTPException(status_code=422, detail="必须显式选择素材（不允许空选择）")
+    if len(items) > BULK_MAX:
+        raise HTTPException(
+            status_code=422, detail=f"批量上限 {BULK_MAX} 条（当前 {len(items)}）"
+        )
+    completed: list[dict] = []
+    skipped: list[dict] = []
+    failed: list[dict] = []
+    for item in items:
+        ttype = item.get("target_type")
+        tid = item.get("target_id")
+        try:
+            # savepoint：单条失败只回滚自身，绝不吞掉已成功条目（防虚报）
+            async with db.begin_nested():
+                link = await create_link(
+                    db,
+                    target_type=str(ttype),
+                    target_id=int(tid),
+                    family_id=family_id,
+                    variant_id=variant_id,
+                    role=role,
+                    origin=origin,
+                    note=None,
+                    settings=settings,
+                    commit=False,
+                )
+            completed.append({"target_type": ttype, "target_id": tid, "link_id": link.id})
+        except HTTPException as exc:
+            entry = {"target_type": ttype, "target_id": tid, "error": exc.detail}
+            (skipped if exc.status_code == 409 else failed).append(entry)
+        except Exception as exc:  # noqa: BLE001 —— 单条失败不拖垮整批，也绝不虚报
+            failed.append({
+                "target_type": ttype, "target_id": tid,
+                "error": f"{type(exc).__name__}",
+            })
+    await db.commit()
+    return {"completed": completed, "skipped": skipped, "failed": failed}
+
+
+async def bulk_delete(db: AsyncSession, *, link_ids: list[int]) -> dict:
+    if not link_ids:
+        raise HTTPException(status_code=422, detail="必须显式选择关系")
+    if len(link_ids) > BULK_MAX:
+        raise HTTPException(status_code=422, detail=f"批量上限 {BULK_MAX} 条")
+    completed, failed = [], []
+    for lid in link_ids:
+        link = (
+            await db.execute(
+                select(ProductMediaLink).where(ProductMediaLink.id == lid)
+            )
+        ).scalar_one_or_none()
+        if link is None:
+            failed.append({"link_id": lid, "error": "不存在"})
+            continue
+        await db.delete(link)
+        completed.append({"link_id": lid})
+    await db.commit()
+    return {"completed": completed, "skipped": [], "failed": failed}
+
+
+# ---------------------------- 查询侧 ----------------------------
+
+
+async def asset_links(db: AsyncSession, asset_id: int) -> list[ProductMediaLink]:
+    return list(
+        (
+            await db.execute(
+                select(ProductMediaLink)
+                .where(ProductMediaLink.asset_id == asset_id)
+                .order_by(
+                    ProductMediaLink.role.desc(),  # primary 在前（p > r 反序）
+                    ProductMediaLink.id,
+                )
+            )
+        ).scalars()
+    )
+
+
+async def shot_links_view(db: AsyncSession, shot_id: int) -> dict:
+    """Shot 产品视图：自身关系 + 继承关系 + 有效关系（冻结继承语义）。"""
+    shot = (
+        await db.execute(select(Shot).where(Shot.id == shot_id))
+    ).scalar_one_or_none()
+    if shot is None:
+        raise HTTPException(status_code=404, detail="镜头不存在")
+    own = list(
+        (
+            await db.execute(
+                select(ProductMediaLink)
+                .where(ProductMediaLink.shot_id == shot_id)
+                .order_by(ProductMediaLink.role.desc(), ProductMediaLink.id)
+            )
+        ).scalars()
+    )
+    inherited = await asset_links(db, shot.asset_id)
+    return {
+        "shot": shot,
+        "own": own,
+        "inherited": inherited,
+        "effective": own if own else inherited,
+        "effective_source": "shot_override" if own else "asset_inherited",
+    }
+
+
+async def unassigned_assets(
+    db: AsyncSession, *, media_kind: str, page: int, page_size: int
+) -> tuple[list[Asset], int]:
+    """未绑定任何产品的素材（按类型）。"""
+    base = (
+        select(Asset)
+        .where(
+            Asset.media_kind == media_kind,
+            ~select(ProductMediaLink.id)
+            .where(ProductMediaLink.asset_id == Asset.id)
+            .exists(),
+        )
+        .order_by(Asset.id.desc())
+    )
+    total = (
+        await db.execute(select(func.count()).select_from(base.subquery()))
+    ).scalar() or 0
+    rows = (
+        await db.execute(base.offset((page - 1) * page_size).limit(page_size))
+    ).scalars()
+    return list(rows), int(total)
+
+
+async def unassigned_shots(
+    db: AsyncSession, *, page: int, page_size: int
+) -> tuple[list[Shot], int]:
+    """未绑定产品的当前代次镜头（自身无 link 且所属 asset 也无 link——
+    继承语义下 asset 已绑即视为已标注）。"""
+    base = (
+        select(Shot)
+        .where(
+            Shot.retired_at.is_(None),
+            ~select(ProductMediaLink.id)
+            .where(ProductMediaLink.shot_id == Shot.id)
+            .exists(),
+            ~select(ProductMediaLink.id)
+            .where(ProductMediaLink.asset_id == Shot.asset_id)
+            .exists(),
+        )
+        .order_by(Shot.id.desc())
+    )
+    total = (
+        await db.execute(select(func.count()).select_from(base.subquery()))
+    ).scalar() or 0
+    rows = (
+        await db.execute(base.offset((page - 1) * page_size).limit(page_size))
+    ).scalars()
+    return list(rows), int(total)
+
+
+# ---------------------------- 工作台聚合 ----------------------------
+
+
+async def family_summaries(db: AsyncSession) -> list[dict]:
+    """产品列表聚合（非 merged/archived 全部 family，含 DRAFT——运营可提前整理）。"""
+    from clipmind_shared.models import (
+        FinalVideoUsage,
+        ProductReferenceAsset,
+    )
+    from clipmind_shared.models import (
+        ProductVariant as PV,
+    )
+    from clipmind_shared.models.enums import FinalVideoUsageStatus
+
+    fams = (
+        await db.execute(
+            select(ProductFamily)
+            .where(
+                ProductFamily.status.notin_(
+                    [CatalogStatus.MERGED, CatalogStatus.ARCHIVED]
+                ),
+                ProductFamily.merged_into_id.is_(None),
+            )
+            .order_by(ProductFamily.id)
+        )
+    ).scalars()
+    out = []
+    for f in fams:
+        variant_count = (
+            await db.execute(
+                select(func.count()).select_from(PV).where(PV.family_id == f.id)
+            )
+        ).scalar() or 0
+        ref_count = (
+            await db.execute(
+                select(func.count()).select_from(ProductReferenceAsset).where(
+                    ProductReferenceAsset.family_id == f.id,
+                    ProductReferenceAsset.archived_at.is_(None),
+                )
+            )
+        ).scalar() or 0
+        image_count = (
+            await db.execute(
+                select(func.count())
+                .select_from(ProductMediaLink)
+                .join(Asset, Asset.id == ProductMediaLink.asset_id)
+                .where(
+                    ProductMediaLink.family_id == f.id,
+                    Asset.media_kind == "image",
+                )
+            )
+        ).scalar() or 0
+        video_count = (
+            await db.execute(
+                select(func.count())
+                .select_from(ProductMediaLink)
+                .join(Asset, Asset.id == ProductMediaLink.asset_id)
+                .where(
+                    ProductMediaLink.family_id == f.id,
+                    Asset.media_kind == "video",
+                )
+            )
+        ).scalar() or 0
+        shot_link_count = (
+            await db.execute(
+                select(func.count()).select_from(ProductMediaLink).where(
+                    ProductMediaLink.family_id == f.id,
+                    ProductMediaLink.shot_id.isnot(None),
+                )
+            )
+        ).scalar() or 0
+        # 正式使用次数：confirmed usage 的 source_shot 有效产品 = 本 family
+        usage_count = (
+            await db.execute(
+                select(func.count(func.distinct(FinalVideoUsage.id)))
+                .select_from(FinalVideoUsage)
+                .join(Shot, Shot.id == FinalVideoUsage.source_shot_id)
+                .where(
+                    FinalVideoUsage.status == FinalVideoUsageStatus.CONFIRMED,
+                    _effective_family_exists(f.id),
+                )
+            )
+        ).scalar() or 0
+        out.append({
+            "family": f,
+            "variant_count": int(variant_count),
+            "reference_count": int(ref_count),
+            "image_count": int(image_count),
+            "video_count": int(video_count),
+            "shot_link_count": int(shot_link_count),
+            "confirmed_usage_count": int(usage_count),
+        })
+    return out
+
+
+def _effective_family_exists(family_id: int):
+    """Shot 有效产品 = family 的 SQL 条件（自身 link 优先，否则继承 asset link）。
+
+    有效：EXISTS(shot 自身该 family link)
+         OR ( NOT EXISTS(shot 任何自身 link) AND EXISTS(asset 该 family link) )
+    """
+    own_this = (
+        select(ProductMediaLink.id)
+        .where(
+            ProductMediaLink.shot_id == Shot.id,
+            ProductMediaLink.family_id == family_id,
+        )
+        .exists()
+    )
+    own_any = (
+        select(ProductMediaLink.id)
+        .where(ProductMediaLink.shot_id == Shot.id)
+        .exists()
+    )
+    asset_this = (
+        select(ProductMediaLink.id)
+        .where(
+            ProductMediaLink.asset_id == Shot.asset_id,
+            ProductMediaLink.family_id == family_id,
+        )
+        .exists()
+    )
+    return own_this | (~own_any & asset_this)
+
+
+async def family_media_items(
+    db: AsyncSession, *, family_id: int, kind: str, include_historical: bool,
+    page: int, page_size: int,
+) -> dict:
+    """产品素材详情分页（kind: image|video|shot|final_video）。"""
+    await _family_or_404(db, family_id)
+    if kind in ("image", "video"):
+        base = (
+            select(Asset, ProductMediaLink)
+            .join(ProductMediaLink, ProductMediaLink.asset_id == Asset.id)
+            .where(
+                ProductMediaLink.family_id == family_id,
+                Asset.media_kind == kind,
+            )
+            .order_by(ProductMediaLink.role.desc(), Asset.id.desc())
+        )
+        total = (
+            await db.execute(select(func.count()).select_from(base.subquery()))
+        ).scalar() or 0
+        rows = (
+            await db.execute(base.offset((page - 1) * page_size).limit(page_size))
+        ).all()
+        return {"kind": kind, "total": int(total),
+                "items": [{"asset": a, "link": lk} for a, lk in rows]}
+    if kind == "shot":
+        cond = _effective_family_exists(family_id)
+        base = select(Shot).where(cond)
+        if not include_historical:
+            base = base.where(Shot.retired_at.is_(None))
+        base = base.order_by(Shot.retired_at.isnot(None), Shot.id.desc())
+        total = (
+            await db.execute(select(func.count()).select_from(base.subquery()))
+        ).scalar() or 0
+        shots = list(
+            (
+                await db.execute(
+                    base.offset((page - 1) * page_size).limit(page_size)
+                )
+            ).scalars()
+        )
+        own_ids = {
+            sid
+            for (sid,) in (
+                await db.execute(
+                    select(ProductMediaLink.shot_id).where(
+                        ProductMediaLink.shot_id.in_([s.id for s in shots] or [0]),
+                        ProductMediaLink.family_id == family_id,
+                    )
+                )
+            ).all()
+        }
+        return {"kind": kind, "total": int(total),
+                "items": [{"shot": s, "source": "shot_override" if s.id in own_ids
+                           else "asset_inherited"} for s in shots]}
+    if kind == "final_video":
+        from clipmind_shared.models import FinalVideo, FinalVideoUsage
+        from clipmind_shared.models.enums import FinalVideoUsageStatus
+
+        base = (
+            select(FinalVideo)
+            .distinct()
+            .join(FinalVideoUsage, FinalVideoUsage.final_video_id == FinalVideo.id)
+            .join(Shot, Shot.id == FinalVideoUsage.source_shot_id)
+            .where(
+                FinalVideoUsage.status == FinalVideoUsageStatus.CONFIRMED,
+                _effective_family_exists(family_id),
+            )
+            .order_by(FinalVideo.id.desc())
+        )
+        total = (
+            await db.execute(select(func.count()).select_from(base.subquery()))
+        ).scalar() or 0
+        fvs = list(
+            (await db.execute(base.offset((page - 1) * page_size).limit(page_size)))
+            .scalars()
+        )
+        return {"kind": kind, "total": int(total), "items": [{"final_video": v} for v in fvs]}
+    raise HTTPException(status_code=422, detail=f"未知素材类型: {kind}")
+
+
+async def _family_or_404(db: AsyncSession, family_id: int) -> ProductFamily:
+    fam = (
+        await db.execute(select(ProductFamily).where(ProductFamily.id == family_id))
+    ).scalar_one_or_none()
+    if fam is None:
+        raise HTTPException(status_code=404, detail="产品不存在")
+    return fam

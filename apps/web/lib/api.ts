@@ -169,6 +169,12 @@ import type {
   ReviewBulkRequest,
   ReviewBulkResult,
   VisualCandidateResponse,
+  FamilyMediaSummary,
+  PMBulkResult,
+  ProductMediaLink,
+  ProductMediaPage,
+  ProductSuggestion,
+  ShotLinksView,
   VisualCoverage,
   VisualStatus,
   ReviewItemDetail,
@@ -1568,6 +1574,54 @@ export const api = {
       { method: "POST", body: JSON.stringify(payload) },
     );
   },
+  // ===== PM 产品素材工作台 =====
+  pmSummary(): Promise<FamilyMediaSummary[]> {
+    return http<FamilyMediaSummary[]>(`/product-media/summary`);
+  },
+  pmFamilyItems(
+    familyId: number,
+    q: { kind: string; page?: number; include_historical?: boolean },
+  ): Promise<ProductMediaPage> {
+    const p = new URLSearchParams({ kind: q.kind, page: String(q.page ?? 1) });
+    if (q.include_historical) p.set("include_historical", "true");
+    return http<ProductMediaPage>(`/product-media/families/${familyId}/items?${p}`);
+  },
+  pmUnassigned(kind: string, page = 1): Promise<ProductMediaPage> {
+    return http<ProductMediaPage>(`/product-media/unassigned?kind=${kind}&page=${page}`);
+  },
+  pmAssetLinks(assetId: number): Promise<ProductMediaLink[]> {
+    return http<ProductMediaLink[]>(`/product-media/assets/${assetId}/links`);
+  },
+  pmShotLinks(shotId: number): Promise<ShotLinksView> {
+    return http<ShotLinksView>(`/product-media/shots/${shotId}/links`);
+  },
+  pmSuggestions(targetType: string, targetId: number): Promise<ProductSuggestion[]> {
+    return http<ProductSuggestion[]>(
+      `/product-media/suggestions?target_type=${targetType}&target_id=${targetId}`,
+    );
+  },
+  pmCreateLink(body: Record<string, unknown>): Promise<ProductMediaLink> {
+    return http<ProductMediaLink>(`/product-media/links`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+  pmUpdateLink(linkId: number, body: Record<string, unknown>): Promise<ProductMediaLink> {
+    return http<ProductMediaLink>(`/product-media/links/${linkId}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+  },
+  pmDeleteLink(linkId: number): Promise<void> {
+    return http<void>(`/product-media/links/${linkId}`, { method: "DELETE" });
+  },
+  pmBulkLink(body: Record<string, unknown>): Promise<PMBulkResult> {
+    return http<PMBulkResult>(`/product-media/links/bulk`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  },
+
   async visualCandidatesForImage(file: File): Promise<VisualCandidateResponse> {
     const fd = new FormData();
     fd.append("file", file);

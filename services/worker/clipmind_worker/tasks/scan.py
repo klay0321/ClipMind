@@ -183,6 +183,10 @@ def _process_file(
     asset.normalized_relative_path = norm
     asset.filename = os.path.basename(rel)
     asset.extension = ext
+    # PM：按扩展名判定媒体类型（图片走同一 Asset 管线，无拆镜头/代理派生）
+    from clipmind_shared.constants import SUPPORTED_IMAGE_EXTENSIONS
+
+    asset.media_kind = "image" if ext in SUPPORTED_IMAGE_EXTENSIONS else "video"
     asset.file_size = st.st_size
     asset.modified_at = new_mtime
     asset.quick_hash = quick_hash

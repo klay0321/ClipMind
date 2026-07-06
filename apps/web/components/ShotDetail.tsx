@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { ProductLinkPanel } from "@/components/product-media/ProductLinkPanel";
 import { ReviewPanel } from "@/components/ReviewPanel";
 import { ShotStatusBadge } from "@/components/StatusBadge";
 import { ErrorState } from "@/components/states/ErrorState";
@@ -191,6 +192,7 @@ export function ShotDetail({ shotId }: { shotId: number | null }) {
         ) : null}
       </div>
 
+      <ProductLinkPanel targetType="shot" targetId={s.id} />
       <ShotUsagePanel shotId={s.id} />
 
       <ReviewPanel shotId={s.id} />

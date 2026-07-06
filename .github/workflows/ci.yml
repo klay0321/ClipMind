@@ -291,6 +291,15 @@ jobs:
           for flag in PR_F_PROVIDER_ABSTRACTION_OK PR_F_REFERENCE_ELIGIBILITY_OK                       PR_F_VISUAL_CANDIDATE_OK PR_F_OPEN_SET_OK PR_F_AMBIGUITY_GUARD_OK                       PR_F_CONFUSION_PAIR_OK PR_F_NO_AUTO_BIND_OK                       PR_F_BACKWARD_COMPAT_OK PR_F_API_E2E_OK; do
             grep -q "$flag" prf.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: 产品素材工作台 端到端（PM；图片素材+正式关系+批量+继承/覆盖+产品搜索）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_product_media_e2e.py --mode full | tee pma.log
+          for flag in PRODUCT_MEDIA_MANUAL_ASSIGNMENT_OK PRODUCT_MEDIA_BULK_ASSIGNMENT_OK                       PRODUCT_MEDIA_SHOT_INHERITANCE_OK PRODUCT_MEDIA_SHOT_OVERRIDE_OK                       PRODUCT_MEDIA_PRODUCT_VIEW_OK PRODUCT_MEDIA_SEARCH_FILTER_OK                       PRODUCT_MEDIA_VISUAL_SUGGESTION_OK PRODUCT_MEDIA_NO_AI_REQUIRED_OK                       PRODUCT_MEDIA_API_E2E_OK; do
+            grep -q "$flag" pma.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: 统一使用记录中心 端到端（PR-D；Read Model→typed bulk→clue 补录→隔离；置于 PR-E 之后——其全库 usage 行数快照须为重启前最后写入）
         env:
           API_BASE: http://localhost:8000
@@ -384,6 +393,8 @@ jobs:
           grep -q "PR_E1_RESTART_DETERMINISM_OK" pre1_persist.log
           python scripts/ci_pr_f_visual_e2e.py --mode check-persist | tee prf_persist.log
           grep -q "PR_F_RESTART_PERSIST_OK" prf_persist.log
+          python scripts/ci_product_media_e2e.py --mode check-persist | tee pma_persist.log
+          grep -q "PRODUCT_MEDIA_RESTART_PERSIST_OK" pma_persist.log
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |
@@ -639,6 +650,17 @@ jobs:
           cd e2e
           npx playwright test pr-f-visual-experiments.spec.ts --grep-invert @persist | tee pr-f-ui.log
           grep -q "PR_F_UI_E2E_OK" pr-f-ui.log
+      - name: PM 产品素材库 UI E2E（先 API 播种，再驱动真实页面）
+        env:
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_product_media_e2e.py --mode full | tee pma-ui-seed.log
+          grep -q "PRODUCT_MEDIA_API_E2E_OK" pma-ui-seed.log
+          cd e2e
+          npx playwright test pr-media-workspace.spec.ts --grep-invert @persist | tee pm-ui.log
+          grep -q "PM_UI_E2E_OK" pm-ui.log
       - name: 重启 API/web/search-worker/export-worker 后持久化
         env:
           WEB_BASE: http://localhost:3000
@@ -682,6 +704,8 @@ jobs:
           grep -q "PR_E_UI_PERSIST_OK" e2e/pr-e-persist.log
           ( cd e2e && npx playwright test pr-f-visual-experiments.spec.ts --grep @persist | tee pr-f-persist.log )
           grep -q "PR_F_UI_PERSIST_OK" e2e/pr-f-persist.log
+          ( cd e2e && npx playwright test pr-media-workspace.spec.ts --grep @persist | tee pm-persist.log )
+          grep -q "PM_UI_PERSIST_OK" e2e/pm-persist.log
       - name: 失败时上传脱敏证据（trace/截图/报告；不含 .env/key/endpoint）
         if: failure()
         uses: actions/upload-artifact@v4

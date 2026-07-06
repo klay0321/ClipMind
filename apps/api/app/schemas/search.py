@@ -44,6 +44,11 @@ class ShotSearchRequest(BaseModel):
     source_directory_id: int | None = None
     created_from: datetime | None = None
     created_to: datetime | None = None
+    # PM：产品素材关系过滤（hard filter，不参与相关性分数；Shot 继承语义）
+    product_family_id: int | None = None
+    product_variant_id: int | None = None
+    has_product_assignment: bool | None = None
+    unassigned_only: bool = False
     search_mode: SearchMode = SearchMode.HYBRID
     # 固定方向（brief 允许）：relevance/quality/latest 降序，duration 升序；latest 兼容旧名 newest。
     sort: str = "relevance"  # relevance | latest | duration | quality

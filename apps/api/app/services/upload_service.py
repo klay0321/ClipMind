@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-from clipmind_shared.constants import SUPPORTED_VIDEO_EXTENSIONS
+from clipmind_shared.constants import SUPPORTED_MEDIA_EXTENSIONS
 from clipmind_shared.db.base import utcnow
 from clipmind_shared.models import SourceDirectory
 from clipmind_shared.models.enums import ScanStatus
@@ -29,7 +29,7 @@ class UploadError(Exception):
 
 def _ext_ok(filename: str) -> bool:
     ext = os.path.splitext(filename)[1].lstrip(".").lower()
-    return ext in SUPPORTED_VIDEO_EXTENSIONS
+    return ext in SUPPORTED_MEDIA_EXTENSIONS  # PM：视频 + 图片素材
 
 
 def _safe_name(filename: str) -> str:
@@ -44,13 +44,23 @@ async def _ensure_upload_source_dir(db: AsyncSession, upload_root: str) -> Sourc
     )
     sd = res.scalars().first()
     if sd is not None:
+        # PM 升级路径：老上传目录补齐新支持的扩展名（幂等 union，不丢用户自定义）
+        missing = [e for e in SUPPORTED_MEDIA_EXTENSIONS
+                   if e not in (sd.include_extensions or [])]
+        if missing:
+            sd.include_extensions = sorted(
+                {*(sd.include_extensions or []), *SUPPORTED_MEDIA_EXTENSIONS}
+            )
+            sd.updated_at = utcnow()
+            await db.commit()
+            await db.refresh(sd)
         return sd
     sd = SourceDirectory(
         name=UPLOAD_DIR_NAME,
         mount_path=upload_root,
         enabled=True,
         recursive=True,
-        include_extensions=list(SUPPORTED_VIDEO_EXTENSIONS),
+        include_extensions=list(SUPPORTED_MEDIA_EXTENSIONS),
         exclude_patterns=[],
         read_only=True,
         scan_status=ScanStatus.NEVER_SCANNED,
@@ -67,7 +77,7 @@ async def save_upload(db: AsyncSession, *, filename: str, stream) -> dict:  # no
     """保存上传文件到上传区并触发索引，返回结果摘要。"""
     settings = get_settings()
     if not _ext_ok(filename):
-        raise UploadError("不支持的文件类型（仅限 " + "/".join(SUPPORTED_VIDEO_EXTENSIONS) + "）")
+        raise UploadError("不支持的文件类型（仅限 " + "/".join(SUPPORTED_MEDIA_EXTENSIONS) + "）")
 
     root = os.path.realpath(settings.upload_dir)
     os.makedirs(root, exist_ok=True)

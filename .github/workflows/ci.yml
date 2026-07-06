@@ -309,6 +309,27 @@ jobs:
           for flag in POPS_GROUPED_QUEUE_OK POPS_GROUP_CONFIRM_OK POPS_COVERAGE_OK                       POPS_UNDO_OK POPS_AUDIT_OK POPS_API_E2E_OK; do
             grep -q "$flag" pops.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: 自动分析管线 端到端（AAP；临时开启自动开关：扫描→拆镜头→AI→检索全程零手动，跑完关回避免影响后续手动断言）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          printf 'AUTO_ANALYZE_ON_SCAN=true\nAUTO_AI_AFTER_SHOTS=true\n' >> .env
+          docker compose up -d api worker media-worker ai-worker
+          for i in $(seq 1 40); do
+            [ "$(docker compose ps api --format '{{.Health}}')" = "healthy" ] && break
+            sleep 3
+          done
+          python scripts/ci_auto_pipeline_e2e.py --mode full | tee aap.log
+          for flag in AAP_OVERVIEW_OK AAP_GUARD_IMAGE_OK AAP_AUTO_SHOTS_OK                       AAP_AUTO_AI_OK AAP_AUTO_SEARCHDOC_OK AAP_AUTO_CHAIN_OK                       AAP_BATCH_OK AAP_API_E2E_OK; do
+            grep -q "$flag" aap.log || { echo "缺少标志 $flag"; exit 1; }
+          done
+          sed -i 's/^AUTO_ANALYZE_ON_SCAN=true/AUTO_ANALYZE_ON_SCAN=false/; s/^AUTO_AI_AFTER_SHOTS=true/AUTO_AI_AFTER_SHOTS=false/' .env
+          docker compose up -d api worker media-worker ai-worker
+          for i in $(seq 1 40); do
+            [ "$(docker compose ps api --format '{{.Health}}')" = "healthy" ] && break
+            sleep 3
+          done
       - name: 统一使用记录中心 端到端（PR-D；Read Model→typed bulk→clue 补录→隔离；置于 PR-E 之后——其全库 usage 行数快照须为重启前最后写入）
         env:
           API_BASE: http://localhost:8000
@@ -406,6 +427,8 @@ jobs:
           grep -q "PRODUCT_MEDIA_RESTART_PERSIST_OK" pma_persist.log
           python scripts/ci_product_media_ops_e2e.py --mode check-persist | tee pops_persist.log
           grep -q "POPS_RESTART_PERSIST_OK" pops_persist.log
+          python scripts/ci_auto_pipeline_e2e.py --mode check-persist | tee aap_persist.log
+          grep -q "AAP_RESTART_PERSIST_OK" aap_persist.log
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |
@@ -684,6 +707,21 @@ jobs:
           cd e2e
           npx playwright test pr-media-ops.spec.ts --grep-invert @persist | tee pm-ops-ui.log
           grep -q "POPS_UI_E2E_OK" pm-ops-ui.log
+      - name: AAP 素材页/自动化 UI E2E（临时开自动开关重建 api：只为徽标回显，worker 不重建不真跑自动链）
+        env:
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          printf 'AUTO_ANALYZE_ON_SCAN=true\nAUTO_AI_AFTER_SHOTS=true\n' >> .env
+          docker compose up -d api
+          for i in $(seq 1 40); do
+            [ "$(docker compose ps api --format '{{.Health}}')" = "healthy" ] && break
+            sleep 3
+          done
+          cd e2e
+          npx playwright test pr-auto-pipeline.spec.ts --grep-invert @persist | tee aap-ui.log
+          grep -q "AAP_UI_E2E_OK" aap-ui.log
       - name: 重启 API/web/search-worker/export-worker 后持久化
         env:
           WEB_BASE: http://localhost:3000
@@ -731,6 +769,8 @@ jobs:
           grep -q "PM_UI_PERSIST_OK" e2e/pm-persist.log
           ( cd e2e && npx playwright test pr-media-ops.spec.ts --grep @persist | tee pm-ops-persist.log )
           grep -q "POPS_UI_PERSIST_OK" e2e/pm-ops-persist.log
+          ( cd e2e && npx playwright test pr-auto-pipeline.spec.ts --grep @persist | tee aap-ui-persist.log )
+          grep -q "AAP_UI_PERSIST_OK" e2e/aap-ui-persist.log
       - name: 失败时上传脱敏证据（trace/截图/报告；不含 .env/key/endpoint）
         if: failure()
         uses: actions/upload-artifact@v4

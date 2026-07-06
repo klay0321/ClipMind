@@ -6,8 +6,9 @@
 from __future__ import annotations
 
 from clipmind_shared.models import Asset, Shot
-from clipmind_shared.models.enums import AssetStatus
+from clipmind_shared.models.enums import AssetStatus, ShotStatus
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -31,6 +32,17 @@ async def _start_asset_ai(asset_id: int, db: AsyncSession) -> AnalyzeAIAcceptedO
         raise HTTPException(status_code=404, detail="素材不存在")
     if asset.status == AssetStatus.SOURCE_MISSING:
         raise HTTPException(status_code=409, detail="源文件缺失，无法分析")
+    if asset.media_kind == "image":
+        raise HTTPException(status_code=422, detail="图片素材没有镜头，暂不支持 AI 镜头分析")
+    ready_shots = await db.scalar(
+        select(func.count(Shot.id)).where(
+            Shot.asset_id == asset.id,
+            Shot.status == ShotStatus.READY,
+            Shot.retired_at.is_(None),
+        )
+    )
+    if not ready_shots:
+        raise HTTPException(status_code=409, detail="该素材还没有可用镜头，请先完成拆镜头")
     try:
         run = await ai_dispatch.request_ai_analysis(db, asset)
     except Exception as exc:  # noqa: BLE001

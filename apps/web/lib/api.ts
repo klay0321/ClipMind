@@ -5,6 +5,7 @@ import type {
   Asset,
   AssetQuery,
   AssetReviewSummary,
+  BatchAnalyzeResult,
   DescriptionMatchRequest,
   DescriptionMatchResponse,
   EffectiveResult,
@@ -13,6 +14,7 @@ import type {
   Product,
   ProductCandidate,
   ProductStatsListResponse,
+  ProcessingOverview,
   RebuildAcceptedResponse,
   ReviewActionInput,
   ReviewActionKind,
@@ -271,6 +273,7 @@ function buildAssetQuery(query: AssetQuery): string {
   if (query.status) params.set("status", query.status);
   if (query.source_directory_id != null)
     params.set("source_directory_id", String(query.source_directory_id));
+  if (query.media_kind) params.set("media_kind", query.media_kind);
   return params.toString();
 }
 
@@ -313,6 +316,21 @@ export const api = {
   },
   rescanAsset(id: number): Promise<{ asset_id: number; celery_task_id: string }> {
     return http(`/assets/${id}/rescan`, { method: "POST" });
+  },
+  // ===== AAP 批量分析 + 全局处理概览 =====
+  batchAnalyze(payload: {
+    asset_ids?: number[];
+    source_directory_id?: number;
+    stages: ("shots" | "ai")[];
+    max_items?: number;
+  }): Promise<BatchAnalyzeResult> {
+    return http<BatchAnalyzeResult>(`/assets/batch-analyze`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  processingOverview(): Promise<ProcessingOverview> {
+    return http<ProcessingOverview>(`/processing/overview`);
   },
   listSourceDirectories(): Promise<SourceDirectory[]> {
     return http<SourceDirectory[]>(`/source-directories`);

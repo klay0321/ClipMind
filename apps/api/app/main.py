@@ -22,6 +22,7 @@ from app.routers import (
     final_videos,
     health,
     legacy_evidence,
+    processing,
     product_attributes,
     product_catalog,
     product_governance,
@@ -66,6 +67,7 @@ app.include_router(health.router)
 app.include_router(system.router, prefix="/api")
 app.include_router(source_directories.router, prefix="/api")
 app.include_router(assets.router, prefix="/api")
+app.include_router(processing.router, prefix="/api")  # AAP 批量分析 + 处理概览
 app.include_router(shots.router, prefix="/api")
 # export_center 须在 exports 之前注册：/exports/bundle/* 字面路由优先于 /exports/{export_id}
 app.include_router(export_center.router, prefix="/api")

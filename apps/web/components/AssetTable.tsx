@@ -80,6 +80,33 @@ function AssetActions({
   onPreview: (shotId: number) => void;
   onShowDetail?: (asset: Asset) => void;
 }) {
+  // 图片没有镜头概念：不提供拆镜头/AI 分析入口（后端对图片 analyze 返回 422）
+  if (asset.media_kind === "image") {
+    const imageMenu: MenuItem[] = [
+      {
+        key: "rescan",
+        label: rescanning ? "重扫中…" : "重新扫描",
+        disabled: rescanning,
+        onSelect: () => onRescan(asset.id),
+      },
+    ];
+    return (
+      <div className="flex items-center justify-end gap-1.5">
+        {onShowDetail ? (
+          <Button size="sm" variant="secondary" onClick={() => onShowDetail(asset)}>
+            查看详情
+          </Button>
+        ) : null}
+        <Link
+          href="/product-media"
+          className="inline-flex items-center whitespace-nowrap rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+        >
+          去标注产品
+        </Link>
+        <Menu items={imageMenu} align="right" triggerAriaLabel={`${asset.filename} 更多操作`} />
+      </div>
+    );
+  }
   const isProcessing =
     asset.status === "processing" ||
     asset.analysis_status === "queued" ||
@@ -209,15 +236,42 @@ export function AssetTable({
                   <div className="mt-1 text-xs text-red-600">原因：{a.error_message}</div>
                 ) : null}
               </td>
-              <td className="px-4 py-3 text-gray-400">未识别</td>
-              <td className="px-4 py-3 text-gray-700">{formatDuration(a.duration)}</td>
+              <td className="px-4 py-3">
+                {a.product_names && a.product_names.length > 0 ? (
+                  <div className="flex max-w-[12rem] flex-wrap gap-1">
+                    {a.product_names.slice(0, 3).map((n) => (
+                      <span
+                        key={n}
+                        className="rounded bg-emerald-50 px-1.5 py-0.5 text-xs text-emerald-700"
+                        data-testid="asset-product-chip"
+                      >
+                        {n}
+                      </span>
+                    ))}
+                    {a.product_names.length > 3 ? (
+                      <span className="text-xs text-gray-400">+{a.product_names.length - 3}</span>
+                    ) : null}
+                  </div>
+                ) : (
+                  <Link href="/product-media" className="text-xs text-gray-400 hover:text-brand hover:underline">
+                    去标注
+                  </Link>
+                )}
+              </td>
               <td className="px-4 py-3 text-gray-700">
-                {a.shot_count > 0 ? `${a.shot_count} 个镜头` : "未拆镜头"}
+                {a.media_kind === "image" ? "—" : formatDuration(a.duration)}
+              </td>
+              <td className="px-4 py-3 text-gray-700">
+                {a.media_kind === "image"
+                  ? "图片"
+                  : a.shot_count > 0
+                    ? `${a.shot_count} 个镜头`
+                    : "未拆镜头"}
               </td>
               <td className="px-4 py-3">
                 <div className="space-y-1.5">
                   <AssetStatusBadge status={a.status} />
-                  <ProcessingChain asset={a} />
+                  {a.media_kind === "image" ? null : <ProcessingChain asset={a} />}
                 </div>
               </td>
               <td className="px-4 py-3">

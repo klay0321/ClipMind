@@ -112,6 +112,26 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # AAP：Celery beat 定时调度（SCAN_INTERVAL_MINUTES>0 时按间隔自动扫描全部源目录）
+  beat:
+    build:
+      context: .
+      dockerfile: infra/worker.Dockerfile
+    <<: [*app-env, *default-logging]
+    command:
+      [
+        "sh", "-c",
+        "mkdir -p /app/data/beat && exec celery -A clipmind_worker.celery_app beat -s /app/data/beat/celerybeat-schedule -l INFO",
+      ]
+    volumes:
+      - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/data:/app/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
   media-worker:
     build:
       context: .

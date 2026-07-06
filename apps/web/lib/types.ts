@@ -62,6 +62,41 @@ export interface Asset {
   // PR-03A AI 分析概览（列表接口提供；旧响应可能缺省）
   ai_analysis_status?: AIRunStatus | null;
   ai_analyzed_total?: number;
+  // AAP：媒体类型（video|image）+ 行内真实产品绑定
+  media_kind?: string;
+  product_names?: string[];
+}
+
+// ===== AAP 批量分析 + 全局处理概览 =====
+
+export interface BatchAnalyzeResult {
+  matched: number;
+  enqueued_shots: number;
+  enqueued_ai: number;
+  skipped_active: number;
+  skipped_ineligible: number;
+  truncated: boolean;
+}
+
+export interface ProcessingOverview {
+  scan: { queued: number; running: number };
+  shots: { queued: number; running: number };
+  ai: { queued: number; running: number };
+  totals: {
+    videos_total: number;
+    videos_with_shots: number;
+    shots_ready: number;
+    shots_ai_labeled: number;
+    images_total: number;
+    searchable_docs: number;
+  };
+  config: {
+    auto_analyze_on_scan: boolean;
+    auto_ai_after_shots: boolean;
+    scan_interval_minutes: number;
+    ai_daily_budget: number;
+    ai_spent_today: number;
+  };
 }
 
 // ===== PR-02 拆镜头 / 派生文件 =====
@@ -432,6 +467,7 @@ export interface AssetQuery {
   q?: string;
   status?: AssetStatus | "";
   source_directory_id?: number;
+  media_kind?: "video" | "image";
 }
 
 // ===== PR-04 Gate B 语义搜索 / 画面描述匹配（与后端 schemas/search.py 对应）=====

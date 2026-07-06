@@ -34,6 +34,7 @@ from app.services import (
     final_video_service,
     identity_service,
     legacy_evidence_service,
+    product_media_service,
     scan_dispatch,
     shot_dispatch,
     shot_service,
@@ -51,6 +52,7 @@ def _enrich(
     has_poster: bool,
     ai_analysis_status: str | None = None,
     ai_analyzed_total: int = 0,
+    product_names: list[str] | None = None,
 ) -> AssetOut:
     out.shot_count = shot_count
     out.analysis_status = analysis_status
@@ -58,6 +60,7 @@ def _enrich(
     out.has_poster = has_poster
     out.ai_analysis_status = ai_analysis_status
     out.ai_analyzed_total = ai_analyzed_total
+    out.product_names = product_names or []
     return out
 
 
@@ -68,6 +71,7 @@ async def list_assets(
     q: str | None = Query(None, description="文件名模糊搜索"),
     status: AssetStatus | None = Query(None),
     source_directory_id: int | None = Query(None),
+    media_kind: str | None = Query(None, pattern="^(video|image)$"),
     db: AsyncSession = Depends(get_db),
 ) -> Page[AssetOut]:
     items, total = await asset_service.list_assets(
@@ -77,6 +81,7 @@ async def list_assets(
         q=q,
         status=status,
         source_directory_id=source_directory_id,
+        media_kind=media_kind,
     )
     ids = [a.id for a in items]
     counts = await shot_service.ready_counts_for_assets(db, ids)
@@ -84,6 +89,7 @@ async def list_assets(
     covers = await shot_service.cover_shots_for_assets(db, ids)
     ai_statuses = await ai_dispatch.latest_ai_run_status_for_assets(db, ids)
     ai_counts = await ai_dispatch.completed_counts_for_assets(db, ids)
+    product_names = await product_media_service.product_names_for_assets(db, ids)
     return Page[AssetOut](
         items=[
             _enrich(
@@ -94,6 +100,7 @@ async def list_assets(
                 has_poster=bool(a.poster_path),
                 ai_analysis_status=ai_statuses.get(a.id),
                 ai_analyzed_total=ai_counts.get(a.id, 0),
+                product_names=product_names.get(a.id),
             )
             for a in items
         ],
@@ -113,6 +120,7 @@ async def get_asset(asset_id: int, db: AsyncSession = Depends(get_db)) -> AssetO
     covers = await shot_service.cover_shots_for_assets(db, [asset.id])
     ai_statuses = await ai_dispatch.latest_ai_run_status_for_assets(db, [asset.id])
     ai_counts = await ai_dispatch.completed_counts_for_assets(db, [asset.id])
+    product_names = await product_media_service.product_names_for_assets(db, [asset.id])
     return _enrich(
         AssetOut.model_validate(asset),
         shot_count=counts.get(asset.id, 0),
@@ -121,6 +129,7 @@ async def get_asset(asset_id: int, db: AsyncSession = Depends(get_db)) -> AssetO
         has_poster=bool(asset.poster_path),
         ai_analysis_status=ai_statuses.get(asset.id),
         ai_analyzed_total=ai_counts.get(asset.id, 0),
+        product_names=product_names.get(asset.id),
     )
 
 

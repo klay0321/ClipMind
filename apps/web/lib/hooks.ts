@@ -122,6 +122,38 @@ export function useAssets(query: AssetQuery) {
   });
 }
 
+// ===== AAP：全局处理概览（有活动任务时快轮询，空闲慢轮询）+ 批量分析 =====
+
+export function useProcessingOverview() {
+  return useQuery({
+    queryKey: ["processing-overview"],
+    queryFn: () => api.processingOverview(),
+    refetchInterval: (q) => {
+      const d = q.state.data;
+      if (!d) return 15000;
+      const active =
+        d.scan.queued + d.scan.running + d.shots.queued + d.shots.running +
+        d.ai.queued + d.ai.running;
+      return active > 0 ? 5000 : 30000;
+    },
+  });
+}
+
+export function useBatchAnalyze() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: {
+      asset_ids?: number[];
+      source_directory_id?: number;
+      stages: ("shots" | "ai")[];
+    }) => api.batchAnalyze(payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+      void qc.invalidateQueries({ queryKey: ["processing-overview"] });
+    },
+  });
+}
+
 export function useSourceDirectories() {
   return useQuery({
     queryKey: ["source-directories"],

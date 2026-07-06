@@ -391,6 +391,39 @@ def run_asset_analysis(
     if only_shot_id is not None:
         shots = [s for s in shots if s.id == only_shot_id]
 
+    # 空镜头必须失败：否则 run 假成功且把未拆镜头素材状态污染为 SHOT_SPLIT
+    if not shots:
+        run.total_shots = 0
+        run.analyzed_shots = 0
+        run.failed_shots = 0
+        run.skipped_cached = 0
+        run.status = AIRunStatus.FAILED
+        run.error_message = "没有可分析的镜头（请先完成拆镜头）"
+        run.finished_at = utcnow()
+        run.heartbeat_at = utcnow()
+        # 恢复素材状态（函数开头已置 AI_ANALYZING）：有可用镜头回 SHOT_SPLIT，否则回 INDEXED
+        any_ready = session.execute(
+            select(Shot.id)
+            .where(
+                Shot.asset_id == asset.id,
+                Shot.status == ShotStatus.READY,
+                Shot.retired_at.is_(None),
+            )
+            .limit(1)
+        ).first()
+        asset.status = AssetStatus.SHOT_SPLIT if any_ready else AssetStatus.INDEXED
+        session.commit()
+        return {
+            "run_id": run.id,
+            "asset_id": asset.id,
+            "status": run.status.value,
+            "total_shots": 0,
+            "analyzed": 0,
+            "failed": 0,
+            "skipped_cached": 0,
+            "degraded": run.degraded,
+        }
+
     run.total_shots = len(shots)
     run.analyzed_shots = 0
     run.failed_shots = 0

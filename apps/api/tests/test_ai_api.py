@@ -40,6 +40,7 @@ async def _seed_shot(session, asset) -> Shot:
 
 async def test_analyze_asset_enqueues(client, session):
     asset = await _seed_asset(session)
+    await _seed_shot(session, asset)  # AAP：无可用镜头的 AI 发起已被 409 守卫
     r = await client.post(f"/api/assets/{asset.id}/analyze")
     assert r.status_code == 202
     body = r.json()
@@ -61,6 +62,7 @@ async def test_analyze_source_missing_409(client, session):
 
 async def test_active_run_is_idempotent(client, session):
     asset = await _seed_asset(session)
+    await _seed_shot(session, asset)
     r1 = await client.post(f"/api/assets/{asset.id}/analyze")
     r2 = await client.post(f"/api/assets/{asset.id}/analyze")
     assert r1.json()["run_id"] == r2.json()["run_id"]
@@ -77,6 +79,7 @@ async def test_ai_analysis_status_no_run(client, session):
 
 async def test_ai_analysis_status_after_enqueue(client, session):
     asset = await _seed_asset(session)
+    await _seed_shot(session, asset)
     await client.post(f"/api/assets/{asset.id}/analyze")
     body = (await client.get(f"/api/assets/{asset.id}/ai-analysis")).json()
     assert body["has_run"] is True

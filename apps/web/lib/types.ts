@@ -2731,3 +2731,87 @@ export interface VisualCandidateResponse {
   query: Record<string, unknown>;
   experimental_notice: string;
 }
+
+// ===== PM 产品素材工作台（人工确认 = 正式事实）=====
+
+export interface ProductMediaLink {
+  id: number;
+  asset_id: number | null;
+  shot_id: number | null;
+  family_id: number;
+  family_name: string | null;
+  family_code: string | null;
+  variant_id: number | null;
+  variant_name: string | null;
+  role: string;
+  origin: string;
+  actor_label: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FamilyMediaSummary {
+  family_id: number;
+  code: string;
+  name_zh: string;
+  status: string;
+  onboarding_status: string | null;
+  variant_count: number;
+  reference_count: number;
+  image_count: number;
+  video_count: number;
+  shot_link_count: number;
+  confirmed_usage_count: number;
+}
+
+export interface ProductMediaItem {
+  type: string;
+  asset_id?: number;
+  shot_id?: number;
+  final_video_id?: number;
+  filename?: string;
+  title?: string;
+  media_kind?: string;
+  duration?: number | null;
+  status?: string;
+  generation?: number;
+  is_historical?: boolean;
+  sequence_no?: number;
+  source?: string;
+  link?: ProductMediaLink;
+}
+
+export interface ProductMediaPage {
+  kind: string;
+  total: number;
+  page: number;
+  page_size: number;
+  items: ProductMediaItem[];
+}
+
+export interface ShotLinksView {
+  shot_id: number;
+  generation: number;
+  is_historical: boolean;
+  effective_source: string;
+  own: ProductMediaLink[];
+  inherited: ProductMediaLink[];
+  effective: ProductMediaLink[];
+}
+
+export interface ProductSuggestion {
+  family_id: number;
+  family_name: string;
+  family_code: string;
+  suggestion_type: string;
+  matched_text: string;
+  matched_in: string;
+  origin_on_confirm: string;
+}
+
+export interface PMBulkResult {
+  completed: Record<string, unknown>[];
+  skipped: Record<string, unknown>[];
+  failed: Record<string, unknown>[];
+}

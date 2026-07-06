@@ -8,6 +8,17 @@ import * as hooks from "@/lib/hooks";
 import type { Shot, ShotAnalysis, ShotDetail as ShotDetailT } from "@/lib/types";
 
 vi.mock("@/lib/hooks", () => ({
+  // PM 产品面板 stub（本文件不测产品面板；空数据只求安静渲染）
+  usePmSummary: () => ({ data: [], isLoading: false }),
+  usePmAssetLinks: () => ({ data: [], isLoading: false }),
+  usePmShotLinks: () => ({ data: null, isLoading: true }),
+  usePmSuggestions: () => ({ data: [], isLoading: false }),
+  usePmMutations: () => ({
+    create: { mutate: vi.fn(), isPending: false, error: null },
+    update: { mutate: vi.fn(), isPending: false },
+    remove: { mutate: vi.fn(), isPending: false },
+    bulk: { mutate: vi.fn(), isPending: false },
+  }),
   useShotAnalysis: vi.fn(),
   useAnalyzeMutation: vi.fn(),
   useAssetShots: vi.fn(),

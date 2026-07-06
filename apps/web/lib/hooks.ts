@@ -2320,3 +2320,87 @@ export function useVisualShotCandidates() {
 export function useVisualImageCandidates() {
   return useMutation({ mutationFn: (file: File) => api.visualCandidatesForImage(file) });
 }
+
+// ===== PM 产品素材工作台 =====
+
+export function usePmSummary() {
+  return useQuery({ queryKey: ["pm-summary"], queryFn: () => api.pmSummary() });
+}
+
+export function usePmFamilyItems(
+  familyId: number | null,
+  kind: string,
+  page: number,
+  includeHistorical = false,
+) {
+  return useQuery({
+    queryKey: ["pm-items", familyId, kind, page, includeHistorical],
+    queryFn: () =>
+      api.pmFamilyItems(familyId as number, {
+        kind,
+        page,
+        include_historical: includeHistorical,
+      }),
+    enabled: familyId != null,
+  });
+}
+
+export function usePmUnassigned(kind: string, page: number) {
+  return useQuery({
+    queryKey: ["pm-unassigned", kind, page],
+    queryFn: () => api.pmUnassigned(kind, page),
+  });
+}
+
+export function usePmAssetLinks(assetId: number | null) {
+  return useQuery({
+    queryKey: ["pm-asset-links", assetId],
+    queryFn: () => api.pmAssetLinks(assetId as number),
+    enabled: assetId != null,
+  });
+}
+
+export function usePmShotLinks(shotId: number | null) {
+  return useQuery({
+    queryKey: ["pm-shot-links", shotId],
+    queryFn: () => api.pmShotLinks(shotId as number),
+    enabled: shotId != null,
+  });
+}
+
+export function usePmSuggestions(targetType: string, targetId: number | null) {
+  return useQuery({
+    queryKey: ["pm-suggestions", targetType, targetId],
+    queryFn: () => api.pmSuggestions(targetType, targetId as number),
+    enabled: targetId != null,
+  });
+}
+
+export function usePmMutations() {
+  const qc = useQueryClient();
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["pm-summary"] });
+    qc.invalidateQueries({ queryKey: ["pm-items"] });
+    qc.invalidateQueries({ queryKey: ["pm-unassigned"] });
+    qc.invalidateQueries({ queryKey: ["pm-asset-links"] });
+    qc.invalidateQueries({ queryKey: ["pm-shot-links"] });
+  };
+  const create = useMutation({
+    mutationFn: (body: Record<string, unknown>) => api.pmCreateLink(body),
+    onSuccess: invalidate,
+  });
+  const update = useMutation({
+    mutationFn: (vars: { linkId: number; body: Record<string, unknown> }) =>
+      api.pmUpdateLink(vars.linkId, vars.body),
+    onSuccess: invalidate,
+  });
+  const remove = useMutation({
+    mutationFn: (linkId: number) => api.pmDeleteLink(linkId),
+    onSuccess: invalidate,
+  });
+  const bulk = useMutation({
+    mutationFn: (body: Record<string, unknown>) => api.pmBulkLink(body),
+    onSuccess: invalidate,
+  });
+  return { create, update, remove, bulk };
+}

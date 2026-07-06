@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import { AssetIdentityPanel } from "@/components/assets/AssetIdentityPanel";
+import { ProductLinkPanel } from "@/components/product-media/ProductLinkPanel";
 import { ProcessingChain } from "@/components/assets/ProcessingChain";
 import { AssetLegacyPanel } from "@/components/usage-evidence/AssetLegacyPanel";
 import { AssetUsagePanel } from "@/components/usage-review/AssetUsagePanel";
@@ -117,6 +118,7 @@ export function AssetDetailDrawer({
         ) : null}
 
         {/* PR-C：素材身份 / 文件位置历史 / 分析代次（只读派生） */}
+        <ProductLinkPanel targetType="asset" targetId={asset.id} />
         <AssetIdentityPanel assetId={asset.id} onOpenShot={onPreview} />
 
         {/* PR-D：统一使用摘要（正式与历史并列，口径不同不相加） */}

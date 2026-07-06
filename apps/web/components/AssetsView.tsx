@@ -20,7 +20,9 @@ import {
   useAnalyzeAiMutation,
   useAnalyzeMutation,
   useAssets,
+  useBatchAnalyze,
   useCreateSourceDirectory,
+  useProcessingOverview,
   useRescanMutation,
   useScanMutation,
   useScanStatus,
@@ -45,6 +47,8 @@ export function AssetsView() {
   const [qInput, setQInput] = useState("");
   const q = useDebounce(qInput, 400);
   const [status, setStatus] = useState<AssetStatus | "">("");
+  const [kind, setKind] = useState<"video" | "image">("video");
+  const [batchMsg, setBatchMsg] = useState<string | null>(null);
   const [selectedDirId, setSelectedDirId] = useState<number | null>(null);
   const [rescanningIds, setRescanningIds] = useState<Set<number>>(new Set());
   const [analyzingIds, setAnalyzingIds] = useState<Set<number>>(new Set());
@@ -62,14 +66,17 @@ export function AssetsView() {
 
   useEffect(() => {
     setPage(1);
-  }, [q, status]);
+  }, [q, status, kind]);
 
   const assetsQ = useAssets({
     page,
     page_size: PAGE_SIZE,
     q: q || undefined,
     status: status || undefined,
+    media_kind: kind,
   });
+  const overviewQ = useProcessingOverview();
+  const batchAnalyze = useBatchAnalyze();
   const scanStatusQ = useScanStatus(selectedDirId);
   const scanMutation = useScanMutation();
   const rescanMutation = useRescanMutation();
@@ -213,7 +220,11 @@ export function AssetsView() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="video/*,.mp4,.mov,.mkv,.webm,.avi"
+              accept={
+                kind === "image"
+                  ? "image/*,.jpg,.jpeg,.png,.webp"
+                  : "video/*,.mp4,.mov,.mkv,.webm,.avi"
+              }
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0];
@@ -247,9 +258,108 @@ export function AssetsView() {
 
         <ScanBanner scanStatus={scanStatusQ.data} pending={scanMutation.isPending} />
 
+        {/* AAP：全局处理进度（有活动任务才显示；空闲时只留统计一行） */}
+        {overviewQ.data ? (
+          <div
+            className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-gray-100 bg-white px-4 py-2 text-xs text-gray-600"
+            data-testid="processing-overview"
+          >
+            <span className="font-medium text-gray-700">全库处理状态</span>
+            <span>
+              视频 {overviewQ.data.totals.videos_with_shots}/{overviewQ.data.totals.videos_total} 已拆镜头
+            </span>
+            <span>镜头 {overviewQ.data.totals.shots_ai_labeled}/{overviewQ.data.totals.shots_ready} 已 AI 理解</span>
+            <span>可搜索 {overviewQ.data.totals.searchable_docs}</span>
+            {overviewQ.data.shots.queued + overviewQ.data.shots.running > 0 ? (
+              <span className="text-amber-600" data-testid="overview-shots-active">
+                拆镜头进行 {overviewQ.data.shots.running} / 排队 {overviewQ.data.shots.queued}
+              </span>
+            ) : null}
+            {overviewQ.data.ai.queued + overviewQ.data.ai.running > 0 ? (
+              <span className="text-amber-600">
+                AI 理解进行 {overviewQ.data.ai.running} / 排队 {overviewQ.data.ai.queued}
+              </span>
+            ) : null}
+            {overviewQ.data.config.auto_analyze_on_scan ? (
+              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-700" data-testid="auto-badge">
+                自动分析已开启
+              </span>
+            ) : null}
+            {overviewQ.data.config.ai_daily_budget > 0 ? (
+              <span className="text-gray-400">
+                AI 今日 {overviewQ.data.config.ai_spent_today.toFixed(2)} /
+                预算 {overviewQ.data.config.ai_daily_budget.toFixed(2)}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
+        {batchMsg ? (
+          <p className="rounded bg-emerald-50 px-3 py-2 text-xs text-emerald-700" data-testid="batch-msg">
+            {batchMsg}
+          </p>
+        ) : null}
+
         <section className="rounded-lg border border-gray-100 bg-white shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
-            <h2 className="text-base font-semibold">全部原始素材</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-base font-semibold">全部原始素材</h2>
+              <div className="flex gap-1" role="tablist" aria-label="媒体类型">
+                {(["video", "image"] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    role="tab"
+                    aria-selected={kind === k}
+                    data-testid={`kind-tab-${k}`}
+                    onClick={() => setKind(k)}
+                    className={
+                      kind === k
+                        ? "rounded-full border border-brand bg-brand/10 px-3 py-1 text-xs font-medium text-brand"
+                        : "rounded-full border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50"
+                    }
+                  >
+                    {k === "video" ? "视频" : "图片"}
+                  </button>
+                ))}
+              </div>
+              {kind === "video" && dirs.length > 0 ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  data-testid="batch-analyze-btn"
+                  loading={batchAnalyze.isPending}
+                  onClick={async () => {
+                    // 逐目录显式提交（API 不做全库隐式操作）
+                    let shots = 0;
+                    let ai = 0;
+                    let truncated = false;
+                    let failed = 0;
+                    for (const d of dirs) {
+                      try {
+                        const r = await batchAnalyze.mutateAsync({
+                          source_directory_id: d.id,
+                          stages: ["shots", "ai"],
+                        });
+                        shots += r.enqueued_shots;
+                        ai += r.enqueued_ai;
+                        truncated = truncated || r.truncated;
+                      } catch {
+                        failed += 1;
+                      }
+                    }
+                    setBatchMsg(
+                      `一键补齐已提交：入队拆镜头 ${shots}、AI 理解 ${ai}` +
+                        (truncated ? "（单批超上限已截断，处理完可再点一次）" : "") +
+                        (failed ? `；${failed} 个目录提交失败` : "") +
+                        "。进度见上方全库处理状态。",
+                    );
+                  }}
+                >
+                  一键补齐分析
+                </Button>
+              ) : null}
+            </div>
             <Toolbar
               q={qInput}
               onQChange={setQInput}

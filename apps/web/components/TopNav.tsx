@@ -44,7 +44,11 @@ export function TopNav({ active }: { active?: NavKey }) {
           <span className="text-lg font-semibold text-brand">ClipMind</span>
           <span className="hidden text-[10px] text-gray-400 sm:inline">AI 视频素材管理与镜头匹配</span>
         </Link>
-        <nav className="flex min-w-0 items-center gap-4 overflow-x-auto text-sm" aria-label="主导航">
+        {/* 「更多」菜单必须在 overflow-x-auto 容器之外，否则下拉面板被裁剪不可见 */}
+        <nav
+          className="flex min-w-0 flex-1 items-center gap-4 overflow-x-auto text-sm"
+          aria-label="主导航"
+        >
           {PRIMARY.map((item) => (
             <Link
               key={item.key}
@@ -56,27 +60,23 @@ export function TopNav({ active }: { active?: NavKey }) {
               {item.label}
             </Link>
           ))}
-          <Menu
-            align="right"
-            triggerAriaLabel="更多"
-            triggerClassName={cn(
-              "shrink-0 whitespace-nowrap text-sm",
-              moreActive ? "text-brand font-medium" : "text-gray-500 hover:text-gray-800",
-            )}
-            trigger={<span>更多 ▾</span>}
-            items={[
-              { key: "products", label: "产品库", href: "/products" },
-              { key: "product-media", label: "产品素材库", href: "/product-media" },
-              { key: "usage-evidence", label: "历史使用证据", href: "/usage-evidence" },
-              {
-                key: "visual-experiments",
-                label: "视觉识别实验",
-                href: "/product-visual-experiments",
-              },
-              { key: "favorites", label: "收藏", href: "/favorites" },
-            ]}
-          />
         </nav>
+        <Menu
+          align="right"
+          triggerAriaLabel="更多"
+          triggerClassName={cn(
+            "shrink-0 whitespace-nowrap text-sm",
+            moreActive ? "text-brand font-medium" : "text-gray-500 hover:text-gray-800",
+          )}
+          trigger={<span>更多 ▾</span>}
+          items={[
+            // 工程/验收向页面（视觉识别实验、历史使用证据）不再出现在运营导航；
+            // 路由保留，可直达 URL（P2 信息架构重组时统一处理）
+            { key: "products", label: "产品库", href: "/products" },
+            { key: "product-media", label: "产品素材库", href: "/product-media" },
+            { key: "favorites", label: "收藏", href: "/favorites" },
+          ]}
+        />
       </div>
     </header>
   );

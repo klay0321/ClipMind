@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""已有数据库升级路径端到端（0008 → head；含 0009-0019 各阶段表结构与数据保持断言）。
+"""已有数据库升级路径端到端（0008 → head；含 0009-0020 各阶段表结构与数据保持断言）。
 
 复现并验证"已有数据库升级"可靠性：用独立测试库 ``clipmind_upgrade_test``（绝不碰真实业务库）
 migrate 至 0008 → 写入 Gate A 业务数据 → 运行**正式升级命令** ``scripts/db_upgrade.sh``
@@ -104,9 +104,9 @@ def main() -> None:
     assert up.stdout and "SCRIPT_DB_UPGRADE_OK" in up.stdout, "db_upgrade.sh 未输出 OK 标志"
     print("  db_upgrade.sh ran: SCRIPT_DB_UPGRADE_OK emitted by official command")
 
-    # 4. 自动到 head（0019）：… + 0017 稳定身份 + 0018 历史证据 + 0019 产品素材关系
+    # 4. 自动到 head（0020）：… + 0019 产品素材关系 + 0020 操作审计
     rev2 = psql(TEST_DB, "select version_num from alembic_version")
-    assert rev2 == "0019_product_media_association", f"应到 head 0019，实际 {rev2}"
+    assert rev2 == "0020_product_media_operations", f"应到 head 0020，实际 {rev2}"
     # 0009 Gate B 仍在
     has_export = psql(TEST_DB, "select to_regclass('public.script_export')")
     assert has_export == "script_export", "应有 script_export 表（0009）"
@@ -247,6 +247,14 @@ def main() -> None:
     seg_pm = psql(TEST_DB, "select count(*) from script_segment")
     assert seg_pm == seg_before, "0019 升级后业务数据丢失"
     print("  0019 product_media_link present; media_kind backfilled; data intact")
+
+    # 4l. 0020 操作审计表出现且零预置事件行；业务数据不丢
+    assert psql(TEST_DB, "select to_regclass('public.product_media_operation')") == "product_media_operation",         "应有 product_media_operation 表（0020）"
+    op_rows = psql(TEST_DB, "select count(*) from product_media_operation")
+    assert op_rows == "0", "0020 升级不得预置任何操作事件"
+    seg_ops = psql(TEST_DB, "select count(*) from script_segment")
+    assert seg_ops == seg_before, "0020 升级后业务数据丢失"
+    print("  0020 product_media_operation present; zero seeded events; data intact")
     print("LEGACY_DB_UPGRADE_OK")
 
     # 5. 再次升级幂等（仍 head 0018，无错误，数据不变）
@@ -254,7 +262,7 @@ def main() -> None:
     assert up2.returncode == 0, f"幂等升级失败: {up2.stderr}"
     rev3 = psql(TEST_DB, "select version_num from alembic_version")
     seg_final = psql(TEST_DB, f"select count(*) from script_segment where script_project_id={pid}")
-    assert rev3 == "0019_product_media_association" and seg_final == seg_before, "幂等升级破坏状态"
+    assert rev3 == "0020_product_media_operations" and seg_final == seg_before, "幂等升级破坏状态"
     print(f"  idempotent re-run: still {rev3}, data intact (segments={seg_final})")
     print("SCRIPT_DB_UPGRADE_IDEMPOTENT_OK")
 

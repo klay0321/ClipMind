@@ -99,6 +99,7 @@ from clipmind_shared.models.product_governance import (
 )
 from clipmind_shared.models.product_reference import ProductReferenceAsset
 from clipmind_shared.models.product_media import ProductMediaLink
+from clipmind_shared.models.product_media_ops import ProductMediaOperation
 from clipmind_shared.models.project import (
     Project,
     ProjectAsset,
@@ -162,6 +163,7 @@ __all__ = [
     "ProductAttributeValue",
     "ProductReferenceAsset",
     "ProductMediaLink",
+    "ProductMediaOperation",
     "ProductReadinessPolicy",
     "ProductOnboardingReview",
     "ProductConfusionPair",

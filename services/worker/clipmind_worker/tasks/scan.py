@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import UTC, datetime
 from typing import Any
@@ -18,15 +19,23 @@ from clipmind_shared.constants import (
     ERROR_MESSAGE_MAX_LEN,
     METADATA_VERSION,
     QUEUE_MEDIA,
+    QUEUE_SCAN,
     SCAN_COMMIT_BATCH,
     TASK_GENERATE_ASSET_POSTER,
     TASK_RESCAN_ASSET,
     TASK_SCAN_SOURCE_DIRECTORY,
+    TASK_SCHEDULED_SCAN_ALL,
 )
 from clipmind_shared.db.base import utcnow
 from clipmind_shared.ffprobe import ProbeError, probe_video
-from clipmind_shared.models import Asset, AssetLocation, ScanRun, SourceDirectory
-from clipmind_shared.models.enums import AssetStatus, ScanRunStatus, ScanStatus
+from clipmind_shared.models import Asset, AssetLocation, ScanRun, Shot, SourceDirectory
+from clipmind_shared.models.enums import (
+    ACTIVE_SCAN_RUN_STATUSES,
+    AssetStatus,
+    ScanRunStatus,
+    ScanStatus,
+    ShotStatus,
+)
 from clipmind_shared.pathutil import normalize_relative_path
 from clipmind_shared.security import (
     PathTraversal,
@@ -34,8 +43,10 @@ from clipmind_shared.security import (
     safe_join_within_root,
 )
 from sqlalchemy import select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from clipmind_worker.auto_chain import auto_request_shot_analysis
 from clipmind_worker.celery_app import celery_app
 from clipmind_worker.config import get_settings
 from clipmind_worker.db import SessionLocal, engine
@@ -59,6 +70,7 @@ from clipmind_worker.scanning.reconcile import (
 from clipmind_worker.scanning.walker import iter_video_files
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 # advisory lock 命名空间（两个 int4 键：namespace + source_directory_id）
 ADVISORY_LOCK_NAMESPACE = 0x4C4D  # "LM"
@@ -264,6 +276,49 @@ def _enqueue_posters(session: Session, sd_id: int, run_id: int) -> int:
     return len(ids)
 
 
+def _enqueue_auto_shot_analysis(session: Session, sd_id: int) -> int:
+    """AAP：扫描完成后自动为待处理视频入队拆镜头（best-effort）。
+
+    条件 = 该目录下 INDEXED 视频且无可用镜头（不限本次新增 → 天然补漏：
+    上次失败/遗漏的素材下次扫描自动重新入队）；活动 run 幂等与唯一索引
+    兜底由 auto_request_shot_analysis 保证。
+    """
+    if not settings.auto_analyze_on_scan:
+        return 0
+    ready_shot_exists = (
+        select(Shot.id)
+        .where(
+            Shot.asset_id == Asset.id,
+            Shot.status == ShotStatus.READY,
+            Shot.retired_at.is_(None),
+        )
+        .exists()
+    )
+    ids = (
+        session.execute(
+            select(Asset.id)
+            .where(
+                Asset.source_directory_id == sd_id,
+                Asset.media_kind == "video",
+                Asset.status == AssetStatus.INDEXED,
+                ~ready_shot_exists,
+            )
+            .order_by(Asset.id)
+            .limit(settings.auto_analyze_max_per_scan)
+        )
+        .scalars()
+        .all()
+    )
+    queued = 0
+    for aid in ids:
+        try:
+            if auto_request_shot_analysis(session, aid):
+                queued += 1
+        except Exception as exc:  # noqa: BLE001 - 单条失败不影响其余与扫描结果
+            logger.warning("自动拆镜头入队异常 asset=%s: %s", aid, exc)
+    return queued
+
+
 def _mark_missing(
     session: Session, sd_id: int, run: ScanRun, stats: ReconcileStats
 ) -> int:
@@ -405,6 +460,7 @@ def scan_source_directory(self, scan_run_id: int) -> dict[str, Any]:  # noqa: AN
                 session.commit()
 
                 posters = _enqueue_posters(session, sd_id, run.id)
+                auto_queued = _enqueue_auto_shot_analysis(session, sd_id)
 
                 return {
                     "scan_run_id": run.id,
@@ -414,6 +470,7 @@ def scan_source_directory(self, scan_run_id: int) -> dict[str, Any]:  # noqa: AN
                     "errored": counts["errored"],
                     "missing": missing,
                     "posters_queued": posters,
+                    "auto_analysis_queued": auto_queued,
                     **stats.counts(),
                 }
             except Exception as exc:  # noqa: BLE001 - 记录失败并向上抛交给 Celery
@@ -512,3 +569,56 @@ def rescan_asset(self, asset_id: int) -> dict[str, Any]:  # noqa: ANN001
                 TASK_GENERATE_ASSET_POSTER, args=[asset_id_val], queue=QUEUE_MEDIA
             )
         return {"status": asset.status.value, "asset_id": asset.id}
+
+
+@celery_app.task(name=TASK_SCHEDULED_SCAN_ALL)
+def scheduled_scan_all() -> dict[str, Any]:
+    """AAP beat 定时任务：为全部源目录创建扫描运行并入队（幂等）。
+
+    复刻 API 侧 scan_dispatch.request_scan 的同步版：活动 run 幂等跳过 +
+    部分唯一索引 IntegrityError 兜底；扫描任务自身还有目录级 advisory lock，
+    重复触发绝对安全。单目录失败不影响其余。
+    """
+    queued: list[int] = []
+    skipped = 0
+    with SessionLocal() as session:
+        sd_ids = session.execute(select(SourceDirectory.id).order_by(SourceDirectory.id))
+        for (sd_id,) in sd_ids:
+            try:
+                active = session.execute(
+                    select(ScanRun.id)
+                    .where(
+                        ScanRun.source_directory_id == sd_id,
+                        ScanRun.status.in_(list(ACTIVE_SCAN_RUN_STATUSES)),
+                    )
+                    .limit(1)
+                ).first()
+                if active is not None:
+                    skipped += 1
+                    continue
+                sd = session.get(SourceDirectory, sd_id)
+                if sd is None:
+                    continue
+                run = ScanRun(
+                    source_directory_id=sd_id,
+                    status=ScanRunStatus.QUEUED,
+                    queued_at=utcnow(),
+                )
+                session.add(run)
+                sd.scan_status = ScanStatus.QUEUED
+                try:
+                    session.commit()
+                except IntegrityError:
+                    session.rollback()
+                    skipped += 1
+                    continue
+                result = celery_app.send_task(
+                    TASK_SCAN_SOURCE_DIRECTORY, args=[run.id], queue=QUEUE_SCAN
+                )
+                run.celery_task_id = result.id
+                session.commit()
+                queued.append(sd_id)
+            except Exception as exc:  # noqa: BLE001 - 单目录失败不影响其余
+                session.rollback()
+                logger.warning("定时扫描入队失败 sd=%s: %s", sd_id, exc)
+    return {"queued_directories": queued, "skipped_active": skipped}

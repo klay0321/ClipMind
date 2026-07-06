@@ -28,6 +28,8 @@ PRODUCT_LINK_ORIGINS: tuple[str, ...] = (
 # ----- Celery 任务名（稳定字符串，API 按名入队，避免 import worker 代码）-----
 TASK_SCAN_SOURCE_DIRECTORY = "clipmind.scan_source_directory"
 TASK_RESCAN_ASSET = "clipmind.rescan_asset"
+# AAP：beat 定时扫描全部源目录（scan 队列）
+TASK_SCHEDULED_SCAN_ALL = "clipmind.scheduled_scan_all"
 # PR-02 拆镜头 / 派生文件
 TASK_ANALYZE_SHOTS = "clipmind.analyze_shots"
 TASK_EXPORT_SHOT_CLIP = "clipmind.export_shot_clip"

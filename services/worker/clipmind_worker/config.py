@@ -77,6 +77,18 @@ class WorkerSettings(BaseSettings):
     ai_price_input_per_1k: float = 0.0
     ai_price_output_per_1k: float = 0.0
 
+    # ---- AAP 自动分析管线（默认全部关闭，逐项显式开启）----
+    # 扫描完成后自动为"无可用镜头且无活动运行"的视频入队拆镜头
+    auto_analyze_on_scan: bool = False
+    # 拆镜头完成后自动入队 AI 打标（受 ai_daily_budget 护栏约束）
+    auto_ai_after_shots: bool = False
+    # 单次扫描最多自动入队的拆镜头任务数（防一次性风暴）
+    auto_analyze_max_per_scan: int = 200
+    # AI 日预算（ai_call_log.est_cost 口径，UTC 日）；<=0 不限。仅限自动路径，手动不受限
+    ai_daily_budget: float = 0.0
+    # beat 定时扫描全部源目录的间隔（分钟）；<=0 禁用
+    scan_interval_minutes: int = 0
+
     # ---- PR-04 Embedding（search 队列；MiMo 无 embedding，故走独立 provider）----
     # ""=未配置（检索文档仅构建文本、不嵌入，标 degraded）| fake（确定性，CI/测试）
     # | openai_compatible（本地 embedder 微服务或外部 OpenAI 兼容 /embeddings）

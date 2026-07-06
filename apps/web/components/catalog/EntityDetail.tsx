@@ -8,6 +8,7 @@ import {
   useArchiveCatalogNode,
   useCatalogNode,
   useCatalogProfile,
+  useCategories,
   useFamilies,
   useRestoreCatalogNode,
   useSetCatalogStatus,
@@ -105,6 +106,10 @@ function DetailBody({
   const [editing, setEditing] = useState(false);
   const [nameZh, setNameZh] = useState(node.name_zh);
   const [nameEn, setNameEn] = useState(node.name_en ?? "");
+  // family 层：归属分类（激活前置条件——完整度检查项"归属分类/上级已启用"）
+  const [categorySel, setCategorySel] = useState<string>(
+    node.category_id != null ? String(node.category_id) : "",
+  );
   const [showMerge, setShowMerge] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState(false);
   const [tab, setTab] = useState<DetailTab>("basic");
@@ -113,8 +118,17 @@ function DetailBody({
     setEditing(false);
     setNameZh(node.name_zh);
     setNameEn(node.name_en ?? "");
+    setCategorySel(node.category_id != null ? String(node.category_id) : "");
     setTab("basic");
-  }, [node.id, node.name_zh, node.name_en]);
+  }, [node.id, node.name_zh, node.name_en, node.category_id]);
+
+  // 分类列表：family 编辑下拉 + 非编辑态显示归属名（其余层不拉取）
+  const categoriesQ = useCategories(level === "family" ? { limit: 100 } : { limit: 1 });
+  const categories = level === "family" ? (categoriesQ.data?.items ?? []) : [];
+  const currentCategory =
+    level === "family" && node.category_id != null
+      ? categories.find((c) => c.id === node.category_id)
+      : undefined;
 
   // 属性 / 参考图仅 family/variant/sku 层承载（category 层不显示这两个 Tab）
   const hasAssetTabs = level !== "category";
@@ -157,7 +171,16 @@ function DetailBody({
         updateCategory.mutate({ id: node.id, req }, opts);
         break;
       case "family":
-        updateFamily.mutate({ id: node.id, req }, opts);
+        updateFamily.mutate(
+          {
+            id: node.id,
+            req: {
+              ...req,
+              category_id: categorySel === "" ? null : Number(categorySel),
+            },
+          },
+          opts,
+        );
         break;
       case "variant":
         updateVariant.mutate({ id: node.id, req }, opts);
@@ -202,6 +225,20 @@ function DetailBody({
             <p className="break-words text-sm text-gray-500">{node.name_en}</p>
           ) : null}
           <p className="mt-0.5 text-[11px] text-gray-400">编码 {node.code}</p>
+          {level === "family" ? (
+            <p className="mt-0.5 text-[11px] text-gray-400" data-testid="detail-category">
+              归属分类：
+              {node.category_id == null ? (
+                <span className="text-amber-600">未归属（激活前须在「编辑」中选择分类）</span>
+              ) : (
+                <span className="text-gray-600">
+                  {currentCategory
+                    ? `${currentCategory.name_zh}${currentCategory.status !== "active" ? "（该分类未启用，须先启用）" : ""}`
+                    : `#${node.category_id}`}
+                </span>
+              )}
+            </p>
+          ) : null}
         </div>
         {!readOnly ? (
           <div className="flex flex-wrap gap-1.5">
@@ -282,6 +319,34 @@ function DetailBody({
             maxLength={255}
             data-testid="rename-en"
           />
+          {level === "family" ? (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">
+                归属分类（激活产品的前置条件）
+              </label>
+              <select
+                value={categorySel}
+                onChange={(e) => setCategorySel(e.target.value)}
+                className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm"
+                data-testid="rename-category"
+              >
+                <option value="">未归属</option>
+                {categories
+                  .filter((c) => c.status !== "archived" && c.status !== "merged")
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name_zh}
+                      {c.status === "active" ? "" : c.status === "draft" ? "（草稿，须先启用）" : "（已暂停）"}
+                    </option>
+                  ))}
+              </select>
+              <p className="mt-1 text-[11px] text-gray-400">
+                完整度检查中的「归属分类」「上级已启用」由此决定：产品须归属一个
+                <span className="font-medium">已启用</span>的分类才能通过。没有合适的分类时，
+                可在左侧目录树的分类层新建并启用。
+              </p>
+            </div>
+          ) : null}
           <p className="text-[11px] text-gray-400">更名不改变编码与既有关联。</p>
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>

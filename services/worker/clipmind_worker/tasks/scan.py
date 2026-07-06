@@ -28,9 +28,17 @@ from clipmind_shared.constants import (
 )
 from clipmind_shared.db.base import utcnow
 from clipmind_shared.ffprobe import ProbeError, probe_video
-from clipmind_shared.models import Asset, AssetLocation, ScanRun, Shot, SourceDirectory
+from clipmind_shared.models import (
+    Asset,
+    AssetImageAnalysis,
+    AssetLocation,
+    ScanRun,
+    Shot,
+    SourceDirectory,
+)
 from clipmind_shared.models.enums import (
     ACTIVE_SCAN_RUN_STATUSES,
+    AIShotAnalysisStatus,
     AssetStatus,
     ScanRunStatus,
     ScanStatus,
@@ -46,7 +54,7 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from clipmind_worker.auto_chain import auto_request_shot_analysis
+from clipmind_worker.auto_chain import auto_request_ai, auto_request_shot_analysis
 from clipmind_worker.celery_app import celery_app
 from clipmind_worker.config import get_settings
 from clipmind_worker.db import SessionLocal, engine
@@ -319,6 +327,48 @@ def _enqueue_auto_shot_analysis(session: Session, sd_id: int) -> int:
     return queued
 
 
+def _enqueue_auto_image_ai(session: Session, sd_id: int) -> int:
+    """P2a：扫描完成后为"有海报但无完成分析"的图片补漏入队 AI 理解（兜底）。
+
+    主触发在海报生成完成钩子（poster 就绪即打标）；此处兜底覆盖钩子丢失/
+    历史图片。受 auto_ai_after_shots 开关约束（语义=自动 AI 打标）。
+    """
+    if not settings.auto_ai_after_shots:
+        return 0
+    completed_exists = (
+        select(AssetImageAnalysis.id)
+        .where(
+            AssetImageAnalysis.asset_id == Asset.id,
+            AssetImageAnalysis.status == AIShotAnalysisStatus.COMPLETED,
+        )
+        .exists()
+    )
+    ids = (
+        session.execute(
+            select(Asset.id)
+            .where(
+                Asset.source_directory_id == sd_id,
+                Asset.media_kind == "image",
+                Asset.status == AssetStatus.INDEXED,
+                Asset.poster_path.isnot(None),
+                ~completed_exists,
+            )
+            .order_by(Asset.id)
+            .limit(settings.auto_analyze_max_per_scan)
+        )
+        .scalars()
+        .all()
+    )
+    queued = 0
+    for aid in ids:
+        try:
+            if auto_request_ai(session, aid):
+                queued += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("自动图片打标入队异常 asset=%s: %s", aid, exc)
+    return queued
+
+
 def _mark_missing(
     session: Session, sd_id: int, run: ScanRun, stats: ReconcileStats
 ) -> int:
@@ -461,6 +511,7 @@ def scan_source_directory(self, scan_run_id: int) -> dict[str, Any]:  # noqa: AN
 
                 posters = _enqueue_posters(session, sd_id, run.id)
                 auto_queued = _enqueue_auto_shot_analysis(session, sd_id)
+                auto_image_ai = _enqueue_auto_image_ai(session, sd_id)
 
                 return {
                     "scan_run_id": run.id,
@@ -471,6 +522,7 @@ def scan_source_directory(self, scan_run_id: int) -> dict[str, Any]:  # noqa: AN
                     "missing": missing,
                     "posters_queued": posters,
                     "auto_analysis_queued": auto_queued,
+                    "auto_image_ai_queued": auto_image_ai,
                     **stats.counts(),
                 }
             except Exception as exc:  # noqa: BLE001 - 记录失败并向上抛交给 Celery

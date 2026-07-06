@@ -33,16 +33,21 @@ async def _start_asset_ai(asset_id: int, db: AsyncSession) -> AnalyzeAIAcceptedO
     if asset.status == AssetStatus.SOURCE_MISSING:
         raise HTTPException(status_code=409, detail="源文件缺失，无法分析")
     if asset.media_kind == "image":
-        raise HTTPException(status_code=422, detail="图片素材没有镜头，暂不支持 AI 镜头分析")
-    ready_shots = await db.scalar(
-        select(func.count(Shot.id)).where(
-            Shot.asset_id == asset.id,
-            Shot.status == ShotStatus.READY,
-            Shot.retired_at.is_(None),
+        # P2a：图片走图片理解链路（输入为海报副本；worker 层按 media_kind 分发）
+        if not asset.poster_path:
+            raise HTTPException(
+                status_code=409, detail="图片海报尚未生成（扫描后自动生成），稍后再试或重新扫描"
+            )
+    else:
+        ready_shots = await db.scalar(
+            select(func.count(Shot.id)).where(
+                Shot.asset_id == asset.id,
+                Shot.status == ShotStatus.READY,
+                Shot.retired_at.is_(None),
+            )
         )
-    )
-    if not ready_shots:
-        raise HTTPException(status_code=409, detail="该素材还没有可用镜头，请先完成拆镜头")
+        if not ready_shots:
+            raise HTTPException(status_code=409, detail="该素材还没有可用镜头，请先完成拆镜头")
     try:
         run = await ai_dispatch.request_ai_analysis(db, asset)
     except Exception as exc:  # noqa: BLE001

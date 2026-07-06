@@ -173,10 +173,13 @@ def run_full():
     print("AAP_AUTO_CHAIN_OK")
 
     # 3) 批量分析 API 语义
+    # 注意：只对本脚本自己的资产提交（asset_ids），绝不对共享 uploads 目录全量
+    # 提交——否则会把其他 E2E 时间窗口内的未打标镜头补打标，破坏 PR-E 等
+    # 脚本"重启后排序快照一致"的持久化断言。
     st, _ = _req("POST", "/api/assets/batch-analyze", {"stages": ["shots"]})
     check(st == 422, "无显式条件应 422")
     res = jreq("POST", "/api/assets/batch-analyze",
-               {"source_directory_id": sd_id, "stages": ["shots", "ai"]}, expect=(202,))
+               {"asset_ids": [aid], "stages": ["shots", "ai"]}, expect=(202,))
     for key in ("matched", "enqueued_shots", "enqueued_ai", "skipped_active",
                 "skipped_ineligible", "truncated"):
         check(key in res, f"batch 响应缺 {key}")

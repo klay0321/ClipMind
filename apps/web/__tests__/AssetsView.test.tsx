@@ -16,6 +16,8 @@ vi.mock("@/lib/hooks", () => ({
   useAnalyzeMutation: vi.fn(),
   useAnalyzeAiMutation: vi.fn(),
   useUploadMutation: vi.fn(),
+  useProcessingOverview: vi.fn(),
+  useBatchAnalyze: vi.fn(),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -98,6 +100,8 @@ beforeEach(() => {
   vi.mocked(hooks.useScanStatus).mockReturnValue(query());
   vi.mocked(hooks.useSourceDirectories).mockReturnValue(query({ data: [] }));
   vi.mocked(hooks.useAssets).mockReturnValue(query());
+  vi.mocked(hooks.useProcessingOverview).mockReturnValue(query());
+  vi.mocked(hooks.useBatchAnalyze).mockReturnValue(mutation());
 });
 
 describe("AssetsView", () => {

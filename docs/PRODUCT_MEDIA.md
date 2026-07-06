@@ -74,9 +74,50 @@ Asset/Shot 页的辅助入口：人工点击"确认关联"才写 origin=
 visual_suggestion_confirmed 的正式关系；禁止自动绑定 Top-1、自动批量确认、
 从 Family 推断 Variant、把 unknown/ambiguous 显示为已识别。
 
-## 8. 验证
+## 8. 运营批量流程（OPS：分组审核 → 批量确认 → 统计）
 
-后端 `apps/api/tests/test_product_media.py`；前端
+面向"大量未标注素材连续整理"的主路径（`/product-media` 顶部
+"候选批量审核"区）：
+
+- **批量候选生成**：`suggest_for_assets_batch` 一次拉取词表（family
+  中英名/code + family 级别名，排除 merged/archived），对每个未标注素材本地
+  匹配目录/文件名，按类型优先级取 Top3——纯确定性、零 AI 调用、无 N+1。
+- **分组队列**：`GET /unassigned/groups?kind=&group_by=suggested_family|
+  directory|none`。组内给出组级建议产品、预览（≤6）与**显式 targets
+  （≤200/组）**；无候选素材单列 "none" 桶，绝不冒充已识别；总量上限 500
+  超出明确标记 truncated。
+- **整组确认**：预览点击排除异常项 → 显式"绑定 N 项"（走 links/bulk），
+  确认建议产品时 origin=path_or_filename_confirmed，改选其他产品时
+  bulk_manual。**绝不默认选择全库、绝不自动确认**。
+- **覆盖统计**：summary 每产品新增 effective_shot_count /
+  final_video_count / coverage_gaps / coverage_status。状态由通用规则派生
+  （缺参考图/缺视频/缺可用 Shot/没有最终成片；无任何产品名硬编码），
+  全部达标显示"资料较完整"。
+- 视觉候选仍只在 Asset/Shot 页显式点击、小批量使用（见 §7）；分组/批量/
+  统计在视觉 provider 关闭时完整可用。
+
+## 9. 操作审计与撤销（product_media_operation，迁移 0020）
+
+- **append-only 事件表**：每次 single_link / bulk_link 写一行（kind、
+  family、role/origin、requested/completed/skipped/failed 计数、
+  created_link_ids、actor_label、detail）；undo 自身也是事件行，绝不改写
+  或删除历史事件。
+- **撤销语义**：`POST /operations/{id}/undo` 只删除**该操作创建且此后未被
+  修改**的 link（判定：`updated_at == created_at`，创建时两者取同一时刻；
+  任何 PATCH 触发 onupdate 即视为已修改）。被修改/已删除的条目保留并在
+  removed/kept 明细中给出原因。原操作标记 undone_at 后不可重复撤销
+  （409）；undo 事件本身不可再撤（422）。
+- 撤销只删关系行，**绝不删除媒体、绝不回滚产品目录**。
+- `GET /operations` 分页返回历史（undoable 由 kind+undone_at+
+  created_link_ids 计算），工作台"操作历史"面板可直接撤销。
+
+## 10. 验证
+
+后端 `apps/api/tests/test_product_media.py` +
+`test_product_media_ops.py`（分组/候选注入/审计/撤销/覆盖状态）；前端
 `apps/web/__tests__/product-media/`；E2E `scripts/ci_product_media_e2e.py`
-（9 标志 + RESTART_PERSIST）；UI `e2e/pr-media-workspace.spec.ts`；
-真实素材只读验收（LIBRARY_READONLY 标志）见 `.local` 报告（不入库）。
+（9 标志 + RESTART_PERSIST）+ `scripts/ci_product_media_ops_e2e.py`
+（6 标志 + POPS_RESTART_PERSIST_OK）；UI `e2e/pr-media-workspace.spec.ts` +
+`e2e/pr-media-ops.spec.ts`；升级路径 `scripts/ci_db_upgrade_e2e.py`（至
+0020）；真实素材只读验收（LIBRARY_READONLY / REAL_OPS）见 `.local` 报告
+（不入库）。

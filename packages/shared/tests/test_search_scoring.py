@@ -80,3 +80,22 @@ def test_pagination_no_dup_no_loss():
     assert len(ids) == 25
     assert len(set(ids)) == 25            # 无重复
     assert paginate(ordered, 99, 10) == []  # 越界为空，不丢不复
+
+
+def test_risk_penalty_never_dominates_relevance():
+    """真实事故回归：搜 TikTok 时含 TikTok 的镜头都带风险标签。
+    风险只能作同分级微调，绝不能把强相关命中压到弱相关无风险镜头之后。"""
+    target = _c(1, semantic_score=0.92, lexical_score=0.03, has_unexcluded_risk=True)
+    noise = _c(2, semantic_score=0.88)
+    out = score_candidates([target, noise], active_channels=["semantic", "lexical"])
+    assert out[0].shot_id == 1
+    assert out[0].risk_penalty > 0  # 风险仍被记录展示，只是不主宰排序
+
+
+def test_multi_channel_hit_not_diluted_by_lexical_scale():
+    """真实事故回归：词法 ts_rank（~0.03 量级）与语义余弦不可比。
+    强语义命中同时被词法弱分召回时，不得被跨通道均值稀释到弱语义单通道之后。"""
+    both = _c(1, semantic_score=0.91, lexical_score=0.03)   # 双通道命中（词法原始分低是量纲）
+    vec_only = _c(2, semantic_score=0.885)                  # 仅语义、分数略低
+    out = score_candidates([both, vec_only], active_channels=["semantic", "lexical"])
+    assert out[0].shot_id == 1

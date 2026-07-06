@@ -118,6 +118,10 @@ class _Merged:
     created_from: datetime | None = None
     created_to: datetime | None = None
     hard_product_ids: list[int] = field(default_factory=list)
+    # PM：产品素材关系 hard filter（Family 维度；Shot 有效产品含继承语义）
+    hard_family_id: int | None = None
+    hard_variant_id: int | None = None
+    has_product_assignment: bool | None = None
     # 显式 request 传入的结构化字段 → 硬过滤（解析得到的同名字段仅作软召回/解释）
     hard_scenes: list[str] = field(default_factory=list)
     hard_actions: list[str] = field(default_factory=list)
@@ -181,6 +185,11 @@ def _merge(parsed: ParsedSearchQuery, request: ShotSearchRequest) -> _Merged:
         created_from=request.created_from,
         created_to=request.created_to,
         hard_product_ids=list(request.product_ids),
+        hard_family_id=request.product_family_id,
+        hard_variant_id=request.product_variant_id,
+        has_product_assignment=(
+            False if request.unassigned_only else request.has_product_assignment
+        ),
         hard_scenes=list(request.scenes),
         hard_actions=list(request.actions),
         hard_shot_types=list(request.shot_types),
@@ -336,6 +345,35 @@ def _apply_filters(stmt, m: _Merged):
             )
     if m.hard_product_ids:
         stmt = stmt.where(_product_assoc(m.hard_product_ids))
+    # PM：Family/Variant hard filter 与 已分配/未分配 过滤（继承语义：
+    # shot 自身 link 优先，否则用 asset link；hard filter 不参与分数）
+    if m.hard_family_id is not None or m.hard_variant_id is not None:
+        from clipmind_shared.models import ProductMediaLink as _PML
+
+        def _link_match(col_shot: bool):
+            q = select(_PML.id)
+            q = q.where(_PML.shot_id == Shot.id) if col_shot else q.where(
+                _PML.asset_id == Shot.asset_id
+            )
+            if m.hard_family_id is not None:
+                q = q.where(_PML.family_id == m.hard_family_id)
+            if m.hard_variant_id is not None:
+                q = q.where(_PML.variant_id == m.hard_variant_id)
+            return q.exists()
+
+        own_any = (
+            select(_PML.id).where(_PML.shot_id == Shot.id).exists()
+        )
+        stmt = stmt.where(_link_match(True) | (~own_any & _link_match(False)))
+    if m.has_product_assignment is not None:
+        from clipmind_shared.models import ProductMediaLink as _PML2
+
+        own_any2 = select(_PML2.id).where(_PML2.shot_id == Shot.id).exists()
+        asset_any = select(_PML2.id).where(
+            _PML2.asset_id == Shot.asset_id
+        ).exists()
+        assigned = own_any2 | asset_any
+        stmt = stmt.where(assigned if m.has_product_assignment else ~assigned)
     # 显式 request 结构化字段 → 硬过滤（标签 EXISTS，按有效来源）；
     # 描述匹配 allow_similar_*=False 时把解析得到的场景/动作也升格为硬过滤。
     scene_hard = list(m.hard_scenes) + (m.scenes if m.require_scene else [])

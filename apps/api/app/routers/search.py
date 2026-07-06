@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.schemas.search import (
+    AssetSearchRequest,
+    AssetSearchResponse,
     DescriptionMatchRequest,
     DescriptionMatchResponse,
     IndexStatusResponse,
@@ -21,7 +23,7 @@ from app.schemas.search import (
     ShotSearchResponse,
     SuggestionsResponse,
 )
-from app.services import search_index_service, search_service
+from app.services import asset_search_service, search_index_service, search_service
 from app.services.search_providers import (
     get_query_embedding_provider,
     get_query_parser_for_settings,
@@ -41,6 +43,19 @@ async def search_shots(
     embedding_provider = get_query_embedding_provider(settings)
     return await search_service.run_shot_search(
         db, request, parser=parser, embedding_provider=embedding_provider, settings=settings
+    )
+
+
+@router.post("/search/assets", response_model=AssetSearchResponse)
+async def search_assets(
+    request: AssetSearchRequest,
+    db: AsyncSession = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> AssetSearchResponse:
+    """P2a 素材级检索：整条视频（镜头聚合文档）与图片（AI 理解文档）。"""
+    embedding_provider = get_query_embedding_provider(settings)
+    return await asset_search_service.run_asset_search(
+        db, request, embedding_provider=embedding_provider, settings=settings
     )
 
 

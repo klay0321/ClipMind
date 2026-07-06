@@ -127,11 +127,11 @@ def run_full():
     check(ov["config"]["auto_ai_after_shots"] is True, "AUTO_AI_AFTER_SHOTS 未生效")
     print("AAP_OVERVIEW_OK")
 
-    # 1) 图片守卫：AI 发起 422（确定性，无竞态）
+    # 1) 图片守卫（P2a 起图片走图片理解链路）：有海报 202 / 无海报 409，绝不再 422
     sd_id, img_name = upload(make_png(120, 30, 30, tag), f"{PREFIX}-img-{tag}.png", "image/png")
     img = wait_asset(img_name, sd_id)
     st, body = _req("POST", f"/api/assets/{img['id']}/analyze")
-    check(st == 422, f"图片 AI 守卫应 422，实际 {st}: {body}")
+    check(st in (202, 409), f"图片 AI 应 202(有海报)/409(无海报)，实际 {st}: {body}")
     print("AAP_GUARD_IMAGE_OK")
 
     # 2) 自动链主验证：上传两段纯色视频 → 全程不点分析 → 自动变可搜索

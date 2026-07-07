@@ -106,7 +106,7 @@ def main() -> None:
 
     # 4. 自动到 head（0020）：… + 0019 产品素材关系 + 0020 操作审计
     rev2 = psql(TEST_DB, "select version_num from alembic_version")
-    assert rev2 == "0021_asset_level_search", f"应到 head 0021，实际 {rev2}"
+    assert rev2 == "0022_visual_auto", f"应到 head 0022，实际 {rev2}"
     # 0009 Gate B 仍在
     has_export = psql(TEST_DB, "select to_regclass('public.script_export')")
     assert has_export == "script_export", "应有 script_export 表（0009）"
@@ -267,6 +267,14 @@ def main() -> None:
     seg_p2a = psql(TEST_DB, "select count(*) from script_segment")
     assert seg_p2a == seg_before, "0021 升级后业务数据丢失"
     print("  0021 asset_image_analysis/asset_search_document present; zero seeded; data intact")
+
+    # 4n. 0022 视觉两表出现且零预置行
+    assert psql(TEST_DB, "select to_regclass('public.visual_media_embedding')") == "visual_media_embedding",         "应有 visual_media_embedding 表（0022）"
+    assert psql(TEST_DB, "select to_regclass('public.visual_product_candidate')") == "visual_product_candidate",         "应有 visual_product_candidate 表（0022）"
+    vme_rows = psql(TEST_DB, "select count(*) from visual_media_embedding")
+    vpc_rows = psql(TEST_DB, "select count(*) from visual_product_candidate")
+    assert vme_rows == "0" and vpc_rows == "0", "0022 升级不得预置任何嵌入/候选行"
+    print("  0022 visual_media_embedding/visual_product_candidate present; zero seeded")
     print("LEGACY_DB_UPGRADE_OK")
 
     # 5. 再次升级幂等（仍 head 0018，无错误，数据不变）
@@ -274,7 +282,7 @@ def main() -> None:
     assert up2.returncode == 0, f"幂等升级失败: {up2.stderr}"
     rev3 = psql(TEST_DB, "select version_num from alembic_version")
     seg_final = psql(TEST_DB, f"select count(*) from script_segment where script_project_id={pid}")
-    assert rev3 == "0021_asset_level_search" and seg_final == seg_before, "幂等升级破坏状态"
+    assert rev3 == "0022_visual_auto" and seg_final == seg_before, "幂等升级破坏状态"
     print(f"  idempotent re-run: still {rev3}, data intact (segments={seg_final})")
     print("SCRIPT_DB_UPGRADE_IDEMPOTENT_OK")
 

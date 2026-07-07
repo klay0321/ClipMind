@@ -2429,6 +2429,13 @@ export function usePmSuggestions(targetType: string, targetId: number | null) {
   });
 }
 
+export function useVisualSearch() {
+  return useMutation({
+    mutationFn: ({ file, kind }: { file: File; kind: string }) =>
+      api.searchByImage(file, kind),
+  });
+}
+
 export function useDismissVisualCandidate() {
   const qc = useQueryClient();
   return useMutation({

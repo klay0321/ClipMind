@@ -15,6 +15,7 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/hooks", () => ({
   useSemanticSearch: vi.fn(),
+  useVisualSearch: vi.fn(() => ({ mutate: vi.fn(), isPending: false, data: undefined, isError: false, error: null })),
   useDescriptionMatch: vi.fn(),
   useProducts: vi.fn(),
   usePmSummary: vi.fn(),

@@ -10,6 +10,7 @@ import { makeItem, makeResponse, mutation, query } from "./fixtures";
 
 vi.mock("@/lib/hooks", () => ({
   useSemanticSearch: vi.fn(),
+  useVisualSearch: vi.fn(() => ({ mutate: vi.fn(), isPending: false, data: undefined, isError: false, error: null })),
   useProducts: vi.fn(),
   usePmSummary: vi.fn(),
   useAssetSearch: vi.fn(),

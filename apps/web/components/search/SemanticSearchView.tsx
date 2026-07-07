@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/api";
 import { useSemanticSearch } from "@/lib/hooks";
 
 import { AssetSearchPanel } from "./AssetSearchPanel";
+import { VisualSearchPanel } from "./VisualSearchPanel";
 import {
   EMPTY_SEARCH_FORM,
   SORT_LABELS,
@@ -49,8 +50,9 @@ export function SemanticSearchView({
   selectedShotId: number | null;
 }) {
   const [form, setForm] = useState<SearchFormState>(initialForm);
-  // P2a：检索目标 Tab（镜头=既有链路零改动；视频/图片=素材级检索面板）
-  const [target, setTarget] = useState<"shots" | "video" | "image">("shots");
+  // P2a：检索目标 Tab（镜头=既有链路零改动；视频/图片=素材级检索面板；
+  // IMG-SEARCH：visual=以图搜图（视觉向量相似检索））
+  const [target, setTarget] = useState<"shots" | "video" | "image" | "visual">("shots");
   const [filtersOpen, setFiltersOpen] = useState(false);
   // 已保存搜索默认收起，不抢占结果区首屏
   const [savedOpen, setSavedOpen] = useState(false);
@@ -145,6 +147,7 @@ export function SemanticSearchView({
           { key: "shots", label: "镜头" },
           { key: "video", label: "整条视频" },
           { key: "image", label: "图片" },
+          { key: "visual", label: "以图搜图" },
         ] as const
       ).map((t) => (
         <button
@@ -166,6 +169,14 @@ export function SemanticSearchView({
     </div>
   );
 
+  if (target === "visual") {
+    return (
+      <div className="space-y-3">
+        {targetTabs}
+        <VisualSearchPanel />
+      </div>
+    );
+  }
   if (target !== "shots") {
     return (
       <div className="space-y-3">

@@ -28,11 +28,35 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-clipmind}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # 恢复脚本可在 postgres 容器内直接执行（docs/BACKUP.md）
+      - ./scripts/backup:/backup-scripts:ro
+      - clipmind-data:/app/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clipmind} -d ${POSTGRES_DB:-clipmind}"]
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # BACKUP：数据库定时备份 sidecar。PostgreSQL 里的人工成果（产品绑定/审核
+  # 结论/使用血缘）是系统唯一不可再生资产；派生文件可重算故不备份。
+  # 备份落 /app/data/backups（建议将该目录同步到另一存储，见 docs/BACKUP.md）。
+  db-backup:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    entrypoint: ["sh", "/backup-scripts/pg_backup.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-clipmind}
+      PGPASSWORD: ${POSTGRES_PASSWORD:-clipmind}
+      PGDATABASE: ${POSTGRES_DB:-clipmind}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETAIN: ${BACKUP_RETAIN:-14}
+    volumes:
+      - ./scripts/backup:/backup-scripts:ro
+      - clipmind-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   redis:
     image: redis:7-alpine

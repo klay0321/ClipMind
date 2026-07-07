@@ -40,11 +40,36 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-clipmind}
     volumes:
       - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/pgdata:/var/lib/postgresql/data
+      # 恢复脚本可在 postgres 容器内直接执行（docs/BACKUP.md）
+      - ./scripts/backup:/backup-scripts:ro
+      - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/data:/app/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clipmind} -d ${POSTGRES_DB:-clipmind}"]
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # BACKUP：数据库定时备份 sidecar（人工成果唯一不可再生；派生文件可重算）。
+  # 备份落 ${CLIPMIND_DATA_ROOT}/data/backups —— 建议在 NAS 上把该目录加入
+  # 异地/另一存储池的同步计划（docs/BACKUP.md）。
+  db-backup:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    <<: *default-logging
+    entrypoint: ["sh", "/backup-scripts/pg_backup.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:-clipmind}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?须在 .env 设置 POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-clipmind}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETAIN: ${BACKUP_RETAIN:-14}
+    volumes:
+      - ./scripts/backup:/backup-scripts:ro
+      - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   redis:
     image: redis:7-alpine

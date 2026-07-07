@@ -149,6 +149,19 @@ jobs:
           else
             echo "源目录只读 OK（写入被拒绝）"
           fi
+      - name: 数据库备份 sidecar（启动即备份一次 + 恢复演练到临时库）
+        run: |
+          set -o pipefail
+          for i in $(seq 1 30); do
+            n=$(docker compose exec -T postgres sh -c "ls /app/data/backups/clipmind-*.dump 2>/dev/null | wc -l" || echo 0)
+            [ "$n" -ge 1 ] && break
+            sleep 2
+          done
+          [ "$n" -ge 1 ] || { echo "备份文件未生成"; docker compose logs db-backup --tail 20; exit 1; }
+          dump=$(docker compose exec -T postgres sh -c "ls /app/data/backups/clipmind-*.dump | head -1" | tr -d '\r')
+          docker compose exec -T postgres sh /backup-scripts/pg_restore.sh --drill "$dump" | tee drill.log
+          grep -q "RESTORE_DRILL_OK" drill.log
+          echo "DB_BACKUP_E2E_OK"
       - name: 运行端到端断言（扫描→分析→镜头→Range→导出→重分析）
         env:
           API_BASE: http://localhost:8000

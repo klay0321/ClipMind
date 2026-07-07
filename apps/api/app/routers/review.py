@@ -6,12 +6,15 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from typing import Any
 
 from clipmind_shared.models import Asset, Shot
 from clipmind_shared.models.enums import ReviewAction
 from clipmind_shared.models.enums import ReviewStatus as RS
 from clipmind_shared.review import InvalidReviewTransition
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,13 +29,16 @@ from app.schemas.review import (
     ReviewStateOut,
 )
 from app.schemas.shot import ShotOut, to_shot_out
-from app.services import asset_summary, review_service, shot_filter
+from app.services import asset_summary, image_review_service, review_service, shot_filter
 from app.services.review_service import (
     ReviewConflict,
     ReviewPayload,
     ReviewSchemaError,
 )
-from app.tasks_client import enqueue_rebuild_shot_search_doc
+from app.tasks_client import (
+    enqueue_rebuild_asset_level_doc,
+    enqueue_rebuild_shot_search_doc,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -201,3 +207,106 @@ async def shot_search(
         page=page,
         page_size=page_size,
     )
+
+
+# ===================== IMG-REVIEW：图片素材 AI 理解审核 =====================
+
+
+class ImageAnalysisViewOut(BaseModel):
+    """图片 AI 理解 + 审核状态 + 有效结果（前端一次取全）。"""
+
+    asset_id: int
+    ai_status: str | None = None
+    ai_result: dict[str, Any] | None = None
+    ai_analysis_id: int | None = None
+    input_fingerprint: str | None = None
+    analyzed_at: datetime | None = None
+    review_status: str = "unreviewed"
+    confirmed_result: dict[str, Any] | None = None
+    reviewer_label: str | None = None
+    review_comment: str | None = None
+    reviewed_at: datetime | None = None
+    lock_version: int = 0
+    effective_source: str = "none"  # human | ai | rejected | none
+    effective_result: dict[str, Any] | None = None
+
+
+@router.get("/assets/{asset_id}/image-analysis", response_model=ImageAnalysisViewOut)
+async def get_asset_image_analysis_view(
+    asset_id: int, response: Response, db: AsyncSession = Depends(get_db)
+) -> ImageAnalysisViewOut:
+    asset = await db.get(Asset, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="素材不存在")
+    if asset.media_kind != "image":
+        raise HTTPException(status_code=422, detail="仅图片素材有图片理解结果")
+    response.headers["Cache-Control"] = "no-store"
+    ai = await image_review_service.get_image_analysis(db, asset_id)
+    review = await image_review_service.get_image_review_state(db, asset_id)
+    source, effective = image_review_service.compute_effective(ai, review)
+    return ImageAnalysisViewOut(
+        asset_id=asset_id,
+        ai_status=(ai.status.value if ai else None),
+        ai_result=(dict(ai.parsed_result) if ai and ai.parsed_result else None),
+        ai_analysis_id=(ai.id if ai else None),
+        input_fingerprint=(ai.input_fingerprint if ai else None),
+        analyzed_at=(ai.updated_at if ai else None),
+        review_status=(review.review_status.value if review else "unreviewed"),
+        confirmed_result=(review.confirmed_result if review else None),
+        reviewer_label=(review.reviewer_label if review else None),
+        review_comment=(review.review_comment if review else None),
+        reviewed_at=(review.reviewed_at if review else None),
+        lock_version=(review.lock_version if review else 0),
+        effective_source=source,
+        effective_result=effective,
+    )
+
+
+@router.post("/assets/{asset_id}/image-review", response_model=ImageAnalysisViewOut)
+async def review_asset_image(
+    asset_id: int,
+    action: str,
+    body: ReviewActionIn,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+) -> ImageAnalysisViewOut:
+    """图片审核动作（confirm/modify/reject/unable/reopen；乐观锁并发保护）。"""
+    asset = await db.get(Asset, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="素材不存在")
+    if asset.media_kind != "image":
+        raise HTTPException(status_code=422, detail="仅图片素材可做图片审核")
+    try:
+        act = ReviewAction(action)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"未知审核动作: {action}") from exc
+    if act == ReviewAction.MODIFY and not body.confirmed_result:
+        raise HTTPException(status_code=422, detail="modify 必须提供 confirmed_result")
+    reviewer = (body.reviewer_label or "").strip() or get_settings().review_default_reviewer
+    payload = ReviewPayload(
+        action=act,
+        lock_version=body.lock_version,
+        reviewer_label=reviewer[:255],
+        comment=body.comment,
+        confirmed_result=body.confirmed_result,
+        source_ai_analysis_id=body.source_ai_analysis_id,
+        source_input_fingerprint=body.source_input_fingerprint,
+    )
+    try:
+        await image_review_service.apply_image_review(db, asset, payload)
+    except InvalidReviewTransition as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ReviewConflict as exc:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ReviewSchemaError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=f"结构化结果非法: {exc}") from exc
+    # 审核已提交 → 重建素材级检索文档（human 优先 / rejected 不可搜立即生效）。
+    # 入队失败不影响审核结果（扫描 sweep 兜底）。
+    try:
+        enqueue_rebuild_asset_level_doc(asset_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("入队素材文档重建失败（sweep 兜底）: %s", exc)
+    return await get_asset_image_analysis_view(asset_id, response, db)

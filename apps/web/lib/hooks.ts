@@ -2429,6 +2429,25 @@ export function usePmSuggestions(targetType: string, targetId: number | null) {
   });
 }
 
+export function useAssetImageAnalysis(assetId: number | null) {
+  return useQuery({
+    queryKey: ["image-analysis", assetId],
+    queryFn: () => api.assetImageAnalysis(assetId as number),
+    enabled: assetId != null,
+  });
+}
+
+export function useImageReviewAction(assetId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ action, ...body }: { action: string } & Record<string, unknown>) =>
+      api.assetImageReview(assetId, action, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["image-analysis", assetId] });
+    },
+  });
+}
+
 export function useVisualSearch() {
   return useMutation({
     mutationFn: ({ file, kind }: { file: File; kind: string }) =>

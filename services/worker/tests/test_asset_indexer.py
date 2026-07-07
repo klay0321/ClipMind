@@ -145,3 +145,73 @@ def test_bound_product_names_enter_document(session):
 def test_video_without_results_excluded(session):
     asset = _seed_asset(session, kind="video", status=AssetStatus.SHOT_SPLIT)
     assert rebuild_asset_level_document(session, asset.id, _provider()) == "excluded"
+
+
+# ===================== IMG-REVIEW：审核结果反映到文档 =====================
+
+
+def _seed_image_with_ai(session, one_line="AI原始描述：LED屏产品图"):
+    from clipmind_shared.models import AssetImageAnalysis as AIA
+
+    asset = _seed_asset(session, kind="image")
+    ai = AIA(
+        asset_id=asset.id, status=AIShotAnalysisStatus.COMPLETED,
+        parsed_result={"one_line": one_line, "search_keywords": ["LED屏"]},
+    )
+    session.add(ai)
+    session.commit()
+    return asset, ai
+
+
+def test_image_review_human_result_wins(session):
+    """人工修改后文档采用人工结果（effective_source=human）。"""
+    from clipmind_shared.models import AssetImageReviewState
+    from clipmind_shared.models.enums import ReviewStatus
+
+    asset, ai = _seed_image_with_ai(session)
+    session.add(AssetImageReviewState(
+        asset_id=asset.id, review_status=ReviewStatus.MODIFIED,
+        confirmed_result={"one_line": "人工修正：车规级柔性屏细节图",
+                          "search_keywords": ["柔性屏", "车规级"]},
+        source_image_analysis_id=ai.id, lock_version=1,
+    ))
+    session.commit()
+
+    status = rebuild_asset_level_document(session, asset.id, _provider())
+    session.commit()
+    assert status == "completed"
+    doc = _doc(session, asset.id)
+    assert doc.effective_source == "human"
+    assert "人工修正" in (doc.search_document or "")
+    assert "AI原始描述" not in (doc.search_document or "")
+
+
+def test_image_review_rejected_excluded(session):
+    """驳回后文档 excluded（不可搜），符合"驳回不进搜索"语义。"""
+    from clipmind_shared.models import AssetImageReviewState
+    from clipmind_shared.models.enums import ReviewStatus
+
+    asset, ai = _seed_image_with_ai(session)
+    # 先按 AI 建档（可搜）
+    assert rebuild_asset_level_document(session, asset.id, _provider()) == "completed"
+    session.commit()
+    session.add(AssetImageReviewState(
+        asset_id=asset.id, review_status=ReviewStatus.REJECTED,
+        source_image_analysis_id=ai.id, lock_version=1,
+    ))
+    session.commit()
+
+    status = rebuild_asset_level_document(session, asset.id, _provider())
+    session.commit()
+    assert status == "excluded"
+    doc = _doc(session, asset.id)
+    assert doc.is_searchable is False and doc.search_document is None
+
+
+def test_image_review_unreviewed_falls_back_to_ai(session):
+    """无审核行 / reopen 后：继续用 AI 结果（行为与 P2a 兼容）。"""
+    asset, _ai = _seed_image_with_ai(session)
+    status = rebuild_asset_level_document(session, asset.id, _provider())
+    session.commit()
+    doc = _doc(session, asset.id)
+    assert status == "completed" and doc.effective_source == "ai"

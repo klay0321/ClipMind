@@ -170,3 +170,47 @@ class ReviewEvent(Base):
     after_data: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AssetImageReviewState(Base):
+    """图片素材 AI 理解的人工审核当前状态（IMG-REVIEW；每 asset 一条）。
+
+    对齐 ShotReviewState 范式：乐观锁、来源分析行 + 输入指纹做 stale 判定、
+    confirmed_result 与 AI 结果同一 Schema（图片打标复用镜头 schema）校验。
+    图片无代次概念，故无 generation 维度。审核事件复用 ReviewEvent
+    （object_type="asset_image"）。
+    """
+
+    __tablename__ = "asset_image_review_state"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    asset_id: Mapped[int] = mapped_column(
+        ForeignKey("asset.id", ondelete="CASCADE"), unique=True, index=True
+    )
+    source_image_analysis_id: Mapped[int | None] = mapped_column(
+        ForeignKey("asset_image_analysis.id", ondelete="SET NULL"), nullable=True
+    )
+    source_input_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_schema_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    review_status: Mapped[ReviewStatus] = mapped_column(
+        pg_enum(ReviewStatus, "review_status"), default=ReviewStatus.UNREVIEWED
+    )
+    confirmed_result: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    reviewer_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    review_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    stale_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stale_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    lock_version: Mapped[int] = mapped_column(Integer, default=0)  # 乐观锁
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+    __table_args__ = (
+        Index("ix_airs_review_status", "review_status"),
+        Index("ix_airs_stale_at", "stale_at"),
+    )

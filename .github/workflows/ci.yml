@@ -339,7 +339,7 @@ jobs:
           done
           # P2a：素材级统一搜索（同一自动开关窗口内：图片自动理解→文档→原文可搜；视频聚合可搜）
           python scripts/ci_asset_search_e2e.py --mode full | tee aaps.log
-          for flag in AAPS_IMAGE_DOC_OK AAPS_IMAGE_SEARCH_OK AAPS_VIDEO_DOC_OK                       AAPS_VIDEO_SEARCH_OK AAPS_KIND_FILTER_OK AAPS_API_E2E_OK; do
+          for flag in AAPS_IMAGE_DOC_OK AAPS_IMAGE_SEARCH_OK IMGREV_MODIFY_SEARCH_OK                       IMGREV_REJECT_UNSEARCHABLE_OK IMGREV_API_E2E_OK AAPS_VIDEO_DOC_OK                       AAPS_VIDEO_SEARCH_OK AAPS_KIND_FILTER_OK AAPS_API_E2E_OK; do
             grep -q "$flag" aaps.log || { echo "缺少标志 $flag"; exit 1; }
           done
           # VIS-AUTO：自动视觉候选（同窗口：参考图→素材→自动候选→dismiss→fake 守卫）

@@ -71,7 +71,8 @@ test("辅助页面：产品目录 / 项目 / 导出 / 收藏 可达且成形", a
   await expect(page.getByTestId("nav-projects")).toHaveAttribute("aria-current", "page");
 
   await page.goto("/exports");
-  await expect(page.getByTestId("nav-exports")).toBeVisible();
+  // P2b 起「导出」收进「更多」菜单，改验页面主体可达
+  await expect(page.getByTestId("export-center")).toBeVisible();
 
   await page.goto("/favorites");
   await expect(page.getByTestId("favorites")).toBeVisible();
@@ -84,11 +85,26 @@ test("导航：主链路点击可跳转", async ({ page }) => {
   await page.goto("/assets");
   await page.getByTestId("nav-search").click();
   await expect(page).toHaveURL(/\/search/);
-  await page.getByTestId("nav-script").click();
-  await expect(page).toHaveURL(/\/script/);
+  await page.getByTestId("nav-shots").click();
+  await expect(page).toHaveURL(/\/shots/);
+  await page.getByTestId("nav-products-hub").click();
+  await expect(page).toHaveURL(/\/product-media/);
   await page.getByTestId("nav-projects").click();
   await expect(page).toHaveURL(/\/projects/);
-  await page.getByTestId("nav-exports").click();
+  await page.getByTestId("nav-usage-review").click();
+  await expect(page).toHaveURL(/\/usage-review/);
+  // 脚本剪辑 / 导出 在「更多」菜单内。菜单项是整页跳转，落地页 hydration
+  // 完成前点击无效——用 toPass 重试「打开菜单→点项」。
+  const viaMore = async (testId: string) => {
+    await expect(async () => {
+      await page.getByTestId("nav-more").click();
+      await expect(page.getByTestId(testId)).toBeVisible({ timeout: 1500 });
+    }).toPass({ timeout: 15000 });
+    await page.getByTestId(testId).click();
+  };
+  await viaMore("nav-script");
+  await expect(page).toHaveURL(/\/script/);
+  await viaMore("nav-exports");
   await expect(page).toHaveURL(/\/exports/);
   // eslint-disable-next-line no-console
   console.log("CORE_UX_NAV_E2E_OK");
@@ -101,7 +117,7 @@ test("响应式：1366/1440/1920/移动 各页无横向溢出", async ({ page })
     { w: 1920, h: 1080 },
     { w: 390, h: 844 },
   ];
-  const routes = ["/assets", "/shots", "/search", "/script", "/products"];
+  const routes = ["/", "/assets", "/shots", "/search", "/script", "/products"];
   for (const v of viewports) {
     await page.setViewportSize({ width: v.w, height: v.h });
     for (const r of routes) {

@@ -25,6 +25,10 @@ vi.mock("@/lib/hooks", () => ({
   useAnalysisGenerations: vi.fn(),
   useShotsByGeneration: vi.fn(),
   useCreateUsage: vi.fn(),
+  // P2b 成片登记 Tab（FinalVideosPanel）依赖
+  useAssets: vi.fn(),
+  useCreateFinalVideo: vi.fn(),
+  useProjects: vi.fn(),
 }));
 
 const bulkMut = mutation();
@@ -62,6 +66,13 @@ beforeEach(() => {
     }),
   );
   vi.mocked(hooks.useCreateUsage).mockReturnValue(createUsageMut);
+  vi.mocked(hooks.useAssets).mockReturnValue(
+    query({ data: { items: [], total: 0, page: 1, page_size: 20 } }),
+  );
+  vi.mocked(hooks.useCreateFinalVideo).mockReturnValue(mutation());
+  vi.mocked(hooks.useProjects).mockReturnValue(
+    query({ data: { items: [], total: 0, page: 1, page_size: 100 } }),
+  );
 });
 
 describe("UsageReviewView 固定提示与总览", () => {
@@ -86,6 +97,18 @@ describe("UsageReviewView 固定提示与总览", () => {
     expect(screen.getByTestId("card-needs-review")).toHaveTextContent("8");
     // 绝不出现 confirmed(2)+accepted(2)=4 的"总使用次数"
     expect(screen.queryByText(/总使用次数/)).toBeNull();
+  });
+
+  it("P2b 成片登记 Tab 内嵌成片工作台（登记入口与空态）", async () => {
+    const user = userEvent.setup();
+    vi.mocked(hooks.useFinalVideos).mockReturnValue(
+      query({ data: { items: [], total: 0, page: 1, page_size: 20 } }),
+    );
+    render(<UsageReviewView />);
+    await user.click(screen.getByTestId("tab-final-videos"));
+    expect(screen.getByTestId("final-videos-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("toggle-create-final-video")).toBeInTheDocument();
+    expect(screen.getByText("还没有成片记录")).toBeInTheDocument();
   });
 });
 

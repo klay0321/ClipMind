@@ -581,6 +581,17 @@ jobs:
           for flag in CORE_UX_ASSETS_E2E_OK CORE_UX_SHOTS_E2E_OK CORE_UX_DESCRIPTION_MATCH_E2E_OK CORE_UX_SCRIPT_E2E_OK CORE_UX_AUXILIARY_PAGES_E2E_OK CORE_UX_NAV_E2E_OK CORE_UX_RESPONSIVE_E2E_OK CORE_UX_MEDIA_FALLBACK_E2E_OK; do
             grep -q "$flag" core-ux.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: P2b 导航重组 + 使用记录合一 + 首页仪表盘 UI E2E（真实页面，无需播种）
+        working-directory: e2e
+        env:
+          WEB_BASE: http://localhost:3000
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          npx playwright test pr-nav-dashboard.spec.ts --grep-invert @persist | tee p2b-ui.log
+          for flag in P2B_UI_DASHBOARD_OK P2B_UI_USAGE_TABS_OK P2B_UI_PRODUCT_TABS_OK P2B_UI_E2E_OK; do
+            grep -q "$flag" p2b-ui.log || { echo "缺少标志 $flag"; exit 1; }
+          done
       - name: PR-A1 通用产品目录 UI E2E（真实页面：四层创建/激活/别名/更名/旧名/归档恢复/子级合并守卫）
         working-directory: e2e
         env:
@@ -780,6 +791,8 @@ jobs:
           grep -q "AAP_UI_PERSIST_OK" e2e/aap-ui-persist.log
           ( cd e2e && npx playwright test pr-asset-search.spec.ts --grep @persist | tee aaps-ui-persist.log )
           grep -q "AAPS_UI_PERSIST_OK" e2e/aaps-ui-persist.log
+          ( cd e2e && npx playwright test pr-nav-dashboard.spec.ts --grep @persist | tee p2b-persist.log )
+          grep -q "P2B_UI_PERSIST_OK" e2e/p2b-persist.log
       - name: 失败时上传脱敏证据（trace/截图/报告；不含 .env/key/endpoint）
         if: failure()
         uses: actions/upload-artifact@v4

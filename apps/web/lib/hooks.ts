@@ -2429,6 +2429,18 @@ export function usePmSuggestions(targetType: string, targetId: number | null) {
   });
 }
 
+export function useDismissVisualCandidate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (candidateId: number) => api.pmDismissVisualCandidate(candidateId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["pm-suggestions"] });
+      qc.invalidateQueries({ queryKey: ["pm-unassigned"] });
+      qc.invalidateQueries({ queryKey: ["pm-groups"] });
+    },
+  });
+}
+
 export function usePmMutations() {
   const qc = useQueryClient();
   const invalidate = () => {

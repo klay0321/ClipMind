@@ -92,7 +92,9 @@ class SuggestionOut(BaseModel):
     family_id: int
     family_name: str
     family_code: str
-    suggestion_type: str    # path | filename | alias | ai_text
+    suggestion_type: str    # path | filename | alias | ai_text | visual
     matched_text: str
     matched_in: str
     origin_on_confirm: str  # 人工确认时应携带的 origin
+    score: float | None = None          # 仅 visual：相似度分数
+    candidate_id: int | None = None     # 仅 visual：候选行 id（dismiss 用）

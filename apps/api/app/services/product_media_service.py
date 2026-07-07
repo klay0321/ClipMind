@@ -181,6 +181,24 @@ async def create_link(
         updated_at=_now,
     )
     db.add(link)
+    await db.flush()
+    # VIS-AUTO：确认闭环——该 (target, family) 的待处理视觉候选转 confirmed
+    # 并回填 link；其余产品的 pending 候选保留（一个素材可关联多个产品）
+    from clipmind_shared.models import VisualProductCandidate
+
+    vpc_rows = (
+        await db.execute(
+            select(VisualProductCandidate).where(
+                VisualProductCandidate.target_type == target_type,
+                VisualProductCandidate.target_id == target_id,
+                VisualProductCandidate.family_id == family_id,
+                VisualProductCandidate.status == "pending",
+            )
+        )
+    ).scalars()
+    for vpc in vpc_rows:
+        vpc.status = "confirmed"
+        vpc.confirmed_link_id = link.id
     if commit:
         await db.commit()
         await db.refresh(link)

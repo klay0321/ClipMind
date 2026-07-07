@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { GroupedReview } from "@/components/product-media/GroupedReview";
+import { ProductSectionTabs } from "@/components/products/ProductSectionTabs";
 import {
   usePmFamilyItems,
   usePmMutations,
@@ -194,6 +195,7 @@ export function ProductMediaView() {
   return (
     <div className="space-y-6">
       <div>
+        <ProductSectionTabs current="media" />
         <h1 className="text-xl font-semibold text-gray-900">产品素材库</h1>
         <p className="mt-1 text-xs text-gray-500">
           人工确认的产品素材关系是系统正式事实；文件名、路径与 AI 结果只是辅助候选。

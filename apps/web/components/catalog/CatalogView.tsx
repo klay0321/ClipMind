@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { ProductsView } from "@/components/ProductsView";
+import { ProductSectionTabs } from "@/components/products/ProductSectionTabs";
 import { Empty } from "@/components/states/Empty";
 import { ErrorState } from "@/components/states/ErrorState";
 import { Loading } from "@/components/states/Loading";
@@ -76,6 +77,7 @@ export function CatalogView() {
     <div className="min-h-screen bg-gray-50">
       <TopNav active="products" />
       <main className="mx-auto max-w-7xl px-4 py-6">
+        <ProductSectionTabs current="catalog" />
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-xl font-semibold text-gray-800">产品目录</h1>

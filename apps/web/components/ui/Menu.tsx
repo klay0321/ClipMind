@@ -13,6 +13,7 @@ export interface MenuItem {
   href?: string;
   danger?: boolean;
   disabled?: boolean;
+  testId?: string;
 }
 
 export function Menu({
@@ -20,12 +21,14 @@ export function Menu({
   trigger,
   triggerClassName,
   triggerAriaLabel = "更多操作",
+  triggerTestId,
   align = "right",
 }: {
   items: MenuItem[];
   trigger?: React.ReactNode;
   triggerClassName?: string;
   triggerAriaLabel?: string;
+  triggerTestId?: string;
   align?: "left" | "right";
 }) {
   const [open, setOpen] = useState(false);
@@ -56,6 +59,7 @@ export function Menu({
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
         aria-label={triggerAriaLabel}
+        data-testid={triggerTestId}
         onClick={() => setOpen((v) => !v)}
         className={
           triggerClassName ??
@@ -84,6 +88,7 @@ export function Menu({
                   key={it.key}
                   role="menuitem"
                   href={it.href}
+                  data-testid={it.testId}
                   className={cls}
                   onClick={() => setOpen(false)}
                 >
@@ -97,6 +102,7 @@ export function Menu({
                 role="menuitem"
                 type="button"
                 disabled={it.disabled}
+                data-testid={it.testId}
                 className={cls}
                 onClick={() => {
                   setOpen(false);

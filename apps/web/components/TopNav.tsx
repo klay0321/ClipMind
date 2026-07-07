@@ -4,6 +4,7 @@ import { Menu } from "@/components/ui/Menu";
 import { cn } from "@/lib/cn";
 
 type NavKey =
+  | "dashboard"
   | "projects"
   | "assets"
   | "shots"
@@ -18,29 +19,36 @@ type NavKey =
   | "exports"
   | "favorites";
 
-// 主导航：按运营主流程排列；产品库 / 收藏 降权收进「更多」。命名统一为面向用户的功能名。
+// 主导航收敛为 6 个运营主入口；工作流类页面（脚本剪辑/导出/收藏）进「更多」。
 const PRIMARY: { key: NavKey; href: string; label: string; testId?: string }[] = [
-  { key: "assets", href: "/assets", label: "素材管理" },
-  { key: "shots", href: "/shots", label: "AI 镜头拆解" },
-  { key: "search", href: "/search", label: "智能匹配", testId: "nav-search" },
-  { key: "script", href: "/script", label: "脚本剪辑", testId: "nav-script" },
+  { key: "assets", href: "/assets", label: "素材库", testId: "nav-assets" },
+  { key: "search", href: "/search", label: "搜索", testId: "nav-search" },
+  { key: "shots", href: "/shots", label: "镜头库", testId: "nav-shots" },
+  { key: "product-media", href: "/product-media", label: "产品", testId: "nav-products-hub" },
   { key: "projects", href: "/projects", label: "项目", testId: "nav-projects" },
-  { key: "final-videos", href: "/final-videos", label: "成片与使用记录", testId: "nav-final-videos" },
-  { key: "usage-review", href: "/usage-review", label: "使用记录中心", testId: "nav-usage-review" },
-  { key: "exports", href: "/exports", label: "导出", testId: "nav-exports" },
+  { key: "usage-review", href: "/usage-review", label: "使用记录", testId: "nav-usage-review" },
 ];
 
+// 子页/旧路由高亮到所属主入口：成片登记与历史证据并入「使用记录」，
+// 产品目录与产品素材共用「产品」。调用方无需改 active 取值。
+const ALIAS: Partial<Record<NavKey, NavKey>> = {
+  "final-videos": "usage-review",
+  "usage-evidence": "usage-review",
+  products: "product-media",
+};
+
 export function TopNav({ active }: { active?: NavKey }) {
+  const effective = active ? (ALIAS[active] ?? active) : undefined;
   const linkCls = (key: NavKey) =>
-    active === key ? "text-brand font-medium" : "text-gray-500 hover:text-gray-800";
+    effective === key ? "text-brand font-medium" : "text-gray-500 hover:text-gray-800";
   const moreActive =
-    active === "products" || active === "favorites" || active === "usage-evidence" ||
-    active === "visual-experiments" || active === "product-media";
+    effective === "script" || effective === "exports" || effective === "favorites" ||
+    effective === "visual-experiments";
 
   return (
     <header className="border-b border-gray-100 bg-white">
       <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3">
-        <Link href="/assets" className="flex shrink-0 flex-col leading-none">
+        <Link href="/" className="flex shrink-0 flex-col leading-none" data-testid="nav-home">
           <span className="text-lg font-semibold text-brand">ClipMind</span>
           <span className="hidden text-[10px] text-gray-400 sm:inline">AI 视频素材管理与镜头匹配</span>
         </Link>
@@ -54,7 +62,7 @@ export function TopNav({ active }: { active?: NavKey }) {
               key={item.key}
               href={item.href}
               data-testid={item.testId}
-              aria-current={active === item.key ? "page" : undefined}
+              aria-current={effective === item.key ? "page" : undefined}
               className={cn("shrink-0 whitespace-nowrap", linkCls(item.key))}
             >
               {item.label}
@@ -64,17 +72,18 @@ export function TopNav({ active }: { active?: NavKey }) {
         <Menu
           align="right"
           triggerAriaLabel="更多"
+          triggerTestId="nav-more"
           triggerClassName={cn(
             "shrink-0 whitespace-nowrap text-sm",
             moreActive ? "text-brand font-medium" : "text-gray-500 hover:text-gray-800",
           )}
           trigger={<span>更多 ▾</span>}
           items={[
-            // 工程/验收向页面（视觉识别实验、历史使用证据）不再出现在运营导航；
-            // 路由保留，可直达 URL（P2 信息架构重组时统一处理）
-            { key: "products", label: "产品库", href: "/products" },
-            { key: "product-media", label: "产品素材库", href: "/product-media" },
-            { key: "favorites", label: "收藏", href: "/favorites" },
+            // 旧主导航项降权保留；/products、/final-videos、/usage-evidence、
+            // /product-visual-experiments 路由不删，可直达 URL
+            { key: "script", label: "脚本剪辑", href: "/script", testId: "nav-script" },
+            { key: "exports", label: "导出", href: "/exports", testId: "nav-exports" },
+            { key: "favorites", label: "收藏", href: "/favorites", testId: "nav-favorites" },
           ]}
         />
       </div>

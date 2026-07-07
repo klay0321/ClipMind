@@ -19,15 +19,20 @@ test.describe.serial("AAP 素材页与自动化 UI", () => {
     await page.getByTestId("kind-tab-video").click();
     // 一键补齐分析按钮存在（视频 Tab）
     await expect(page.getByTestId("batch-analyze-btn")).toBeVisible();
-    // 导航「更多」下拉可打开（overflow 裁剪修复），且工程页已下架
+    // 导航「更多」下拉可打开（overflow 裁剪修复），且工程页已下架。
+    // P2b 起「更多」收纳工作流页（脚本剪辑/导出/收藏），产品入口升为主导航。
     await page.getByRole("button", { name: "更多", exact: true }).click();
-    await expect(page.getByRole("menuitem", { name: "产品素材库" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "脚本剪辑" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "导出" })).toBeVisible();
     await expect(
       page.getByRole("menuitem", { name: "视觉识别实验" }),
     ).toHaveCount(0);
     await expect(
       page.getByRole("menuitem", { name: "历史使用证据" }),
     ).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    // 产品主入口在主导航
+    await expect(page.getByTestId("nav-products-hub")).toBeVisible();
     console.log("AAP_UI_E2E_OK");
   });
 

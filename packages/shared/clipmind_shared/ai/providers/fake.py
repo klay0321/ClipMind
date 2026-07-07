@@ -32,15 +32,17 @@ class FakeProvider:
         model: str = "fake-vision-1",
         max_images: int = 8,
         supports_images: bool = True,
+        supports_video: bool = True,
     ) -> None:
         self._model = model
         self._max_images = max_images
         self._supports_images = supports_images
+        self._supports_video = supports_video
 
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
             supports_images=self._supports_images,
-            supports_video=False,
+            supports_video=self._supports_video,
             supports_structured_output=True,
             supports_embeddings=False,
             max_images_per_call=self._max_images,
@@ -91,3 +93,38 @@ class FakeProvider:
             model=self._model,
             http_status=200,
         )
+
+
+def _fake_video_result(seed: str) -> ShotAnalysisResult:
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+    n = int(digest[:8], 16)
+    return ShotAnalysisResult(
+        one_line=f"示例视频输入分析 #{n % 1000}",
+        detailed="FakeProvider 视频输入确定性输出（含时序描述占位；测试/CI 用）。",
+        scene=_SCENES[n % len(_SCENES)],
+        action=f"{_ACTIONS[n % len(_ACTIONS)]}（全程动作）",
+        shot_type=_SHOT_TYPES[n % len(_SHOT_TYPES)],
+        confidence=round((n % 100) / 100.0, 2),
+        needs_human_review=(n % 100) < 30,
+        search_keywords=[f"kw{n % 10}", "fake", "video-input"],
+    )
+
+
+def _attach_video_method() -> None:
+    def analyze_video(self, video_path, *, prompt, schema, timeout=30.0):
+        import os as _os
+
+        seed = f"video:{_os.path.basename(video_path)}:{_os.path.getsize(video_path)}"
+        parsed = _fake_video_result(seed).model_dump()
+        return AnalyzeOutcome(
+            parsed=parsed,
+            raw_excerpt=json.dumps(parsed, ensure_ascii=False)[:512],
+            usage=Usage(input_tokens=200, output_tokens=120, input_images=0),
+            model=self._model,
+            http_status=200,
+        )
+
+    FakeProvider.analyze_video = analyze_video
+
+
+_attach_video_method()

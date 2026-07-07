@@ -76,6 +76,12 @@ class WorkerSettings(BaseSettings):
     # 计价（每 1K token；MiMo 实价需探测，未知留 0 仅记 tokens 不估成本）
     ai_price_input_per_1k: float = 0.0
     ai_price_output_per_1k: float = 0.0
+    # ---- P2a.1 视频输入打标 ----
+    # frames=多关键帧（默认，兼容所有 provider）| video=整段代理视频（动作/时序更准；
+    # provider 不支持或代理缺失/超限时自动回退关键帧，绝不因此失败）
+    ai_input_mode: str = "frames"
+    ai_video_fps: float = 2.0            # 视频抽帧率（0.1-10；越高越细也越贵）
+    ai_video_max_mb: int = 45            # 代理视频超此大小回退关键帧（官方 base64 上限 50MB）
 
     # ---- AAP 自动分析管线（默认全部关闭，逐项显式开启）----
     # 扫描完成后自动为"无可用镜头且无活动运行"的视频入队拆镜头

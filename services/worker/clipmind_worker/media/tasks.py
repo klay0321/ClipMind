@@ -359,6 +359,23 @@ def _analyze(
     # AAP：拆完自动接 AI 打标（开关 + 预算护栏，best-effort）
     _maybe_auto_ai(asset.id, settings)
 
+    # VIS-AUTO：新代次镜头关键帧就绪 → 入队视觉嵌入（含自动候选，best-effort）
+    try:
+        from clipmind_worker.vision.tasks import enqueue_visual_index
+
+        new_shot_ids = session.execute(
+            select(Shot.id).where(
+                Shot.asset_id == asset.id,
+                Shot.generation == generation,
+                Shot.retired_at.is_(None),
+                Shot.keyframe_path.is_not(None),
+            )
+        ).scalars().all()
+        for sid in new_shot_ids:
+            enqueue_visual_index("shot", sid)
+    except Exception:  # noqa: BLE001 - 视觉索引为增值链路，失败不影响拆镜头结果
+        logger.warning("视觉索引入队失败（asset=%s gen=%s）", asset.id, generation)
+
     return {
         "run_id": run.id,
         "asset_id": asset.id,
@@ -487,6 +504,13 @@ def _generate_poster(
         # P2a：图片海报就绪即自动入队 AI 理解（开关+预算护栏同自动链，best-effort）
         if asset.media_kind == "image":
             _maybe_auto_ai(asset.id, settings)
+            # VIS-AUTO：图片海报就绪 → 视觉嵌入（含自动候选）
+            try:
+                from clipmind_worker.vision.tasks import enqueue_visual_index
+
+                enqueue_visual_index("asset", asset.id)
+            except Exception:  # noqa: BLE001
+                logger.warning("视觉索引入队失败（asset=%s）", asset.id)
         return {"asset_id": asset.id, "poster": True}
     except Exception as exc:  # noqa: BLE001 - 海报为锦上添花，失败不影响主流程
         session.rollback()

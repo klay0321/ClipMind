@@ -20,6 +20,20 @@ const PAGE_SIZE = 20;
 type StatusFilter = "all" | FinalVideoStatus;
 
 export function FinalVideosView() {
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <TopNav active="final-videos" />
+      <main className="mx-auto max-w-7xl px-4 py-6">
+        <h1 className="mb-1 text-xl font-semibold text-gray-800">成片与使用记录</h1>
+        <FinalVideosPanel />
+      </main>
+    </div>
+  );
+}
+
+// 成片登记主体（列表 + 筛选 + 登记对话框）。独立页与「使用记录中心 → 成片登记」
+// Tab 共用同一实现，避免三处入口出现口径分叉。
+export function FinalVideosPanel() {
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -35,11 +49,8 @@ export function FinalVideosView() {
   const data = query.data;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <TopNav active="final-videos" />
-      <main className="mx-auto max-w-7xl px-4 py-6">
-        <div className="mb-1 flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-gray-800">成片与使用记录</h1>
+    <div data-testid="final-videos-panel">
+      <div className="mb-1 flex items-center justify-end">
           <Button data-testid="toggle-create-final-video" onClick={() => setShowCreate(true)}>
             + 登记成片
           </Button>
@@ -160,7 +171,6 @@ export function FinalVideosView() {
             />
           </>
         )}
-      </main>
       {showCreate ? <CreateFinalVideoDialog onClose={() => setShowCreate(false)} /> : null}
     </div>
   );

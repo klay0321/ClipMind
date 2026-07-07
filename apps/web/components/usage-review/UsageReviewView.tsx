@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { TopNav } from "@/components/TopNav";
+import { FinalVideosPanel } from "@/components/final-videos/FinalVideosView";
 import { Loading } from "@/components/states/Loading";
 import { useUsageReviewSummary } from "@/lib/hooks";
 import { cn } from "@/lib/cn";
@@ -12,7 +13,7 @@ import type { ReviewGroup } from "@/lib/types";
 import { ReviewTable } from "./ReviewTable";
 import { FORMAL_COUNT_NOTICE, LEGACY_MEANING_NOTICE } from "./reviewShared";
 
-type TabKey = "overview" | "pending" | "formal" | "legacy" | "processed";
+type TabKey = "overview" | "pending" | "formal" | "legacy" | "processed" | "final-videos";
 
 const TABS: { key: TabKey; label: string; testId: string }[] = [
   { key: "overview", label: "总览", testId: "tab-overview" },
@@ -20,6 +21,7 @@ const TABS: { key: TabKey; label: string; testId: string }[] = [
   { key: "formal", label: "正式血缘", testId: "tab-formal" },
   { key: "legacy", label: "历史证据", testId: "tab-legacy" },
   { key: "processed", label: "已处理", testId: "tab-processed" },
+  { key: "final-videos", label: "成片登记", testId: "tab-final-videos" },
 ];
 
 export function UsageReviewView() {
@@ -109,6 +111,7 @@ export function UsageReviewView() {
             />
           </div>
         ) : null}
+        {tab === "final-videos" ? <FinalVideosPanel /> : null}
       </main>
     </div>
   );

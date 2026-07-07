@@ -228,6 +228,13 @@ async def upload_reference(
         _best_effort_remove(_abs(thumb_rel))
         raise CatalogConflict("参考图写入冲突") from exc
     await db.refresh(row)
+    # VIS-AUTO：新参考图入队视觉嵌入（best-effort；sweep 兜底漏发）
+    try:
+        from app.tasks_client import enqueue_visual_index_target
+
+        enqueue_visual_index_target("reference", row.id)
+    except Exception:  # noqa: BLE001 - 入队失败不影响上传结果
+        logger.warning("参考图视觉索引入队失败（ref=%s）", row.id)
     return row
 
 

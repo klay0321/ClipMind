@@ -357,3 +357,23 @@ async def suggestions(
             db, target_type=target_type, target_id=target_id
         )
     ]
+
+
+@router.post("/visual-candidates/{candidate_id}/dismiss")
+async def dismiss_visual_candidate(
+    candidate_id: int, db: AsyncSession = Depends(get_db)
+) -> dict:
+    """人工拒绝一条视觉候选：dismissed 是人工事实，重算不会复活该组合。"""
+    from clipmind_shared.models import VisualProductCandidate
+    from fastapi import HTTPException
+
+    row = await db.get(VisualProductCandidate, candidate_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="视觉候选不存在")
+    if row.status != "pending":
+        raise HTTPException(
+            status_code=409, detail=f"候选已处理（status={row.status}）"
+        )
+    row.status = "dismissed"
+    await db.commit()
+    return {"id": row.id, "status": row.status}

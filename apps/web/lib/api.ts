@@ -1628,6 +1628,12 @@ export const api = {
       `/product-media/suggestions?target_type=${targetType}&target_id=${targetId}`,
     );
   },
+  pmDismissVisualCandidate(candidateId: number): Promise<{ id: number; status: string }> {
+    return http<{ id: number; status: string }>(
+      `/product-media/visual-candidates/${candidateId}/dismiss`,
+      { method: "POST" },
+    );
+  },
   pmCreateLink(body: Record<string, unknown>): Promise<ProductMediaLink> {
     return http<ProductMediaLink>(`/product-media/links`, {
       method: "POST",

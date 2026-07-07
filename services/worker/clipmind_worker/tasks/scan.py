@@ -20,11 +20,13 @@ from clipmind_shared.constants import (
     METADATA_VERSION,
     QUEUE_MEDIA,
     QUEUE_SCAN,
+    QUEUE_SEARCH,
     SCAN_COMMIT_BATCH,
     TASK_GENERATE_ASSET_POSTER,
     TASK_RESCAN_ASSET,
     TASK_SCAN_SOURCE_DIRECTORY,
     TASK_SCHEDULED_SCAN_ALL,
+    TASK_SWEEP_VISUAL_INDEX,
 )
 from clipmind_shared.db.base import utcnow
 from clipmind_shared.ffprobe import ProbeError, probe_video
@@ -512,6 +514,13 @@ def scan_source_directory(self, scan_run_id: int) -> dict[str, Any]:  # noqa: AN
                 posters = _enqueue_posters(session, sd_id, run.id)
                 auto_queued = _enqueue_auto_shot_analysis(session, sd_id)
                 auto_image_ai = _enqueue_auto_image_ai(session, sd_id)
+
+                # VIS-AUTO：扫描尾 sweep 兜底（缺视觉嵌入/候选水位落后；
+                # 任务内部有批量上限，best-effort）
+                try:
+                    celery_app.send_task(TASK_SWEEP_VISUAL_INDEX, queue=QUEUE_SEARCH)
+                except Exception:  # noqa: BLE001
+                    logger.warning("视觉 sweep 入队失败（scan_run=%s）", run.id)
 
                 return {
                     "scan_run_id": run.id,

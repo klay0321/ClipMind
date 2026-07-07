@@ -128,6 +128,11 @@ from clipmind_shared.models.search import (
 )
 from clipmind_shared.models.shot import Shot
 from clipmind_shared.models.source_directory import SourceDirectory
+from clipmind_shared.models.visual import (
+    VISUAL_EMBEDDING_DIM,
+    VisualMediaEmbedding,
+    VisualProductCandidate,
+)
 
 __all__ = [
     "Base",
@@ -189,6 +194,9 @@ __all__ = [
     # PR-04 检索文档
     "AssetSearchDocument",
     "ShotSearchDocument",
+    "VISUAL_EMBEDDING_DIM",
+    "VisualMediaEmbedding",
+    "VisualProductCandidate",
     "SearchDocumentStatus",
     "SearchEmbeddingStatus",
     "SEARCHABLE_DOCUMENT_STATUS",

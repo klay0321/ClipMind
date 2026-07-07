@@ -183,13 +183,15 @@ services:
     restart: unless-stopped
 
   # PR-04：检索文档索引 worker，仅消费 search 队列（构建检索文档 + 调 Embedding 写向量）。
-  # 仅访问 DB/redis/embedder，不挂载源目录或派生数据。EMBEDDING_PROVIDER 决定是否调 embedder。
+  # VIS-AUTO 起只读挂 /app/data（视觉嵌入读海报/关键帧/参考图派生图）；仍不挂源目录。
   search-worker:
     build:
       context: .
       dockerfile: infra/worker.Dockerfile
     <<: *app-env
     command: ["celery", "-A", "clipmind_worker.celery_app", "worker", "-Q", "search", "-c", "${SEARCH_WORKER_CONCURRENCY:-2}", "-l", "INFO"]
+    volumes:
+      - clipmind-data:/app/data
     depends_on:
       migrate:
         condition: service_completed_successfully

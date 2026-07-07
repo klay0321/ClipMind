@@ -1,8 +1,10 @@
-"""PM：确定性产品候选（文件名/目录/别名/已有 AI 文本命中）。
+"""PM：确定性产品候选（文件名/目录/别名/已有 AI 文本命中 + 视觉候选行）。
 
 只产出候选，绝不写正式关系；人工确认后由前端调 create_link 落库
-（origin=path_or_filename_confirmed / text_suggestion_confirmed）。
-匹配全部大小写不敏感；候选按（匹配类型优先级, family_id）确定性排序。
+（origin=path_or_filename_confirmed / text_suggestion_confirmed /
+visual_suggestion_confirmed）。匹配全部大小写不敏感；候选按
+（匹配类型优先级, family_id, 类型名）确定性排序。VIS-AUTO 起并入
+visual_product_candidate 的 pending 行（worker 预计算，此处只读）。
 """
 
 from __future__ import annotations
@@ -13,13 +15,64 @@ from clipmind_shared.models import (
     ProductCatalogAlias,
     ProductFamily,
     Shot,
+    VisualProductCandidate,
 )
 from clipmind_shared.models.enums import CatalogStatus
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-_TYPE_PRIORITY = {"path": 0, "filename": 1, "alias": 1, "ai_text": 2}
+_TYPE_PRIORITY = {"path": 0, "filename": 1, "alias": 1, "visual": 2, "ai_text": 2}
+
+
+def _order(suggestions: list[dict]) -> list[dict]:
+    return sorted(
+        suggestions,
+        key=lambda s: (
+            _TYPE_PRIORITY.get(s["suggestion_type"], 9),
+            s["family_id"],
+            s["suggestion_type"],
+        ),
+    )
+
+
+async def _visual_rows(
+    db: AsyncSession, *, target_type: str, target_ids: list[int]
+) -> dict[int, list[VisualProductCandidate]]:
+    if not target_ids:
+        return {}
+    rows = (
+        await db.execute(
+            select(VisualProductCandidate)
+            .where(
+                VisualProductCandidate.target_type == target_type,
+                VisualProductCandidate.target_id.in_(target_ids),
+                VisualProductCandidate.status == "pending",
+            )
+            .order_by(
+                VisualProductCandidate.score.desc(), VisualProductCandidate.family_id
+            )
+        )
+    ).scalars()
+    out: dict[int, list[VisualProductCandidate]] = {}
+    for r in rows:
+        out.setdefault(r.target_id, []).append(r)
+    return out
+
+
+def _visual_suggestion(row: VisualProductCandidate, fam: ProductFamily | None) -> dict:
+    label = "视觉相似" if row.decision == "candidate" else "视觉相似（难分）"
+    return {
+        "family_id": row.family_id,
+        "family_name": fam.name_zh if fam else "",
+        "family_code": fam.code if fam else "",
+        "suggestion_type": "visual",
+        "matched_text": f"{label} {row.score:.2f}",
+        "matched_in": "参考图比对",
+        "score": row.score,
+        "candidate_id": row.id,
+        "origin_on_confirm": "visual_suggestion_confirmed",
+    }
 
 
 def _norm(s: str) -> str:
@@ -134,26 +187,34 @@ async def suggest_for_target(
                     else "path_or_filename_confirmed"
                 ),
             }
-    ordered = sorted(
-        out.values(),
-        key=lambda s: (_TYPE_PRIORITY.get(s["suggestion_type"], 9), s["family_id"]),
+    # VIS-AUTO：并入该目标的待处理视觉候选（worker 预计算行，只读）
+    visual = await _visual_rows(
+        db, target_type=target_type, target_ids=[target_id]
     )
-    # 附 family 名称（展示用）
-    if ordered:
-        fams = {
-            f.id: f
-            for f in (
-                await db.execute(
-                    select(ProductFamily).where(
-                        ProductFamily.id.in_({s["family_id"] for s in ordered})
-                    )
-                )
-            ).scalars()
-        }
-        for s in ordered:
-            fam = fams.get(s["family_id"])
-            s["family_name"] = fam.name_zh if fam else ""
-            s["family_code"] = fam.code if fam else ""
+    visual_rows = visual.get(target_id, [])
+    fam_ids = {s["family_id"] for s in out.values()} | {r.family_id for r in visual_rows}
+    fams = {
+        f.id: f
+        for f in (
+            await db.execute(
+                select(ProductFamily).where(ProductFamily.id.in_(fam_ids or {0}))
+            )
+        ).scalars()
+    }
+    merged = list(out.values())
+    seen_visual = {(s["family_id"], s["suggestion_type"]) for s in merged}
+    for r in visual_rows:
+        if (r.family_id, "visual") not in seen_visual:
+            merged.append(_visual_suggestion(r, fams.get(r.family_id)))
+    ordered = _order(merged)
+    for s in ordered:
+        fam = fams.get(s["family_id"])
+        s.setdefault("family_name", fam.name_zh if fam else "")
+        s.setdefault("family_code", fam.code if fam else "")
+        if not s.get("family_name") and fam:
+            s["family_name"] = fam.name_zh
+        if not s.get("family_code") and fam:
+            s["family_code"] = fam.code
     return ordered
 
 
@@ -168,12 +229,18 @@ async def suggest_for_assets_batch(
     if not assets:
         return {}
     terms = await _candidate_terms(db)
+    visual_by_asset = await _visual_rows(
+        db, target_type="asset", target_ids=[a.id for a in assets]
+    )
+    visual_fam_ids = {r.family_id for rows in visual_by_asset.values() for r in rows}
     fams = {
         f.id: f
         for f in (
             await db.execute(
                 select(ProductFamily).where(
-                    ProductFamily.id.in_({t["family_id"] for t in terms} or {0})
+                    ProductFamily.id.in_(
+                        ({t["family_id"] for t in terms} | visual_fam_ids) or {0}
+                    )
                 )
             )
         ).scalars()
@@ -205,9 +272,12 @@ async def suggest_for_assets_batch(
                 "matched_in": "目录名" if hit == "path" else "文件名",
                 "origin_on_confirm": "path_or_filename_confirmed",
             }
-        ranked = sorted(
-            found.values(),
-            key=lambda s: (_TYPE_PRIORITY.get(s["suggestion_type"], 9), s["family_id"]),
-        )[:3]
-        out[asset.id] = ranked
+        merged = list(found.values())
+        for r in visual_by_asset.get(asset.id, []):
+            if all(
+                not (s["family_id"] == r.family_id and s["suggestion_type"] == "visual")
+                for s in merged
+            ):
+                merged.append(_visual_suggestion(r, fams.get(r.family_id)))
+        out[asset.id] = _order(merged)[:3]
     return out

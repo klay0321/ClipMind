@@ -115,7 +115,8 @@ def test_fake_provider_deterministic_and_family_semantics():
     assert cosine_similarity(a1, a2) > 0.999  # 同族 ≈ 1
     assert cosine_similarity(a1, b1) < 0.5    # 异族低相似
     ident = p.identity()
-    assert ident.provider == "fake" and ident.dimension == 32
+    # VIS-AUTO 起 fake 与 local SigLIP 同维（持久化 Vector 列统一 768）
+    assert ident.provider == "fake" and ident.dimension == 768
 
 
 # ============================ 资格筛选 ============================

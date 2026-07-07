@@ -86,6 +86,16 @@ def enqueue_generate_poster(asset_id: int) -> str:
     return result.id
 
 
+def enqueue_visual_index_target(target_type: str, target_id: int) -> str:
+    """入队视觉嵌入索引（search 队列，VIS-AUTO）。"""
+    from clipmind_shared.constants import QUEUE_SEARCH, TASK_VISUAL_INDEX_TARGET
+
+    result = celery_client.send_task(
+        TASK_VISUAL_INDEX_TARGET, args=[target_type, target_id], queue=QUEUE_SEARCH
+    )
+    return result.id
+
+
 def enqueue_analyze_asset_ai(run_id: int) -> str:
     """入队素材级 AI 分析任务（ai 队列），返回 celery_task_id。"""
     result = celery_client.send_task(TASK_ANALYZE_ASSET_AI, args=[run_id], queue=QUEUE_AI)

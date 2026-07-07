@@ -18,6 +18,9 @@ vi.mock("@/lib/hooks", () => ({
   useUploadMutation: vi.fn(),
   useProcessingOverview: vi.fn(),
   useBatchAnalyze: vi.fn(),
+  // IMG-REVIEW（AssetDetailDrawer → ImageReviewPanel 依赖）
+  useAssetImageAnalysis: vi.fn(() => ({ data: undefined, isLoading: false })),
+  useImageReviewAction: vi.fn(() => ({ mutate: vi.fn(), isPending: false, isError: false, error: null })),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -170,6 +170,50 @@ def run_full():
     check(hit["media_kind"] == "image" and hit["document_excerpt"], "图片结果字段缺失")
     print("AAPS_IMAGE_SEARCH_OK")
 
+    # 1.5) IMG-REVIEW：审核闭环——modify 后文档采用人工词；reject 后不可搜；
+    #      reopen 后回到 AI 结果（每步等文档重建生效）。
+    view = jreq("GET", f"/api/assets/{img['id']}/image-analysis")
+    check(view["effective_source"] == "ai" and view["review_status"] == "unreviewed",
+          f"初始审核视图异常: {view['review_status']}/{view['effective_source']}")
+    human_word = f"人工审核词{tag}"
+    modified = dict(view["ai_result"] or {})
+    modified["one_line"] = f"{human_word} 的图片"
+    v2 = jreq("POST", f"/api/assets/{img['id']}/image-review?action=modify",
+              {"lock_version": view["lock_version"], "confirmed_result": modified})
+    check(v2["effective_source"] == "human", f"modify 后 effective 应为 human: {v2}")
+    deadline = time.time() + 180
+    found = False
+    while time.time() < deadline:
+        res_h = search_assets(human_word, "image")
+        if img["id"] in [it["asset_id"] for it in res_h["items"]]:
+            found = True
+            break
+        time.sleep(3)
+    check(found, f"人工修改词 {human_word!r} 未在时限内可搜（文档重建链断）")
+    print("IMGREV_MODIFY_SEARCH_OK")
+
+    v3 = jreq("POST", f"/api/assets/{img['id']}/image-review?action=reopen",
+              {"lock_version": v2["lock_version"]})
+    v4 = jreq("POST", f"/api/assets/{img['id']}/image-review?action=reject",
+              {"lock_version": v3["lock_version"]})
+    check(v4["effective_source"] == "rejected", f"reject 后 effective 异常: {v4}")
+    deadline = time.time() + 180
+    gone = False
+    while time.time() < deadline:
+        res_r = search_assets(q, "image")
+        if img["id"] not in [it["asset_id"] for it in res_r["items"]]:
+            gone = True
+            break
+        time.sleep(3)
+    check(gone, "驳回后图片仍可被搜到（excluded 未生效）")
+    print("IMGREV_REJECT_UNSEARCHABLE_OK")
+
+    # 恢复：reopen 让 AI 结果重新可搜（后续视频段与 persist 检查不受影响）
+    v5 = jreq("POST", f"/api/assets/{img['id']}/image-review?action=reopen",
+              {"lock_version": v4["lock_version"]})
+    check(v5["effective_source"] == "ai", "reopen 后应回到 AI 结果")
+    print("IMGREV_API_E2E_OK")
+
     # 2) 视频：上传 → 全自动链 → 聚合文档 → 原文搜到整条视频
     with tempfile.TemporaryDirectory() as td:
         vp = os.path.join(td, f"{PREFIX}-vid-{tag}.mp4")

@@ -53,6 +53,7 @@ import type {
   SuggestionsResponse,
   TagDict,
   VisualSearchOut,
+  ImageAnalysisView,
 } from "./types";
 import type {
   BatchMembershipResult,
@@ -1627,6 +1628,19 @@ export const api = {
   pmSuggestions(targetType: string, targetId: number): Promise<ProductSuggestion[]> {
     return http<ProductSuggestion[]>(
       `/product-media/suggestions?target_type=${targetType}&target_id=${targetId}`,
+    );
+  },
+  assetImageAnalysis(assetId: number): Promise<ImageAnalysisView> {
+    return http<ImageAnalysisView>(`/assets/${assetId}/image-analysis`);
+  },
+  assetImageReview(
+    assetId: number,
+    action: string,
+    body: Record<string, unknown>,
+  ): Promise<ImageAnalysisView> {
+    return http<ImageAnalysisView>(
+      `/assets/${assetId}/image-review?action=${action}`,
+      { method: "POST", body: JSON.stringify(body) },
     );
   },
   async searchByImage(file: File, kind: string): Promise<VisualSearchOut> {

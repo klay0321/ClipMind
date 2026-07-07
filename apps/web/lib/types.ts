@@ -2960,3 +2960,21 @@ export interface VisualSearchOut {
   total_indexed: number;
   hits: VisualSearchHit[];
 }
+
+// ===== IMG-REVIEW 图片 AI 理解与审核 =====
+export interface ImageAnalysisView {
+  asset_id: number;
+  ai_status?: string | null;
+  ai_result?: Record<string, unknown> | null;
+  ai_analysis_id?: number | null;
+  input_fingerprint?: string | null;
+  analyzed_at?: string | null;
+  review_status: string;
+  confirmed_result?: Record<string, unknown> | null;
+  reviewer_label?: string | null;
+  review_comment?: string | null;
+  reviewed_at?: string | null;
+  lock_version: number;
+  effective_source: string; // human | ai | rejected | none
+  effective_result?: Record<string, unknown> | null;
+}

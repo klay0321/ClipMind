@@ -25,6 +25,7 @@ import zlib
 API = "http://localhost:8000"
 PREFIX = "VAE2E"
 TOKEN = "vae2e-family-token"
+STATE_FILE = ".visauto-e2e-state.json"  # full → check-persist 传递（runner 工作目录）
 _PSQL = [
     "docker", "compose", "exec", "-T", "postgres",
     "psql", "-U", "clipmind", "-d", "clipmind", "-t", "-A", "-c",
@@ -295,14 +296,35 @@ def run_full():
           f"dismissed 组合复活（pending={pending}, dismissed={dismissed}）")
     print("VISAUTO_NO_RESURRECT_OK")
 
+    # 7) 清理本脚本的产品目录数据：PR-F persist 断言"重启前后实验候选顺序
+    #    一致"（全库 family 扫描），保留 VAE2E 产品会改变其候选池。素材的
+    #    嵌入行保留（无 FK 不级联），供 check-persist 验证跨重启持久化。
+    with open(STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump({"asset_id": asset_id}, f)
+    psql(
+        "DELETE FROM visual_media_embedding WHERE target_type='reference' AND "
+        "target_id IN (SELECT id FROM product_reference_asset WHERE family_id IN "
+        f"(SELECT id FROM product_family WHERE code LIKE '{PREFIX}%'))"
+    )
+    psql(
+        "DELETE FROM product_onboarding_review WHERE family_id IN "
+        f"(SELECT id FROM product_family WHERE code LIKE '{PREFIX}%')"
+    )
+    psql(f"DELETE FROM product_family WHERE code LIKE '{PREFIX}%'")
+
     print("VISAUTO_API_E2E_OK")
 
 
 def run_check_persist():
-    emb = psql("SELECT count(*) FROM visual_media_embedding WHERE status='completed'")
-    dis = psql("SELECT count(*) FROM visual_product_candidate WHERE status='dismissed'")
-    check(int(emb) >= 3, f"重启后视觉嵌入行缺失（{emb}）")  # 2 参考图 + 1 素材
-    check(int(dis) >= 1, f"重启后 dismissed 候选丢失（{dis}）")
+    # dismissed 候选随 full 尾部的 family 清理被级联删除（避免污染 PR-F 的
+    # 全库候选顺序断言）；持久化证据 = 素材的视觉嵌入行跨重启存活。
+    with open(STATE_FILE, encoding="utf-8") as f:
+        st = json.load(f)
+    row = psql(
+        "SELECT status, embedding IS NOT NULL FROM visual_media_embedding "
+        f"WHERE target_type='asset' AND target_id={st['asset_id']} LIMIT 1"
+    )
+    check(row.startswith("completed|"), f"重启后素材视觉嵌入行丢失/异常（{row}）")
     print("VISAUTO_PERSIST_OK")
 
 

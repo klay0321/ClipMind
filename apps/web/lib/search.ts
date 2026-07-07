@@ -172,6 +172,8 @@ export interface SearchFormState {
   mode: SearchMode;
   sort: SearchSort;
   productId: number | null;
+  // P2a：目录产品过滤（product_media_link，含 Shot 继承语义）
+  productFamilyId: number | null;
   brands: string;
   models: string;
   skus: string;
@@ -221,6 +223,7 @@ export const EMPTY_SEARCH_FORM: SearchFormState = {
   mode: "hybrid",
   sort: "relevance",
   productId: null,
+  productFamilyId: null,
   brands: "",
   models: "",
   skus: "",
@@ -329,6 +332,7 @@ export function buildSearchRequest(
   const q = f.query.trim();
   if (q) req.query = q;
   if (f.productId != null) req.product_ids = [f.productId];
+  if (f.productFamilyId != null) req.product_family_id = f.productFamilyId;
   const setList = (key: keyof ShotSearchRequest, text: string) => {
     const arr = splitTerms(text);
     if (arr.length) (req[key] as string[]) = arr;

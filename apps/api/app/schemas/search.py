@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from clipmind_shared.models.enums import ReviewStatus
 from clipmind_shared.search.query import AspectRatio, ParsedSearchQuery, SearchMode
@@ -305,3 +306,40 @@ class RebuildAcceptedResponse(BaseModel):
     only_failed: bool = False
     celery_task_id: str | None = None
     detail: str = ""
+
+
+# ============================ P2a：素材级检索（整视频 / 图片） ============================
+
+
+class AssetSearchRequest(BaseModel):
+    query: str = Field(default="", max_length=500)
+    media_kind: Literal["video", "image"] | None = None
+    source_directory_id: int | None = None
+    # 目录产品过滤（product_media_link 素材级关联）
+    product_family_id: int | None = None
+    page: int = Field(default=1, ge=1)
+    page_size: int = Field(default=20, ge=1, le=MAX_PAGE_SIZE)
+
+
+class AssetSearchResultItem(BaseModel):
+    asset_id: int
+    filename: str
+    media_kind: str
+    duration: float | None
+    source_directory_id: int
+    has_poster: bool
+    score: float
+    semantic_score: float | None = None
+    lexical_score: float | None = None
+    document_excerpt: str | None = None
+    effective_source: str | None = None  # ai（图片）| aggregate（视频聚合）
+    product_names: list[str] = []
+
+
+class AssetSearchResponse(BaseModel):
+    items: list[AssetSearchResultItem]
+    total: int
+    page: int
+    page_size: int
+    embedding_status: str
+    elapsed_ms: int

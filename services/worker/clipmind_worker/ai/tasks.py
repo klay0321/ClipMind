@@ -17,6 +17,7 @@ from clipmind_shared.constants import (
     QUEUE_SEARCH,
     TASK_ANALYZE_ASSET_AI,
     TASK_ANALYZE_SHOT_AI,
+    TASK_REBUILD_ASSET_LEVEL_DOC,
     TASK_REBUILD_ASSET_SEARCH_DOCS,
     TASK_REBUILD_SHOT_SEARCH_DOC,
 )
@@ -26,7 +27,7 @@ from clipmind_shared.models.enums import AIRunStatus, AssetStatus, ShotStatus
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from clipmind_worker.ai.runner import run_asset_analysis
+from clipmind_worker.ai.runner import run_asset_analysis, run_image_analysis
 from clipmind_worker.celery_app import celery_app
 from clipmind_worker.config import get_settings
 from clipmind_worker.db import SessionLocal, engine
@@ -47,6 +48,14 @@ def _enqueue_search_rebuild(*, asset_id: int | None = None, shot_id: int | None 
             )
     except Exception as exc:  # noqa: BLE001
         logger.warning("入队检索文档重建失败（将由 sweeper/backfill 兜底）: %s", exc)
+
+
+def _enqueue_asset_level_doc(asset_id: int) -> None:
+    """P2a：素材级检索文档重建（图片分析完成 / 视频镜头文档变化后）。best-effort。"""
+    try:
+        celery_app.send_task(TASK_REBUILD_ASSET_LEVEL_DOC, args=[asset_id], queue=QUEUE_SEARCH)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("入队素材级检索文档重建失败（sweeper 兜底）: %s", exc)
 
 
 def _truncate(text: str) -> str:
@@ -104,6 +113,9 @@ def _run(run_id: int, *, only_shot_id: int | None, worker_name: str) -> dict[str
                 return {"skipped": True, "reason": "locked"}
 
             try:
+                # P2a：图片素材走图片理解链路（无镜头概念）
+                if asset.media_kind == "image":
+                    return run_image_analysis(session, run, asset, settings)
                 return run_asset_analysis(
                     session, run, asset, settings, only_shot_id=only_shot_id
                 )
@@ -125,7 +137,11 @@ def analyze_asset_ai(self, run_id: int) -> dict[str, Any]:  # noqa: ANN001
     result = _run(run_id, only_shot_id=None, worker_name=self.request.hostname or "")
     # 运行已落库（run_asset_analysis 内 commit）后再入队检索文档重建
     if result.get("asset_id") is not None:
-        _enqueue_search_rebuild(asset_id=result["asset_id"])
+        if result.get("media_kind") == "image":
+            # 图片：直接重建素材级文档（无镜头文档）
+            _enqueue_asset_level_doc(result["asset_id"])
+        else:
+            _enqueue_search_rebuild(asset_id=result["asset_id"])
     return result
 
 

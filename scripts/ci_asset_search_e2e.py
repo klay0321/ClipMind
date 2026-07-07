@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""AAP 端到端：素材进来自动变可搜索（扫描→拆镜头→AI→检索文档，全程零手动点击）。
+"""P2a 素材级统一搜索端到端。
 
-前置：栈以 AUTO_ANALYZE_ON_SCAN=true、AUTO_AI_AFTER_SHOTS=true、AI_PROVIDER=fake
-启动；本机有 ffmpeg（合成小视频）。隔离：AAP-E2E 前缀。
+链路：上传图片 → 自动 AI 理解（poster 钩子）→ 素材级文档 → 按文档原文搜到该图；
+上传视频 → 自动链（拆→打标→shot 文档→聚合钩子）→ 按聚合文档搜到整条视频。
+"用文档原文搜到自己"同时是搜索相关性事故（PR#34）的素材级回归。
+
+前置：栈以 AUTO_ANALYZE_ON_SCAN=true、AUTO_AI_AFTER_SHOTS=true、AI_PROVIDER=fake、
+EMBEDDING_PROVIDER=fake 运行；本机 ffmpeg。隔离：AAPS-E2E 前缀。
 """
 
 from __future__ import annotations
@@ -10,27 +14,27 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import struct
 import subprocess
 import sys
 import tempfile
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 import uuid
 import zlib
 
 API = os.environ.get("API_BASE", "http://localhost:8000")
-PREFIX = "AAP-E2E"
-STATE_FILE = ".aap_e2e_state.json"
+PREFIX = "AAPS-E2E"
+STATE_FILE = ".aaps_e2e_state.json"
 _PSQL = ["docker", "compose", "exec", "-T", "postgres",
          "psql", "-U", "clipmind", "-d", "clipmind", "-tAc"]
 
 
 def _req(method, path, body=None, *, raw=None, content_type="application/json"):
     data = raw if raw is not None else (
-        json.dumps(body).encode() if body is not None else None
+        json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
     )
     req = urllib.request.Request(f"{API}{path}", data=data, method=method,
                                  headers={"Content-Type": content_type})
@@ -105,6 +109,7 @@ def upload(content, name, mime):
 def wait_asset(name, sd_id, deadline_s=300):
     deadline = time.time() + deadline_s
     rescan = time.time() + 45
+    import urllib.parse
     while time.time() < deadline:
         data = jreq("GET", f"/api/assets?page=1&page_size=50&q={urllib.parse.quote(name)}")
         for it in data.get("items", []):
@@ -118,99 +123,99 @@ def wait_asset(name, sd_id, deadline_s=300):
     sys.exit(1)
 
 
+def wait_doc(asset_id, deadline_s=600):
+    deadline = time.time() + deadline_s
+    while time.time() < deadline:
+        row = psql(
+            "SELECT is_searchable, coalesce(search_document,'') FROM asset_search_document "
+            f"WHERE asset_id={asset_id}"
+        )
+        if row and row.split("|", 1)[0] == "t":
+            return row.split("|", 1)[1]
+        time.sleep(5)
+    return None
+
+
+def _query_terms(doc_text: str) -> str:
+    """从文档取一段可检索原文（前 12 个词/40 字符），复现"原文搜到自己"。"""
+    text = re.sub(r"\s+", " ", doc_text).strip()
+    return text[:40] if text else ""
+
+
+def search_assets(query, media_kind, extra=None):
+    body = {"query": query, "media_kind": media_kind, "page": 1, "page_size": 20}
+    if extra:
+        body.update(extra)
+    return jreq("POST", "/api/search/assets", body)
+
+
 def run_full():
     tag = uuid.uuid4().hex[:6]
 
-    # 0) 概览配置回显：自动开关必须开启（栈 env 已设）
-    ov = jreq("GET", "/api/processing/overview")
-    check(ov["config"]["auto_analyze_on_scan"] is True, "AUTO_ANALYZE_ON_SCAN 未生效")
-    check(ov["config"]["auto_ai_after_shots"] is True, "AUTO_AI_AFTER_SHOTS 未生效")
-    print("AAP_OVERVIEW_OK")
-
-    # 1) 图片守卫（P2a 起图片走图片理解链路）：有海报 202 / 无海报 409，绝不再 422
-    sd_id, img_name = upload(make_png(120, 30, 30, tag), f"{PREFIX}-img-{tag}.png", "image/png")
+    # 1) 图片：上传 → 自动 AI（poster 钩子）→ 素材级文档 → 原文搜到自己
+    sd_id, img_name = upload(
+        make_png(90, 40, 40, tag), f"{PREFIX}-img-{tag}.png", "image/png"
+    )
     img = wait_asset(img_name, sd_id)
-    st, body = _req("POST", f"/api/assets/{img['id']}/analyze")
-    check(st in (202, 409), f"图片 AI 应 202(有海报)/409(无海报)，实际 {st}: {body}")
-    print("AAP_GUARD_IMAGE_OK")
+    img_doc = wait_doc(img["id"])
+    check(img_doc is not None, "图片素材级文档未在时限内就绪（自动 AI→文档链断）")
+    print("AAPS_IMAGE_DOC_OK")
 
-    # 2) 自动链主验证：上传两段纯色视频 → 全程不点分析 → 自动变可搜索
+    q = _query_terms(img_doc)
+    check(bool(q), "图片文档为空")
+    res = search_assets(q, "image")
+    ids = [it["asset_id"] for it in res["items"]]
+    check(img["id"] in ids, f"图片未被自身文档原文搜到: q={q!r} ids={ids[:5]}")
+    hit = next(it for it in res["items"] if it["asset_id"] == img["id"])
+    check(hit["media_kind"] == "image" and hit["document_excerpt"], "图片结果字段缺失")
+    print("AAPS_IMAGE_SEARCH_OK")
+
+    # 2) 视频：上传 → 全自动链 → 聚合文档 → 原文搜到整条视频
     with tempfile.TemporaryDirectory() as td:
-        vp = os.path.join(td, f"{PREFIX}-auto-{tag}.mp4")
-        make_video(vp, ["red", "blue"])
+        vp = os.path.join(td, f"{PREFIX}-vid-{tag}.mp4")
+        make_video(vp, ["red", "green"])
         with open(vp, "rb") as f:
-            _, vid_name = upload(f.read(), f"{PREFIX}-auto-{tag}.mp4", "video/mp4")
-    asset = wait_asset(vid_name, sd_id)
-    aid = asset["id"]
+            _, vid_name = upload(f.read(), f"{PREFIX}-vid-{tag}.mp4", "video/mp4")
+    vid = wait_asset(vid_name, sd_id)
+    vid_doc = wait_doc(vid["id"])
+    check(vid_doc is not None, "视频聚合文档未在时限内就绪（自动链→聚合钩子断）")
+    print("AAPS_VIDEO_DOC_OK")
 
-    deadline = time.time() + 600
-    shots_ok = ai_ok = doc_ok = False
-    while time.time() < deadline and not (shots_ok and ai_ok and doc_ok):
-        if not shots_ok:
-            n = psql(f"SELECT count(*) FROM shot WHERE asset_id={aid} AND status='ready'")
-            if int(n or 0) > 0:
-                shots_ok = True
-                print("AAP_AUTO_SHOTS_OK")
-        if shots_ok and not ai_ok:
-            n = psql(
-                "SELECT count(*) FROM ai_shot_analysis a JOIN shot s ON s.id=a.shot_id "
-                f"WHERE s.asset_id={aid}"
-            )
-            if int(n or 0) > 0:
-                ai_ok = True
-                print("AAP_AUTO_AI_OK")
-        if ai_ok and not doc_ok:
-            n = psql(
-                "SELECT count(*) FROM shot_search_document d JOIN shot s ON s.id=d.shot_id "
-                f"WHERE s.asset_id={aid} AND d.is_searchable"
-            )
-            if int(n or 0) > 0:
-                doc_ok = True
-                print("AAP_AUTO_SEARCHDOC_OK")
-        time.sleep(5)
-    check(shots_ok and ai_ok and doc_ok,
-          f"自动链未在时限内完成: shots={shots_ok} ai={ai_ok} doc={doc_ok}")
-    print("AAP_AUTO_CHAIN_OK")
+    qv = _query_terms(vid_doc)
+    resv = search_assets(qv, "video")
+    idsv = [it["asset_id"] for it in resv["items"]]
+    check(vid["id"] in idsv, f"整条视频未被聚合文档原文搜到: q={qv!r} ids={idsv[:5]}")
+    print("AAPS_VIDEO_SEARCH_OK")
 
-    # 3) 批量分析 API 语义
-    # 注意：只对本脚本自己的资产提交（asset_ids），绝不对共享 uploads 目录全量
-    # 提交——否则会把其他 E2E 时间窗口内的未打标镜头补打标，破坏 PR-E 等
-    # 脚本"重启后排序快照一致"的持久化断言。
-    st, _ = _req("POST", "/api/assets/batch-analyze", {"stages": ["shots"]})
-    check(st == 422, "无显式条件应 422")
-    res = jreq("POST", "/api/assets/batch-analyze",
-               {"asset_ids": [aid], "stages": ["shots", "ai"]}, expect=(202,))
-    for key in ("matched", "enqueued_shots", "enqueued_ai", "skipped_active",
-                "skipped_ineligible", "truncated"):
-        check(key in res, f"batch 响应缺 {key}")
-    print("AAP_BATCH_OK")
+    # 3) media_kind 隔离：图片查询在 video Tab 不返回该图片
+    res_cross = search_assets(q, "video")
+    check(img["id"] not in [it["asset_id"] for it in res_cross["items"]],
+          "media_kind 过滤失效")
+    print("AAPS_KIND_FILTER_OK")
 
-    print("AAP_API_E2E_OK")
+    print("AAPS_API_E2E_OK")
     with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump({"tag": tag, "asset_id": aid, "sd_id": sd_id}, f)
+        json.dump({"tag": tag, "image_id": img["id"], "video_id": vid["id"],
+                   "image_q": q, "video_q": qv}, f, ensure_ascii=False)
 
 
 def run_check_persist():
     with open(STATE_FILE, encoding="utf-8") as f:
         st = json.load(f)
-    aid = st["asset_id"]
-    n_shots = int(psql(f"SELECT count(*) FROM shot WHERE asset_id={aid} AND status='ready'") or 0)
-    n_docs = int(psql(
-        "SELECT count(*) FROM shot_search_document d JOIN shot s ON s.id=d.shot_id "
-        f"WHERE s.asset_id={aid} AND d.is_searchable") or 0)
-    check(n_shots > 0 and n_docs > 0, f"重启后自动链产物丢失: shots={n_shots} docs={n_docs}")
-    ov = jreq("GET", "/api/processing/overview")
-    check(ov["totals"]["searchable_docs"] >= n_docs, "重启后 overview 异常")
-    print("AAP_RESTART_PERSIST_OK")
+    res = search_assets(st["image_q"], "image")
+    check(st["image_id"] in [it["asset_id"] for it in res["items"]], "重启后图片检索丢失")
+    resv = search_assets(st["video_q"], "video")
+    check(st["video_id"] in [it["asset_id"] for it in resv["items"]], "重启后视频检索丢失")
+    print("AAPS_RESTART_PERSIST_OK")
 
 
 def run_cleanup():
-    psql("DELETE FROM shot_search_document WHERE shot_id IN (SELECT id FROM shot WHERE asset_id IN "
-         f"(SELECT id FROM asset WHERE filename LIKE '{PREFIX}%'))")
-    psql("DELETE FROM ai_shot_analysis WHERE asset_id IN "
+    psql("DELETE FROM asset_search_document WHERE asset_id IN "
+         f"(SELECT id FROM asset WHERE filename LIKE '{PREFIX}%')")
+    psql("DELETE FROM asset_image_analysis WHERE asset_id IN "
          f"(SELECT id FROM asset WHERE filename LIKE '{PREFIX}%')")
     psql(f"DELETE FROM asset WHERE filename LIKE '{PREFIX}%'")
-    print("AAP_CLEANUP_OK")
+    print("AAPS_CLEANUP_OK")
 
 
 def main():

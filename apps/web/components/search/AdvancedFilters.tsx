@@ -3,7 +3,7 @@
 // 危险项（include_excluded）放醒目危险区，不默认暴露，避免误操作。
 "use client";
 
-import { useProducts, useSourceDirectories } from "@/lib/hooks";
+import { usePmSummary, useProducts, useSourceDirectories } from "@/lib/hooks";
 import { ASPECT_RATIO_OPTIONS, REVIEW_STATUS_LABELS, countActiveFilters } from "@/lib/search";
 import type { SearchFormState, StaleFilter } from "@/lib/search";
 import type { AspectRatioValue, ReviewStatus } from "@/lib/types";
@@ -47,6 +47,7 @@ export function AdvancedFilters({
   onToggle: () => void;
 }) {
   const productsQ = useProducts();
+  const pmSummaryQ = usePmSummary();
   const dirsQ = useSourceDirectories();
   const activeCount = countActiveFilters(form);
 
@@ -100,6 +101,26 @@ export function AdvancedFilters({
                   <option key={p.id} value={p.id}>
                     {p.name}
                     {p.sku ? ` · ${p.sku}` : ""}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="目录产品（素材关联）">
+              <select
+                data-testid="filter-product-family"
+                value={form.productFamilyId ?? ""}
+                onChange={(e) =>
+                  onChange({
+                    productFamilyId: e.target.value ? Number(e.target.value) : null,
+                  })
+                }
+                className={textCls}
+                title="按产品素材库的正式关联过滤（含镜头继承）"
+              >
+                <option value="">不限</option>
+                {(pmSummaryQ.data ?? []).map((f) => (
+                  <option key={f.family_id} value={f.family_id}>
+                    {f.name_zh}
                   </option>
                 ))}
               </select>

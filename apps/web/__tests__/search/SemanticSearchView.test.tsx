@@ -11,6 +11,8 @@ import { makeItem, makeResponse, mutation, query } from "./fixtures";
 vi.mock("@/lib/hooks", () => ({
   useSemanticSearch: vi.fn(),
   useProducts: vi.fn(),
+  usePmSummary: vi.fn(),
+  useAssetSearch: vi.fn(),
   useSourceDirectories: vi.fn(),
   useSearchSuggestions: vi.fn(),
   // PR-06B：SavedSearchPanel / BundleBar / FavoriteButton 依赖
@@ -44,6 +46,8 @@ function renderView(props: Partial<React.ComponentProps<typeof SemanticSearchVie
 
 beforeEach(() => {
   vi.mocked(hooks.useSemanticSearch).mockReturnValue(query());
+  vi.mocked(hooks.usePmSummary).mockReturnValue({ data: [], isLoading: false } as never);
+  vi.mocked(hooks.useAssetSearch).mockReturnValue({ data: undefined, isLoading: false, isError: false, isFetching: false } as never);
   vi.mocked(hooks.useProducts).mockReturnValue(query({ data: [] }));
   vi.mocked(hooks.useSourceDirectories).mockReturnValue(query({ data: [] }));
   vi.mocked(hooks.useSearchSuggestions).mockReturnValue(query({ data: { items: [] } }));

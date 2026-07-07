@@ -484,6 +484,9 @@ def _generate_poster(
             return {"skipped": True, "reason": "poster_empty"}
         asset.poster_path = storage.relpath(root, poster_abs)
         session.commit()
+        # P2a：图片海报就绪即自动入队 AI 理解（开关+预算护栏同自动链，best-effort）
+        if asset.media_kind == "image":
+            _maybe_auto_ai(asset.id, settings)
         return {"asset_id": asset.id, "poster": True}
     except Exception as exc:  # noqa: BLE001 - 海报为锦上添花，失败不影响主流程
         session.rollback()

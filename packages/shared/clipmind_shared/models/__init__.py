@@ -9,6 +9,7 @@ from clipmind_shared.models.ai_analysis import (
     AIAnalysisRun,
     AICallLog,
     AIShotAnalysis,
+    AssetImageAnalysis,
 )
 from clipmind_shared.models.asset import Asset
 from clipmind_shared.models.asset_location import AssetLocation, FingerprintJob
@@ -120,7 +121,11 @@ from clipmind_shared.models.script import (
 )
 from clipmind_shared.models.saved_search import SavedSearch
 from clipmind_shared.models.script_export import ScriptExport
-from clipmind_shared.models.search import EMBEDDING_DIM, ShotSearchDocument
+from clipmind_shared.models.search import (
+    EMBEDDING_DIM,
+    AssetSearchDocument,
+    ShotSearchDocument,
+)
 from clipmind_shared.models.shot import Shot
 from clipmind_shared.models.source_directory import SourceDirectory
 
@@ -134,6 +139,7 @@ __all__ = [
     "Export",
     "AIAnalysisRun",
     "AIShotAnalysis",
+    "AssetImageAnalysis",
     "AICallLog",
     "AssetStatus",
     "ScanStatus",
@@ -181,6 +187,7 @@ __all__ = [
     "HUMAN_EFFECTIVE_STATUSES",
     "EXCLUDED_FROM_SEARCH_STATUSES",
     # PR-04 检索文档
+    "AssetSearchDocument",
     "ShotSearchDocument",
     "SearchDocumentStatus",
     "SearchEmbeddingStatus",

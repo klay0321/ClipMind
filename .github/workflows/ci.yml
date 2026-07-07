@@ -324,6 +324,11 @@ jobs:
           for flag in AAP_OVERVIEW_OK AAP_GUARD_IMAGE_OK AAP_AUTO_SHOTS_OK                       AAP_AUTO_AI_OK AAP_AUTO_SEARCHDOC_OK AAP_AUTO_CHAIN_OK                       AAP_BATCH_OK AAP_API_E2E_OK; do
             grep -q "$flag" aap.log || { echo "缺少标志 $flag"; exit 1; }
           done
+          # P2a：素材级统一搜索（同一自动开关窗口内：图片自动理解→文档→原文可搜；视频聚合可搜）
+          python scripts/ci_asset_search_e2e.py --mode full | tee aaps.log
+          for flag in AAPS_IMAGE_DOC_OK AAPS_IMAGE_SEARCH_OK AAPS_VIDEO_DOC_OK                       AAPS_VIDEO_SEARCH_OK AAPS_KIND_FILTER_OK AAPS_API_E2E_OK; do
+            grep -q "$flag" aaps.log || { echo "缺少标志 $flag"; exit 1; }
+          done
           sed -i 's/^AUTO_ANALYZE_ON_SCAN=true/AUTO_ANALYZE_ON_SCAN=false/; s/^AUTO_AI_AFTER_SHOTS=true/AUTO_AI_AFTER_SHOTS=false/' .env
           docker compose up -d api worker media-worker ai-worker
           for i in $(seq 1 40); do
@@ -429,6 +434,8 @@ jobs:
           grep -q "POPS_RESTART_PERSIST_OK" pops_persist.log
           python scripts/ci_auto_pipeline_e2e.py --mode check-persist | tee aap_persist.log
           grep -q "AAP_RESTART_PERSIST_OK" aap_persist.log
+          python scripts/ci_asset_search_e2e.py --mode check-persist | tee aaps_persist.log
+          grep -q "AAPS_RESTART_PERSIST_OK" aaps_persist.log
       - name: 失败时收集日志（脱敏：不输出 env / key）
         if: failure()
         run: |
@@ -771,6 +778,8 @@ jobs:
           grep -q "POPS_UI_PERSIST_OK" e2e/pm-ops-persist.log
           ( cd e2e && npx playwright test pr-auto-pipeline.spec.ts --grep @persist | tee aap-ui-persist.log )
           grep -q "AAP_UI_PERSIST_OK" e2e/aap-ui-persist.log
+          ( cd e2e && npx playwright test pr-asset-search.spec.ts --grep @persist | tee aaps-ui-persist.log )
+          grep -q "AAPS_UI_PERSIST_OK" e2e/aaps-ui-persist.log
       - name: 失败时上传脱敏证据（trace/截图/报告；不含 .env/key/endpoint）
         if: failure()
         uses: actions/upload-artifact@v4

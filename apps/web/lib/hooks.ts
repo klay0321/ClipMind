@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-query";
 
 import { api, ONBOARDING_ACTION_PATHS, type ShotSearchQuery } from "./api";
-import type { AIRunStatus, AssetQuery, MediaRunStatus, ShotQuery } from "./types";
+import type { AIRunStatus, AssetQuery, AssetSearchRequest, MediaRunStatus, ShotQuery } from "./types";
 import type { ExportStatus, ReviewActionInput, ReviewActionKind, ScanStatus } from "./types";
 import type { DescriptionMatchRequest, ShotSearchRequest } from "./types";
 import type {
@@ -123,6 +123,15 @@ export function useAssets(query: AssetQuery) {
 }
 
 // ===== AAP：全局处理概览（有活动任务时快轮询，空闲慢轮询）+ 批量分析 =====
+
+export function useAssetSearch(req: AssetSearchRequest | null) {
+  return useQuery({
+    queryKey: ["asset-search", req],
+    queryFn: () => api.searchAssets(req as AssetSearchRequest),
+    enabled: req != null,
+    placeholderData: keepPreviousData,
+  });
+}
 
 export function useProcessingOverview() {
   return useQuery({

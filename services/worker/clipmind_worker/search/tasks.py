@@ -11,10 +11,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from clipmind_shared.constants import (
     TASK_BACKFILL_SEARCH_DOCS,
+    TASK_REBUILD_ASSET_LEVEL_DOC,
     TASK_REBUILD_ASSET_SEARCH_DOCS,
     TASK_REBUILD_SHOT_SEARCH_DOC,
     TASK_SWEEP_SEARCH_DOCS,
@@ -28,12 +30,15 @@ from sqlalchemy.orm import Session
 from clipmind_worker.celery_app import celery_app
 from clipmind_worker.config import get_settings
 from clipmind_worker.db import SessionLocal
+from clipmind_worker.search.asset_indexer import rebuild_asset_level_document
 from clipmind_worker.search.indexer import (
     build_embedding_provider,
     ready_shot_ids_for_asset,
     rebuild_shot_document,
     shots_needing_index,
 )
+
+_logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = 3
 
@@ -64,6 +69,8 @@ def rebuild_shot_search_doc(self, shot_id: int, force_reembed: bool = False) -> 
         status = _rebuild_commit(session, shot_id, provider, force=force_reembed)
     if status == "retry":
         raise self.retry(countdown=_backoff(self.request.retries))
+    # P2a：镜头文档变化后跟进重建其素材级聚合文档（幂等，内容未变则 skip）
+    _enqueue_asset_level(shot_id=shot_id)
     return {"shot_id": shot_id, "status": status}
 
 
@@ -76,6 +83,11 @@ def rebuild_asset_search_docs(self, asset_id: int, force_reembed: bool = False) 
         for sid in shot_ids:
             status = _rebuild_commit(session, sid, provider, force=force_reembed)
             stats[status] = stats.get(status, 0) + 1
+    # P2a：镜头文档批量重建后跟进素材级聚合文档
+    try:
+        celery_app.send_task(TASK_REBUILD_ASSET_LEVEL_DOC, args=[asset_id])
+    except Exception as exc:  # noqa: BLE001 - sweep 兜底
+        _logger.warning("入队素材级聚合失败 asset=%s: %s", asset_id, exc)
     return {"asset_id": asset_id, "total": len(shot_ids), "stats": stats}
 
 
@@ -144,3 +156,41 @@ def backfill_search_docs(  # noqa: ANN001
         "maybe_more": len(shot_ids) >= limit,
         "stats": stats,
     }
+
+
+def _enqueue_asset_level(*, shot_id: int) -> None:
+    """按镜头反查素材并入队素材级聚合重建（best-effort）。"""
+    try:
+        with SessionLocal() as session:
+            asset_id = session.execute(
+                select(Shot.asset_id).where(Shot.id == shot_id)
+            ).scalar_one_or_none()
+        if asset_id is not None:
+            celery_app.send_task(TASK_REBUILD_ASSET_LEVEL_DOC, args=[int(asset_id)])
+    except Exception as exc:  # noqa: BLE001 - sweep 兜底
+        _logger.warning("入队素材级聚合失败 shot=%s: %s", shot_id, exc)
+
+
+def _rebuild_asset_level_commit(session: Session, asset_id: int, provider, *, force: bool) -> str:  # noqa: ANN001
+    try:
+        status = rebuild_asset_level_document(session, asset_id, provider, force_reembed=force)
+        session.commit()
+        return status
+    except IntegrityError:
+        session.rollback()
+        status = rebuild_asset_level_document(session, asset_id, provider, force_reembed=force)
+        session.commit()
+        return status
+
+
+@celery_app.task(
+    name=TASK_REBUILD_ASSET_LEVEL_DOC, bind=True, acks_late=True, max_retries=_MAX_RETRIES
+)
+def rebuild_asset_level_doc(self, asset_id: int, force_reembed: bool = False) -> dict[str, Any]:  # noqa: ANN001
+    """P2a：素材级检索文档重建（图片=分析结果；视频=镜头有效文档聚合）。"""
+    provider = build_embedding_provider(get_settings())
+    with SessionLocal() as session:
+        status = _rebuild_asset_level_commit(session, asset_id, provider, force=force_reembed)
+    if status == "retry":
+        raise self.retry(countdown=_backoff(self.request.retries))
+    return {"asset_id": asset_id, "status": status}

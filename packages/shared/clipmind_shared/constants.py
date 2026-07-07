@@ -41,6 +41,8 @@ TASK_ANALYZE_SHOT_AI = "clipmind.analyze_shot_ai"
 # PR-04 检索文档索引（search 队列）：单镜头/单素材重建 + sweeper 兜底 + 全量/失败回填
 TASK_REBUILD_SHOT_SEARCH_DOC = "clipmind.rebuild_shot_search_doc"
 TASK_REBUILD_ASSET_SEARCH_DOCS = "clipmind.rebuild_asset_search_docs"
+# P2a：素材级检索文档（整视频聚合/图片描述）
+TASK_REBUILD_ASSET_LEVEL_DOC = "clipmind.rebuild_asset_level_doc"
 TASK_SWEEP_SEARCH_DOCS = "clipmind.sweep_search_docs"
 TASK_BACKFILL_SEARCH_DOCS = "clipmind.backfill_search_docs"
 # PR-05 Gate B 脚本剪辑清单导出（export 队列）；PR-06B 起按 export_format 多格式输出

@@ -38,6 +38,7 @@ from clipmind_shared.models import (
     AICallLog,
     AIShotAnalysis,
     Asset,
+    AssetImageAnalysis,
     Shot,
 )
 from clipmind_shared.models.enums import (
@@ -478,3 +479,292 @@ def run_asset_analysis(
         "skipped_cached": run.skipped_cached,
         "degraded": run.degraded,
     }
+
+
+# ============================ P2a：图片素材 AI 理解 ============================
+# 输入用 poster（扫描时自动生成、存 data 卷的缩放副本）而非源文件本体：
+# ai-worker 容器只挂载 /app/data，源目录（/app/source）对其不可见——这是
+# 有意的最小权限设计，不为图片分析放宽。缩放版对描述/场景/产品类型级理解
+# 足够（镜头关键帧同为缩放版）；更高精度输入留待专用分析副本方案。
+
+
+def _resolve_image_frame(root_real: str, asset: Asset) -> FrameRef | None:
+    if not asset.poster_path:
+        return None
+    parts = [p for p in asset.poster_path.split("/") if p]
+    try:
+        abspath = safe_join_within_root(root_real, *parts)
+    except PathSecurityError:
+        logger.warning("跳过越界图片海报路径 asset=%s", asset.id)
+        return None
+    if not os.path.isfile(abspath):
+        return None
+    return FrameRef(path=abspath, sha256=hash_file(abspath))
+
+
+def _log_image_call(
+    session: Session,
+    *,
+    run: AIAnalysisRun,
+    asset: Asset,
+    provider_name: str,
+    model: str | None,
+    attempt: int,
+    status: AICallStatus,
+    usage: Usage | None = None,
+    est_cost: float | None = None,
+    duration_ms: int | None = None,
+    http_status: int | None = None,
+    error_code: str | None = None,
+) -> None:
+    session.add(
+        AICallLog(
+            run_id=run.id,
+            shot_id=None,
+            asset_id=asset.id,
+            provider=provider_name,
+            model=model,
+            method=ANALYZE_METHOD,
+            attempt_no=attempt,
+            input_images=usage.input_images if usage else 0,
+            input_tokens=usage.input_tokens if usage else None,
+            output_tokens=usage.output_tokens if usage else None,
+            est_cost=est_cost,
+            duration_ms=duration_ms,
+            status=status,
+            http_status=http_status,
+            error_code=error_code,
+        )
+    )
+
+
+def _upsert_image_analysis(
+    session: Session,
+    asset: Asset,
+    run: AIAnalysisRun,
+    *,
+    status: AIShotAnalysisStatus,
+    provider_name: str,
+    model: str | None,
+    prompt_version: str,
+    fingerprint: str | None,
+    parsed: dict[str, Any] | None,
+    raw_excerpt: str | None,
+    confidence: float | None,
+    input_summary: dict[str, Any] | None,
+    degraded_reason: str | None,
+    duration_ms: int | None,
+) -> AssetImageAnalysis:
+    row = session.execute(
+        select(AssetImageAnalysis).where(AssetImageAnalysis.asset_id == asset.id)
+    ).scalar_one_or_none()
+    if row is None:
+        row = AssetImageAnalysis(asset_id=asset.id)
+        session.add(row)
+    row.run_id = run.id
+    row.provider = provider_name
+    row.model = model
+    row.prompt_version = prompt_version
+    row.schema_version = AI_SCHEMA_VERSION
+    row.input_fingerprint = fingerprint
+    row.input_summary = input_summary
+    row.parsed_result = parsed
+    row.raw_response_excerpt = raw_excerpt
+    row.confidence = confidence
+    row.status = status
+    row.degraded_reason = degraded_reason
+    row.duration_ms = duration_ms
+    return row
+
+
+def run_image_analysis(
+    session: Session,
+    run: AIAnalysisRun,
+    asset: Asset,
+    settings: WorkerSettings,
+    *,
+    provider: VisualAnalysisProvider | None = None,
+    sleep=time.sleep,
+) -> dict[str, Any]:
+    """图片素材 AI 理解（与 run_asset_analysis 并行入口，单分析单元）。
+
+    输出复用镜头分析 schema（one_line/detailed/product/scene 等字段对图片
+    同样适用）；指纹缓存/重试/降级/call log 与镜头链路完全同款语义。
+    asset.status 全程保持 INDEXED（图片没有 SHOT_SPLIT 概念）。
+    """
+    provider = provider or build_provider(settings)
+    provider_name = getattr(provider, "name", settings.ai_provider or "notconfigured")
+    caps = provider.capabilities()
+    schema = shot_analysis_json_schema()
+    prompt = build_analysis_prompt(schema)
+    model = settings.ai_model or getattr(provider, "_model", None) or None
+
+    run.status = AIRunStatus.RUNNING
+    run.started_at = utcnow()
+    run.heartbeat_at = utcnow()
+    run.provider = provider_name
+    run.model = model
+    run.prompt_version = settings.ai_prompt_version
+    run.schema_version = AI_SCHEMA_VERSION
+    run.capabilities_snapshot = caps.model_dump()
+    run.degraded = False
+    run.total_shots = 1  # 图片 = 单一分析单元（沿用 run 计数字段语义）
+    run.analyzed_shots = 0
+    run.failed_shots = 0
+    run.skipped_cached = 0
+    session.commit()
+
+    root_real = storage.data_root(settings.data_dir)
+    frame = _resolve_image_frame(root_real, asset)
+
+    def _finish(status: AIRunStatus, error: str | None = None) -> dict[str, Any]:
+        run.status = status
+        if error:
+            run.error_message = error[:ERROR_MESSAGE_MAX_LEN]
+        run.progress = 100
+        run.finished_at = utcnow()
+        run.heartbeat_at = utcnow()
+        session.commit()
+        return {
+            "run_id": run.id,
+            "asset_id": asset.id,
+            "status": run.status.value,
+            "total_shots": run.total_shots,
+            "analyzed": run.analyzed_shots,
+            "failed": run.failed_shots,
+            "skipped_cached": run.skipped_cached,
+            "degraded": run.degraded,
+            "media_kind": "image",
+        }
+
+    if frame is None:
+        run.failed_shots = 1
+        return _finish(AIRunStatus.FAILED, "图片海报不可用（请先重新扫描生成海报）")
+
+    fingerprint = compute_fingerprint(
+        frame_hashes=[frame.sha256 or ""],
+        provider=provider_name,
+        model=model or "",
+        prompt_version=settings.ai_prompt_version,
+        schema_version=AI_SCHEMA_VERSION,
+        params={"max_images": 1, "target": "image_asset"},
+    )
+    input_summary = {"frames": 1, "source": "poster"}
+
+    existing = session.execute(
+        select(AssetImageAnalysis).where(AssetImageAnalysis.asset_id == asset.id)
+    ).scalar_one_or_none()
+    if (
+        existing is not None
+        and existing.status == AIShotAnalysisStatus.COMPLETED
+        and existing.input_fingerprint == fingerprint
+    ):
+        existing.run_id = run.id  # 缓存命中：不重复计费
+        run.skipped_cached = 1
+        return _finish(AIRunStatus.COMPLETED)
+
+    if not caps.supports_images:
+        run.degraded = True
+        _upsert_image_analysis(
+            session, asset, run,
+            status=AIShotAnalysisStatus.DEGRADED,
+            provider_name=provider_name, model=model,
+            prompt_version=settings.ai_prompt_version,
+            fingerprint=fingerprint, parsed=None, raw_excerpt=None,
+            confidence=None, input_summary=input_summary,
+            degraded_reason="provider_no_image_support", duration_ms=None,
+        )
+        _log_image_call(
+            session, run=run, asset=asset, provider_name=provider_name, model=model,
+            attempt=1, status=AICallStatus.DEGRADED, usage=Usage(input_images=0),
+        )
+        run.analyzed_shots = 1
+        return _finish(AIRunStatus.PARTIAL)
+
+    attempt = 0
+    last_exc: ProviderError | None = None
+    outcome: AnalyzeOutcome | None = None
+    t0 = perf_counter()
+    while attempt <= settings.ai_retries:
+        attempt += 1
+        try:
+            cand = provider.analyze_frames(
+                [frame], prompt=prompt, schema=schema, timeout=settings.ai_timeout
+            )
+            if cand.degraded:
+                run.degraded = True
+                _log_image_call(
+                    session, run=run, asset=asset, provider_name=provider_name, model=model,
+                    attempt=attempt, status=AICallStatus.DEGRADED, usage=cand.usage,
+                    http_status=cand.http_status,
+                )
+                _upsert_image_analysis(
+                    session, asset, run,
+                    status=AIShotAnalysisStatus.DEGRADED,
+                    provider_name=provider_name, model=cand.model,
+                    prompt_version=settings.ai_prompt_version,
+                    fingerprint=fingerprint, parsed=None, raw_excerpt=None,
+                    confidence=None, input_summary=input_summary,
+                    degraded_reason=cand.degraded_reason, duration_ms=None,
+                )
+                run.analyzed_shots = 1
+                return _finish(AIRunStatus.PARTIAL)
+            validate_shot_analysis(cand.parsed or {})
+            outcome = cand
+            break
+        except (ProviderAuthError, ProviderNotConfigured) as exc:
+            _log_image_call(
+                session, run=run, asset=asset, provider_name=provider_name, model=model,
+                attempt=attempt, status=AICallStatus.FAILED,
+                http_status=exc.http_status, error_code=exc.error_code,
+            )
+            run.failed_shots = 1
+            return _finish(AIRunStatus.FAILED, f"{exc.error_code}: {exc}")
+        except ValidationError:
+            last_exc = ProviderBadResponse("schema_invalid")
+            _log_image_call(
+                session, run=run, asset=asset, provider_name=provider_name, model=model,
+                attempt=attempt, status=AICallStatus.FAILED, error_code="schema_invalid",
+            )
+        except ProviderError as exc:
+            last_exc = exc
+            _log_image_call(
+                session, run=run, asset=asset, provider_name=provider_name, model=model,
+                attempt=attempt, status=_call_status_for(exc),
+                http_status=exc.http_status, error_code=exc.error_code,
+            )
+        if attempt <= settings.ai_retries:
+            sleep(_backoff(attempt, getattr(last_exc, "retry_after", None)))
+
+    if outcome is None:
+        _upsert_image_analysis(
+            session, asset, run,
+            status=AIShotAnalysisStatus.FAILED,
+            provider_name=provider_name, model=model,
+            prompt_version=settings.ai_prompt_version,
+            fingerprint=fingerprint, parsed=None, raw_excerpt=None,
+            confidence=None, input_summary=input_summary,
+            degraded_reason=(last_exc.error_code if last_exc else "unknown"), duration_ms=None,
+        )
+        run.failed_shots = 1
+        return _finish(AIRunStatus.FAILED, last_exc.error_code if last_exc else "unknown")
+
+    duration_ms = int((perf_counter() - t0) * 1000)
+    est_cost = _estimate_cost(settings, outcome.usage)
+    _log_image_call(
+        session, run=run, asset=asset, provider_name=provider_name, model=outcome.model,
+        attempt=attempt, status=AICallStatus.SUCCESS, usage=outcome.usage,
+        est_cost=est_cost, duration_ms=duration_ms, http_status=outcome.http_status,
+    )
+    parsed = outcome.parsed or {}
+    _upsert_image_analysis(
+        session, asset, run,
+        status=AIShotAnalysisStatus.COMPLETED,
+        provider_name=provider_name, model=outcome.model,
+        prompt_version=settings.ai_prompt_version,
+        fingerprint=fingerprint, parsed=parsed, raw_excerpt=outcome.raw_excerpt,
+        confidence=parsed.get("confidence"), input_summary=input_summary,
+        degraded_reason=None, duration_ms=duration_ms,
+    )
+    run.analyzed_shots = 1
+    return _finish(AIRunStatus.COMPLETED)

@@ -6,6 +6,8 @@ import { useMemo, useState } from "react";
 
 import { ApiError } from "@/lib/api";
 import { useSemanticSearch } from "@/lib/hooks";
+
+import { AssetSearchPanel } from "./AssetSearchPanel";
 import {
   EMPTY_SEARCH_FORM,
   SORT_LABELS,
@@ -47,6 +49,8 @@ export function SemanticSearchView({
   selectedShotId: number | null;
 }) {
   const [form, setForm] = useState<SearchFormState>(initialForm);
+  // P2a：检索目标 Tab（镜头=既有链路零改动；视频/图片=素材级检索面板）
+  const [target, setTarget] = useState<"shots" | "video" | "image">("shots");
   const [filtersOpen, setFiltersOpen] = useState(false);
   // 已保存搜索默认收起，不抢占结果区首屏
   const [savedOpen, setSavedOpen] = useState(false);
@@ -134,8 +138,46 @@ export function SemanticSearchView({
     });
   };
 
+  const targetTabs = (
+    <div className="flex gap-1" role="tablist" aria-label="检索目标" data-testid="search-target-tabs">
+      {(
+        [
+          { key: "shots", label: "镜头" },
+          { key: "video", label: "整条视频" },
+          { key: "image", label: "图片" },
+        ] as const
+      ).map((t) => (
+        <button
+          key={t.key}
+          type="button"
+          role="tab"
+          aria-selected={target === t.key}
+          data-testid={`search-target-${t.key}`}
+          onClick={() => setTarget(t.key)}
+          className={
+            target === t.key
+              ? "rounded-full border border-brand bg-brand/10 px-3 py-1 text-xs font-medium text-brand"
+              : "rounded-full border border-gray-300 px-3 py-1 text-xs text-gray-600 hover:bg-gray-50"
+          }
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (target !== "shots") {
+    return (
+      <div className="space-y-3">
+        {targetTabs}
+        <AssetSearchPanel key={target} mediaKind={target} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
+      {targetTabs}
       <SearchBar
         value={form.query}
         onChange={(v) => patch({ query: v })}

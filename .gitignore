@@ -62,6 +62,7 @@ e2e/test-results/
 .pma_e2e_state.json
 .pops_e2e_state.json
 .aap_e2e_state.json
+.aaps_e2e_state.json
 *.webp
 *.mp4
 *.mov

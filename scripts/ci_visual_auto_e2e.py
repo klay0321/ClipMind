@@ -142,12 +142,77 @@ def wait_visual_suggestion(asset_id, *, present=True, deadline_s=240):
         if bool(last) == present:
             return last
         time.sleep(3)
+    # 失败诊断：嵌入/候选/参考向量状态（无敏感内容）
+    diag = psql(
+        "SELECT status, source_sha256 IS NOT NULL, candidates_ref_revision IS NOT NULL "
+        f"FROM visual_media_embedding WHERE target_type='asset' AND target_id={asset_id}"
+    )
+    refs = psql(
+        "SELECT count(*) FROM visual_media_embedding "
+        "WHERE target_type='reference' AND status='completed'"
+    )
+    cands = psql(
+        "SELECT count(*) FROM visual_product_candidate "
+        f"WHERE target_type='asset' AND target_id={asset_id}"
+    )
     print(
         f"E2E FAIL: asset {asset_id} 视觉候选 present={present} 未在 "
-        f"{deadline_s}s 内满足（当前 {last}）",
+        f"{deadline_s}s 内满足（当前 {last}；emb=[{diag}] ref_emb={refs} "
+        f"cand_rows={cands}）",
         file=sys.stderr,
     )
     sys.exit(1)
+
+
+def wait_asset_embedding(asset_id, deadline_s=240):
+    """等真实自动链算得该素材的视觉嵌入（证明 海报→钩子→索引 链路通）。"""
+    deadline = time.time() + deadline_s
+    rescan_at = 0.0
+    sd_id = psql(f"SELECT source_directory_id FROM asset WHERE id={asset_id}")
+    while time.time() < deadline:
+        row = psql(
+            "SELECT status FROM visual_media_embedding "
+            f"WHERE target_type='asset' AND target_id={asset_id} LIMIT 1"
+        )
+        if row == "completed":
+            return
+        if time.time() >= rescan_at:  # scan 尾 sweep 兜底（钩子丢失时）
+            _req("POST", f"/api/source-directories/{sd_id}/scan")
+            rescan_at = time.time() + 45
+        time.sleep(3)
+    print(f"E2E FAIL: asset {asset_id} 视觉嵌入未在 {deadline_s}s 内完成", file=sys.stderr)
+    sys.exit(1)
+
+
+def implant_marker_poster(asset_id):
+    """把带族标记的 PNG 植入 data 卷并指为该素材海报。
+
+    真实海报是 ffmpeg 转码副本，必然剥掉 fake 字节标记——fake E2E 只验
+    管线（链路/决策/落库/守卫），视觉语义相似度由真实验收（local SigLIP）
+    覆盖。植入后清 sha 与水位，触发重嵌入+候选重算。
+    """
+    import base64 as _b64
+
+    png_b64 = _b64.b64encode(make_png(90, 90, 90, TOKEN, salt="implant")).decode()
+    out = subprocess.run(
+        ["docker", "compose", "exec", "-T", "api", "sh", "-c",
+         f"mkdir -p /app/data/assets/{asset_id} && echo '{png_b64}' | base64 -d "
+         f"> /app/data/assets/{asset_id}/vafake.png"],
+        capture_output=True, text=True, check=False,
+    )
+    if out.returncode != 0:
+        print(f"E2E FAIL: 植入标记海报失败: {out.stderr[:200]}", file=sys.stderr)
+        sys.exit(1)
+    psql(
+        f"UPDATE asset SET poster_path='assets/{asset_id}/vafake.png' "
+        f"WHERE id={asset_id}"
+    )
+    # 清 sha 强制重嵌入 + 清水位强制候选重算（sweep stale 路径）
+    psql(
+        "UPDATE visual_media_embedding SET source_sha256=NULL, "
+        "candidates_ref_revision=NULL "
+        f"WHERE target_type='asset' AND target_id={asset_id}"
+    )
 
 
 def run_full():
@@ -165,11 +230,17 @@ def run_full():
     upload_ref(fid, TOKEN, "front")
     upload_ref(fid, TOKEN, "left")
 
-    # 2) 同族图片素材走全自动链（upload→扫描→海报→视觉嵌入→候选）
+    # 2) 图片素材走全自动链（upload→扫描→海报→钩子→视觉嵌入）——链路证明
     _sd, name = upload_asset_image(TOKEN)
     asset_id = wait_asset(name)
+    wait_asset_embedding(asset_id)
+    print("VISAUTO_PIPELINE_OK")
 
-    # 3) 视觉候选出现在建议里（score/candidate_id 齐备）
+    # 3) 植入带族标记的海报（真实海报经 ffmpeg 转码必剥字节标记；fake E2E
+    #    只验管线与决策落库，视觉语义由真实验收覆盖）→ sweep 重算出候选
+    implant_marker_poster(asset_id)
+    sd_id = psql(f"SELECT source_directory_id FROM asset WHERE id={asset_id}")
+    jreq("POST", f"/api/source-directories/{sd_id}/scan", expect=(200, 201, 202, 409))
     visual = wait_visual_suggestion(asset_id, present=True)
     top = visual[0]
     check(top["family_id"] == fid, f"候选产品错位: {top}")

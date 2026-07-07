@@ -52,6 +52,7 @@ import type {
   SourceDirectoryCreate,
   SuggestionsResponse,
   TagDict,
+  VisualSearchOut,
 } from "./types";
 import type {
   BatchMembershipResult,
@@ -1627,6 +1628,26 @@ export const api = {
     return http<ProductSuggestion[]>(
       `/product-media/suggestions?target_type=${targetType}&target_id=${targetId}`,
     );
+  },
+  async searchByImage(file: File, kind: string): Promise<VisualSearchOut> {
+    const fd = new FormData();
+    fd.append("file", file);
+    // 不手动设 Content-Type，浏览器自动带 multipart boundary
+    const res = await fetch(`${BASE}/search/by-image?kind=${kind}`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const body = await res.json();
+        detail = body?.detail ?? detail;
+      } catch {
+        // 忽略非 JSON 错误体
+      }
+      throw new ApiError(res.status, typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
+    return (await res.json()) as VisualSearchOut;
   },
   pmDismissVisualCandidate(candidateId: number): Promise<{ id: number; status: string }> {
     return http<{ id: number; status: string }>(

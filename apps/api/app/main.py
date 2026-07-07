@@ -41,6 +41,7 @@ from app.routers import (
     uploads,
     usage_review,
     visual_experiments,
+    visual_search,
 )
 
 settings = get_settings()
@@ -101,5 +102,6 @@ app.include_router(legacy_evidence.evidence_router, prefix="/api")
 app.include_router(usage_review.router, prefix="/api")
 # PR-F 产品视觉识别实验（默认关闭；候选 ≠ 确认，零自动绑定）
 app.include_router(visual_experiments.router, prefix="/api")
+app.include_router(visual_search.router, prefix="/api")
 # PM 产品素材工作台（人工确认 = 正式事实；候选绝不自动写入）
 app.include_router(product_media.router, prefix="/api")

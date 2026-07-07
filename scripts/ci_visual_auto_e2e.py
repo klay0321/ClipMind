@@ -296,6 +296,21 @@ def run_full():
           f"dismissed 组合复活（pending={pending}, dismissed={dismissed}）")
     print("VISAUTO_NO_RESURRECT_OK")
 
+    # 6.5) IMG-SEARCH：以图搜图命中该素材（同族查询图 → 库内向量相似检索）
+    boundary = uuid.uuid4().hex
+    qimg = make_png(90, 90, 90, TOKEN, salt="imgsearch")
+    body = (
+        f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
+        f"filename=\"q.png\"\r\nContent-Type: image/png\r\n\r\n"
+    ).encode() + qimg + f"\r\n--{boundary}--\r\n".encode()
+    res = jreq("POST", "/api/search/by-image?kind=asset", raw=body,
+               content_type=f"multipart/form-data; boundary={boundary}")
+    top_hits = [h for h in res["hits"] if h["kind"] == "asset"]
+    check(top_hits and top_hits[0]["asset_id"] == asset_id,
+          f"以图搜图未把植入素材排第一: {top_hits[:3]}")
+    check(top_hits[0]["score"] > 0.99, f"同族相似度异常: {top_hits[0]}")
+    print("VISAUTO_IMAGE_SEARCH_OK")
+
     # 7) 清理本脚本的产品目录数据：PR-F persist 断言"重启前后实验候选顺序
     #    一致"（全库 family 扫描），保留 VAE2E 产品会改变其候选池。素材的
     #    嵌入行保留（无 FK 不级联），供 check-persist 验证跨重启持久化。

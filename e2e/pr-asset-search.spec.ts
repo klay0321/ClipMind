@@ -24,6 +24,10 @@ test.describe.serial("P2a 素材级搜索 UI", () => {
     // 切整条视频 Tab
     await page.getByTestId("search-target-video").click();
     await expect(page.getByTestId("asset-search-video")).toBeVisible();
+    // IMG-SEARCH：以图搜图 Tab 与面板可达
+    await page.getByTestId("search-target-visual").click();
+    await expect(page.getByTestId("visual-search-panel")).toBeVisible();
+    await expect(page.getByTestId("visual-search-submit")).toBeDisabled();
     console.log("AAPS_UI_E2E_OK");
   });
 

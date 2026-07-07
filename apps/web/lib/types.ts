@@ -2939,3 +2939,24 @@ export interface AssetSearchResponse {
   embedding_status: string;
   elapsed_ms: number;
 }
+
+// ===== IMG-SEARCH 以图搜图 =====
+export interface VisualSearchHit {
+  kind: string; // asset | shot
+  score: number;
+  asset_id?: number | null;
+  shot_id?: number | null;
+  filename?: string | null;
+  media_kind?: string | null;
+  sequence_no?: number | null;
+  start_time?: number | null;
+  end_time?: number | null;
+  is_historical?: boolean | null;
+}
+
+export interface VisualSearchOut {
+  provider: string;
+  model: string;
+  total_indexed: number;
+  hits: VisualSearchHit[];
+}

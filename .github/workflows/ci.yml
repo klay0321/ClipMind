@@ -331,7 +331,7 @@ jobs:
           done
           # VIS-AUTO：自动视觉候选（同窗口：参考图→素材→自动候选→dismiss→fake 守卫）
           python scripts/ci_visual_auto_e2e.py --mode full | tee visauto.log
-          for flag in VISAUTO_PIPELINE_OK VISAUTO_CANDIDATE_OK VISAUTO_FAKE_GUARD_OK                       VISAUTO_DISMISS_OK VISAUTO_NO_RESURRECT_OK VISAUTO_API_E2E_OK; do
+          for flag in VISAUTO_PIPELINE_OK VISAUTO_CANDIDATE_OK VISAUTO_FAKE_GUARD_OK                       VISAUTO_DISMISS_OK VISAUTO_NO_RESURRECT_OK VISAUTO_IMAGE_SEARCH_OK VISAUTO_API_E2E_OK; do
             grep -q "$flag" visauto.log || { echo "缺少标志 $flag"; exit 1; }
           done
           sed -i 's/^AUTO_ANALYZE_ON_SCAN=true/AUTO_ANALYZE_ON_SCAN=false/; s/^AUTO_AI_AFTER_SHOTS=true/AUTO_AI_AFTER_SHOTS=false/; s/^VISUAL_AUTO_CANDIDATES=true/VISUAL_AUTO_CANDIDATES=false/' .env

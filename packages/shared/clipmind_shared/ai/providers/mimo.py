@@ -29,10 +29,21 @@ from clipmind_shared.ai.providers.base import (
 )
 
 _USER_HINT = "请仅根据下列关键帧画面，输出符合给定 JSON Schema 的结构化 JSON。"
+_VIDEO_USER_HINT = (
+    "请仅根据这段视频片段（含动作与时序），输出符合给定 JSON Schema 的结构化 JSON；"
+    "action 字段应描述完整动作过程而非单帧姿态。"
+)
 
 
 def _data_url(path: str) -> str:
     mime = mimetypes.guess_type(path)[0] or "image/webp"
+    with open(path, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode("ascii")
+    return f"data:{mime};base64,{b64}"
+
+
+def _video_data_url(path: str) -> str:
+    mime = mimetypes.guess_type(path)[0] or "video/mp4"
     with open(path, "rb") as f:
         b64 = base64.b64encode(f.read()).decode("ascii")
     return f"data:{mime};base64,{b64}"
@@ -65,6 +76,9 @@ class MiMoProvider:
         # 其它（如 "api-key"）→ "<header>: <key>"（类 Azure 风格，MiMo token-plan 端点用此）
         api_key_header: str = "",
         max_completion_tokens: int = 0,
+        # P2a.1：视频输入（官方确认 mimo-v2.5 支持 video_url/base64；fps 0.1-10）
+        supports_video: bool = True,
+        video_fps: float = 2.0,
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         self._base_url = (base_url or "").rstrip("/")
@@ -76,6 +90,8 @@ class MiMoProvider:
         self._context_window = context_window
         self._api_key_header = api_key_header or ""
         self._max_completion_tokens = max_completion_tokens
+        self._supports_video = supports_video
+        self._video_fps = video_fps
         self._transport = transport
 
     def _auth_headers(self) -> dict[str, str]:
@@ -86,7 +102,7 @@ class MiMoProvider:
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
             supports_images=self._supports_images,
-            supports_video=False,
+            supports_video=self._supports_video,
             supports_structured_output=True,
             supports_embeddings=False,
             max_images_per_call=self._max_images,
@@ -146,6 +162,59 @@ class MiMoProvider:
         text = _extract_text(resp)
         parsed = _parse_json(text)
         usage = _usage(resp, used)
+        model = _safe_model(resp) or self._model
+        return AnalyzeOutcome(
+            parsed=parsed,
+            raw_excerpt=text[:512],
+            usage=usage,
+            model=model,
+            http_status=resp.status_code,
+        )
+
+    def analyze_video(
+        self,
+        video_path: str,
+        *,
+        prompt: str,
+        schema: dict,
+        timeout: float | None = None,
+    ) -> AnalyzeOutcome:
+        """P2a.1 视频输入：整段代理视频（base64 data url）+ fps 抽帧参数。
+
+        相比多关键帧，模型可理解动作/时序/运镜。调用方负责大小守卫
+        （官方限制 base64 ≤50MB）与不支持时的关键帧回退。
+        """
+        content: list[dict] = [
+            {"type": "text", "text": _VIDEO_USER_HINT},
+            {
+                "type": "video_url",
+                "video_url": {"url": _video_data_url(video_path), "fps": self._video_fps},
+            },
+        ]
+        body: dict = {
+            "model": self._model,
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": content},
+            ],
+        }
+        if self._max_completion_tokens > 0:
+            body["max_completion_tokens"] = self._max_completion_tokens
+        url = f"{self._base_url}/chat/completions"
+        try:
+            with self._client() as client:
+                resp = client.post(url, json=body, timeout=timeout or self._timeout)
+        except httpx.TimeoutException as exc:
+            raise ProviderTimeoutError(str(exc), error_code="timeout") from exc
+        except httpx.HTTPError as exc:
+            raise ProviderUnavailable(str(exc)) from exc
+
+        _raise_for_status(resp)
+        text = _extract_text(resp)
+        parsed = _parse_json(text)
+        usage = _usage(resp, 0)
         model = _safe_model(resp) or self._model
         return AnalyzeOutcome(
             parsed=parsed,

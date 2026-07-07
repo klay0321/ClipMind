@@ -51,11 +51,16 @@ def get_provider(
     max_images: int = 8,
     api_key_header: str = "",
     max_completion_tokens: int = 0,
+    supports_video: bool = True,
+    video_fps: float = 2.0,
 ) -> VisualAnalysisProvider:
     """按名装配视觉分析 provider。"""
     key = (name or "").strip().lower()
     if key == "fake":
-        return FakeProvider(model=model or "fake-vision-1", max_images=max_images)
+        return FakeProvider(
+            model=model or "fake-vision-1", max_images=max_images,
+            supports_video=supports_video,
+        )
     if key == "mimo":
         # 惰性导入：仅在选用 mimo 时引入 httpx 依赖
         from clipmind_shared.ai.providers.mimo import MiMoProvider
@@ -68,5 +73,7 @@ def get_provider(
             max_images=max_images,
             api_key_header=api_key_header,
             max_completion_tokens=max_completion_tokens,
+            supports_video=supports_video,
+            video_fps=video_fps,
         )
     return NotConfiguredVisualProvider()

@@ -72,7 +72,24 @@ def build_provider(settings: WorkerSettings) -> VisualAnalysisProvider:
         max_images=settings.ai_max_images,
         api_key_header=settings.ai_api_key_header,
         max_completion_tokens=settings.ai_max_completion_tokens,
+        video_fps=settings.ai_video_fps,
     )
+
+
+def _resolve_shot_video(root_real: str, shot: Shot, settings: WorkerSettings) -> str | None:
+    """P2a.1：视频输入模式下解析镜头代理视频（缺失/越界/超限 → None 回退关键帧）。"""
+    if not shot.proxy_path:
+        return None
+    parts = [p for p in shot.proxy_path.split("/") if p]
+    try:
+        abspath = safe_join_within_root(root_real, *parts)
+    except PathSecurityError:
+        return None
+    if not os.path.isfile(abspath):
+        return None
+    if os.path.getsize(abspath) > settings.ai_video_max_mb * 1024 * 1024:
+        return None
+    return abspath
 
 
 def _shot_relpaths(shot: Shot) -> list[str]:
@@ -204,15 +221,35 @@ def analyze_shot(
 ) -> str:
     """分析单个镜头，返回 completed|skipped|degraded|failed。鉴权/未配置抛出（致命）。"""
     frames = _resolve_frames(root_real, shot, settings.ai_max_images)
-    fingerprint = compute_fingerprint(
-        frame_hashes=[f.sha256 or "" for f in frames],
-        provider=provider_name,
-        model=model or "",
-        prompt_version=settings.ai_prompt_version,
-        schema_version=AI_SCHEMA_VERSION,
-        params={"max_images": settings.ai_max_images},
-    )
-    input_summary = {"frames": len(frames)}
+    # P2a.1：视频输入模式（provider 支持 + 代理可用），否则回退关键帧
+    video_abs: str | None = None
+    if (
+        settings.ai_input_mode == "video"
+        and getattr(provider, "analyze_video", None) is not None
+        and provider.capabilities().supports_video
+    ):
+        video_abs = _resolve_shot_video(root_real, shot, settings)
+    use_video = video_abs is not None
+    if use_video:
+        fingerprint = compute_fingerprint(
+            frame_hashes=[hash_file(video_abs)],
+            provider=provider_name,
+            model=model or "",
+            prompt_version=settings.ai_prompt_version,
+            schema_version=AI_SCHEMA_VERSION,
+            params={"input_mode": "video", "fps": settings.ai_video_fps},
+        )
+        input_summary = {"frames": 0, "source": "proxy_video", "fps": settings.ai_video_fps}
+    else:
+        fingerprint = compute_fingerprint(
+            frame_hashes=[f.sha256 or "" for f in frames],
+            provider=provider_name,
+            model=model or "",
+            prompt_version=settings.ai_prompt_version,
+            schema_version=AI_SCHEMA_VERSION,
+            params={"max_images": settings.ai_max_images},
+        )
+        input_summary = {"frames": len(frames)}
 
     existing = session.execute(
         select(AIShotAnalysis).where(AIShotAnalysis.shot_id == shot.id)
@@ -250,9 +287,14 @@ def analyze_shot(
     while attempt <= settings.ai_retries:
         attempt += 1
         try:
-            cand = provider.analyze_frames(
-                frames, prompt=prompt, schema=schema, timeout=settings.ai_timeout
-            )
+            if use_video:
+                cand = provider.analyze_video(
+                    video_abs, prompt=prompt, schema=schema, timeout=settings.ai_timeout
+                )
+            else:
+                cand = provider.analyze_frames(
+                    frames, prompt=prompt, schema=schema, timeout=settings.ai_timeout
+                )
             if cand.degraded:
                 run.degraded = True
                 _log_call(

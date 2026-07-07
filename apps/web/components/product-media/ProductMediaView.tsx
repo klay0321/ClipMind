@@ -8,6 +8,7 @@ import { GroupedReview } from "@/components/product-media/GroupedReview";
 import { ProductSectionTabs } from "@/components/products/ProductSectionTabs";
 import {
   usePmFamilyItems,
+  useDismissVisualCandidate,
   usePmMutations,
   usePmSuggestions,
   usePmSummary,
@@ -54,17 +55,19 @@ function ItemThumb({ it }: { it: ProductMediaItem }) {
   return <div className="h-20 w-full rounded-t bg-gray-100" />;
 }
 
-/** 未标注队列卡片（多选 + 候选建议）。 */
+/** 未标注队列卡片（多选 + 候选建议 + 视觉候选拒绝）。 */
 function UnassignedCard({
   it,
   selected,
   onToggle,
   onPickSuggestion,
+  onDismissVisual,
 }: {
   it: ProductMediaItem;
   selected: boolean;
   onToggle: () => void;
   onPickSuggestion: (familyId: number, origin: string) => void;
+  onDismissVisual?: (candidateId: number) => void;
 }) {
   const targetId = it.type === "shot" ? it.shot_id : it.asset_id;
   const targetType = it.type === "shot" ? "shot" : "asset";
@@ -111,18 +114,42 @@ function UnassignedCard({
           <div className="space-y-1 rounded bg-gray-50 p-1.5" data-testid="suggestion-box">
             {sugg.isLoading ? <p className="text-gray-400">加载中…</p> : null}
             {(sugg.data ?? []).map((s) => (
-              <button
+              <div
                 key={`${s.family_id}-${s.suggestion_type}`}
-                type="button"
-                onClick={() => onPickSuggestion(s.family_id, s.origin_on_confirm)}
-                className="block w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-left hover:border-brand"
-                data-testid={`suggestion-${s.family_id}`}
+                className="flex items-stretch gap-1"
               >
-                <span className="font-medium text-gray-800">{s.family_name}</span>
-                <span className="ml-1 text-gray-400">
-                  {s.matched_in}命中「{s.matched_text}」
-                </span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => onPickSuggestion(s.family_id, s.origin_on_confirm)}
+                  className="block w-full rounded border border-gray-200 bg-white px-1.5 py-1 text-left hover:border-brand"
+                  data-testid={`suggestion-${s.family_id}`}
+                >
+                  <span className="font-medium text-gray-800">{s.family_name}</span>
+                  {s.suggestion_type === "visual" ? (
+                    <span
+                      className="ml-1 rounded bg-purple-50 px-1 py-0.5 text-[10px] font-medium text-purple-700"
+                      data-testid={`visual-badge-${s.family_id}`}
+                    >
+                      {s.matched_text}
+                    </span>
+                  ) : (
+                    <span className="ml-1 text-gray-400">
+                      {s.matched_in}命中「{s.matched_text}」
+                    </span>
+                  )}
+                </button>
+                {s.suggestion_type === "visual" && s.candidate_id != null ? (
+                  <button
+                    type="button"
+                    title="不是该产品（拒绝后不再提示此组合）"
+                    onClick={() => onDismissVisual?.(s.candidate_id as number)}
+                    className="shrink-0 rounded border border-gray-200 bg-white px-1.5 text-gray-400 hover:border-red-300 hover:text-red-500"
+                    data-testid={`dismiss-visual-${s.family_id}`}
+                  >
+                    ✕
+                  </button>
+                ) : null}
+              </div>
             ))}
             {sugg.data && sugg.data.length === 0 ? (
               <p className="text-gray-400">无确定性候选（可手动选择产品）</p>
@@ -138,6 +165,7 @@ export function ProductMediaView() {
   const params = useSearchParams();
   const summary = usePmSummary();
   const { create, update, remove, bulk } = usePmMutations();
+  const dismissVisual = useDismissVisualCandidate();
   const [familyId, setFamilyId] = useState<number | null>(() => {
     const f = params.get("family");
     return f ? Number(f) : null;
@@ -465,6 +493,7 @@ export function ProductMediaView() {
                   origin,
                 });
               }}
+              onDismissVisual={(cid) => dismissVisual.mutate(cid)}
             />
           ))}
         </div>

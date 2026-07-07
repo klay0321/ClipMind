@@ -95,6 +95,24 @@ class WorkerSettings(BaseSettings):
     # beat 定时扫描全部源目录的间隔（分钟）；<=0 禁用
     scan_interval_minutes: int = 0
 
+    # ---- VIS-AUTO 视觉嵌入与自动产品候选（search 队列）----
+    # fake（CI/测试确定性向量）| local（embedder /visual-embeddings，SigLIP 本地推理）
+    visual_embedding_provider: str = "fake"
+    visual_embedder_url: str = "http://embedder:8100"
+    visual_model_id: str = "google/siglip-base-patch16-224"
+    visual_device: str = "cpu"
+    visual_batch_size: int = 8
+    # 自动候选开关（默认关；开后新素材海报/镜头关键帧算完向量即比对参考图出候选）
+    visual_auto_candidates: bool = False
+    # 判定阈值（与 API 实验链同名同默认；thresholds 快照进候选行）
+    visual_top_k: int = 5
+    visual_min_score: float = 0.55
+    visual_min_margin: float = 0.05
+    visual_confusion_margin: float = 0.10
+    visual_min_references: int = 2
+    # sweep 单轮补队上限（防洪峰）
+    visual_sweep_batch: int = 200
+
     # ---- PR-04 Embedding（search 队列；MiMo 无 embedding，故走独立 provider）----
     # ""=未配置（检索文档仅构建文本、不嵌入，标 degraded）| fake（确定性，CI/测试）
     # | openai_compatible（本地 embedder 微服务或外部 OpenAI 兼容 /embeddings）

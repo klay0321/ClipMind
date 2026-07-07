@@ -314,8 +314,8 @@ jobs:
           API_BASE: http://localhost:8000
         run: |
           set -o pipefail
-          printf 'AUTO_ANALYZE_ON_SCAN=true\nAUTO_AI_AFTER_SHOTS=true\n' >> .env
-          docker compose up -d api worker media-worker ai-worker
+          printf 'AUTO_ANALYZE_ON_SCAN=true\nAUTO_AI_AFTER_SHOTS=true\nVISUAL_AUTO_CANDIDATES=true\n' >> .env
+          docker compose up -d api worker media-worker ai-worker search-worker
           for i in $(seq 1 40); do
             [ "$(docker compose ps api --format '{{.Health}}')" = "healthy" ] && break
             sleep 3
@@ -329,8 +329,13 @@ jobs:
           for flag in AAPS_IMAGE_DOC_OK AAPS_IMAGE_SEARCH_OK AAPS_VIDEO_DOC_OK                       AAPS_VIDEO_SEARCH_OK AAPS_KIND_FILTER_OK AAPS_API_E2E_OK; do
             grep -q "$flag" aaps.log || { echo "缺少标志 $flag"; exit 1; }
           done
-          sed -i 's/^AUTO_ANALYZE_ON_SCAN=true/AUTO_ANALYZE_ON_SCAN=false/; s/^AUTO_AI_AFTER_SHOTS=true/AUTO_AI_AFTER_SHOTS=false/' .env
-          docker compose up -d api worker media-worker ai-worker
+          # VIS-AUTO：自动视觉候选（同窗口：参考图→素材→自动候选→dismiss→fake 守卫）
+          python scripts/ci_visual_auto_e2e.py --mode full | tee visauto.log
+          for flag in VISAUTO_PIPELINE_OK VISAUTO_CANDIDATE_OK VISAUTO_FAKE_GUARD_OK                       VISAUTO_DISMISS_OK VISAUTO_NO_RESURRECT_OK VISAUTO_API_E2E_OK; do
+            grep -q "$flag" visauto.log || { echo "缺少标志 $flag"; exit 1; }
+          done
+          sed -i 's/^AUTO_ANALYZE_ON_SCAN=true/AUTO_ANALYZE_ON_SCAN=false/; s/^AUTO_AI_AFTER_SHOTS=true/AUTO_AI_AFTER_SHOTS=false/; s/^VISUAL_AUTO_CANDIDATES=true/VISUAL_AUTO_CANDIDATES=false/' .env
+          docker compose up -d api worker media-worker ai-worker search-worker
           for i in $(seq 1 40); do
             [ "$(docker compose ps api --format '{{.Health}}')" = "healthy" ] && break
             sleep 3
@@ -432,6 +437,8 @@ jobs:
           grep -q "PRODUCT_MEDIA_RESTART_PERSIST_OK" pma_persist.log
           python scripts/ci_product_media_ops_e2e.py --mode check-persist | tee pops_persist.log
           grep -q "POPS_RESTART_PERSIST_OK" pops_persist.log
+          python scripts/ci_visual_auto_e2e.py --mode check-persist | tee visauto_persist.log
+          grep -q "VISAUTO_PERSIST_OK" visauto_persist.log
           python scripts/ci_auto_pipeline_e2e.py --mode check-persist | tee aap_persist.log
           grep -q "AAP_RESTART_PERSIST_OK" aap_persist.log
           python scripts/ci_asset_search_e2e.py --mode check-persist | tee aaps_persist.log

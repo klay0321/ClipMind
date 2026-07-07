@@ -45,6 +45,9 @@ TASK_REBUILD_ASSET_SEARCH_DOCS = "clipmind.rebuild_asset_search_docs"
 TASK_REBUILD_ASSET_LEVEL_DOC = "clipmind.rebuild_asset_level_doc"
 TASK_SWEEP_SEARCH_DOCS = "clipmind.sweep_search_docs"
 TASK_BACKFILL_SEARCH_DOCS = "clipmind.backfill_search_docs"
+# VIS-AUTO 视觉嵌入与自动产品候选（search 队列）
+TASK_VISUAL_INDEX_TARGET = "clipmind.visual_index_target"
+TASK_SWEEP_VISUAL_INDEX = "clipmind.sweep_visual_index"
 # PR-05 Gate B 脚本剪辑清单导出（export 队列）；PR-06B 起按 export_format 多格式输出
 TASK_EXPORT_SCRIPT_CSV = "clipmind.export_script_csv"
 # PR-06B 多镜头打包导出（media 队列：裁剪各 clip → 打包 ZIP）

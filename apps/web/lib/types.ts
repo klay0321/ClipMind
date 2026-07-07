@@ -2845,10 +2845,12 @@ export interface ProductSuggestion {
   family_id: number;
   family_name: string;
   family_code: string;
-  suggestion_type: string;
+  suggestion_type: string;   // path | filename | alias | ai_text | visual
   matched_text: string;
   matched_in: string;
   origin_on_confirm: string;
+  score?: number | null;         // 仅 visual：相似度
+  candidate_id?: number | null;  // 仅 visual：候选行 id（拒绝用）
 }
 
 export interface PMBulkResult {

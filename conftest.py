@@ -85,7 +85,10 @@ def _truncate():
                 # 无 FK 不会被 CASCADE 级联，若不显式清空会残留旧行并撞上
                 # RESTART IDENTITY 复用的 family/variant/sku id（跨测试假冲突）。
                 # 0018：历史证据表显式入清单（event → evidence → run → rule 依赖序）
-                "TRUNCATE legacy_usage_evidence_event, legacy_usage_evidence, "
+                # 0022：视觉表显式入清单——visual_media_embedding 无 FK 不被
+                # CASCADE 级联，残留行会撞上 RESTART IDENTITY 复用的 reference id
+                "TRUNCATE visual_product_candidate, visual_media_embedding, "
+                "legacy_usage_evidence_event, legacy_usage_evidence, "
                 "legacy_usage_import_run, legacy_usage_rule, "
                 # 0017：身份表显式入清单（位置/指纹任务）
                 "asset_location, fingerprint_job, "

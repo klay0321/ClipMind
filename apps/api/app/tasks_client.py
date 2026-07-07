@@ -86,6 +86,16 @@ def enqueue_generate_poster(asset_id: int) -> str:
     return result.id
 
 
+def enqueue_rebuild_asset_level_doc(asset_id: int) -> str:
+    """入队素材级检索文档重建（search 队列；图片审核后让 effective 生效）。"""
+    from clipmind_shared.constants import QUEUE_SEARCH, TASK_REBUILD_ASSET_LEVEL_DOC
+
+    result = celery_client.send_task(
+        TASK_REBUILD_ASSET_LEVEL_DOC, args=[asset_id, True], queue=QUEUE_SEARCH
+    )
+    return result.id
+
+
 def enqueue_visual_index_target(target_type: str, target_id: int) -> str:
     """入队视觉嵌入索引（search 队列，VIS-AUTO）。"""
     from clipmind_shared.constants import QUEUE_SEARCH, TASK_VISUAL_INDEX_TARGET

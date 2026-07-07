@@ -94,9 +94,30 @@ def _exclude(doc: AssetSearchDocument) -> str:
 
 
 def _image_result(session: Session, asset: Asset, doc: AssetSearchDocument) -> dict | None:
+    """图片有效结果（IMG-REVIEW：人工确认/修改优先；驳回/无法判断 → 不可搜）。
+
+    与 apps/api image_review_service.compute_effective 语义一致（sync 版）。
+    """
+    from clipmind_shared.models import AssetImageReviewState
+    from clipmind_shared.models.enums import ReviewStatus
+
     ai = session.execute(
         select(AssetImageAnalysis).where(AssetImageAnalysis.asset_id == asset.id)
     ).scalar_one_or_none()
+    review = session.execute(
+        select(AssetImageReviewState).where(AssetImageReviewState.asset_id == asset.id)
+    ).scalar_one_or_none()
+    if review is not None:
+        if (
+            review.review_status in (ReviewStatus.CONFIRMED, ReviewStatus.MODIFIED)
+            and review.confirmed_result
+        ):
+            doc.effective_source = "human"
+            doc.source_image_analysis_id = review.source_image_analysis_id
+            doc.result_schema_version = review.result_schema_version
+            return dict(review.confirmed_result)
+        if review.review_status in (ReviewStatus.REJECTED, ReviewStatus.UNABLE):
+            return None  # 驳回/无法判断 → 上层 excluded，不进搜索
     if ai is None or ai.status != AIShotAnalysisStatus.COMPLETED or not ai.parsed_result:
         return None
     doc.effective_source = "ai"

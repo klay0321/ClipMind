@@ -126,6 +126,7 @@ from clipmind_shared.models.search import (
     AssetSearchDocument,
     ShotSearchDocument,
 )
+from clipmind_shared.models.review import AssetImageReviewState
 from clipmind_shared.models.shot import Shot
 from clipmind_shared.models.source_directory import SourceDirectory
 from clipmind_shared.models.visual import (
@@ -145,6 +146,7 @@ __all__ = [
     "AIAnalysisRun",
     "AIShotAnalysis",
     "AssetImageAnalysis",
+    "AssetImageReviewState",
     "AICallLog",
     "AssetStatus",
     "ScanStatus",

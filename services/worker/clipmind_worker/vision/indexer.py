@@ -162,9 +162,9 @@ def load_family_ref_vectors(
 ) -> tuple[list[FamilyRefs], str]:
     """从持久化嵌入行装配各产品参考向量集 + 当前参考集摘要（ref_revision）。
 
-    摘要覆盖"合格参考图全集"（含尚无嵌入的），因此参考图先入库后算向量的
-    过程中 revision 保持不变，向量补齐后 sweep 以 revision 变化触发重算的
-    语义仍成立（补齐本身通过 candidates_ref_revision=NULL 触发）。
+    摘要按（合格参考图, 其向量是否已算得）计算：素材候选先于参考向量算完
+    （竞态）时，参考向量补齐会使 revision 变化 → 素材行水位落后 → sweep
+    自动重算——否则先算完的素材将永远停在 insufficient 的旧决策上。
     """
     ident = provider.identity()
     fam_rows = session.execute(
@@ -227,11 +227,6 @@ def load_family_ref_vectors(
         by_family.setdefault(fid, []).append(r)
         ref_family[r.id] = fid
 
-    # 摘要：合格全集（id:sha256），与向量是否已算无关
-    revision = _revision_digest(
-        sorted(f"{r.id}:{r.sha256 or ''}" for r in refs if r.id in ref_family)
-    )
-
     emb_rows = {
         (e.target_id): e
         for e in session.execute(
@@ -244,6 +239,15 @@ def load_family_ref_vectors(
             )
         ).scalars()
     }
+
+    # 摘要 =（合格参考图, 内容 sha, 向量是否已算得）——向量补齐也算参考集变化
+    revision = _revision_digest(
+        sorted(
+            f"{r.id}:{r.sha256 or ''}:{int(r.id in emb_rows)}"
+            for r in refs
+            if r.id in ref_family
+        )
+    )
 
     out: list[FamilyRefs] = []
     for fid, fam_refs in sorted(by_family.items()):

@@ -170,9 +170,9 @@ services:
       dockerfile: infra/worker.Dockerfile
     <<: [*app-env, *default-logging]
     command: ["celery", "-A", "clipmind_worker.celery_app", "worker", "-Q", "search", "-c", "${SEARCH_WORKER_CONCURRENCY:-2}", "-l", "INFO"]
-    # VIS-AUTO：视觉嵌入读 data 卷派生图（不挂源目录）
+    # VIS-AUTO：视觉嵌入读 data 目录派生图（不挂源目录）
     volumes:
-      - clipmind-data:/app/data
+      - ${CLIPMIND_DATA_ROOT:-./clipmind-data}/data:/app/data
     depends_on:
       migrate:
         condition: service_completed_successfully

@@ -13,6 +13,7 @@ import struct
 import uuid
 import zlib
 
+from clipmind_shared.db.base import utcnow
 from clipmind_shared.models import (
     Asset,
     ProductFamily,
@@ -45,7 +46,7 @@ def _settings(data_dir: str, **over) -> WorkerSettings:
     return WorkerSettings(**base)
 
 
-def _png(token: str, salt: str = "") -> bytes:
+def _png(marker: str, salt: str = "") -> bytes:
     """合法 1×1 PNG + FAKE:<token>: 尾标（同 token → FakeProvider 同族向量）。"""
 
     def chunk(typ: bytes, data: bytes) -> bytes:
@@ -56,7 +57,7 @@ def _png(token: str, salt: str = "") -> bytes:
     ihdr = chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
     idat = chunk(b"IDAT", zlib.compress(b"\x00\x64\x64\x64"))
     iend = chunk(b"IEND", b"")
-    return sig + ihdr + idat + iend + f"FAKE:{token}:{salt}".encode()
+    return sig + ihdr + idat + iend + f"FAKE:{marker}:{salt}".encode()
 
 
 def _seed_family(session, *, approved: bool = True) -> ProductFamily:
@@ -73,12 +74,12 @@ def _seed_family(session, *, approved: bool = True) -> ProductFamily:
     return fam
 
 
-def _seed_ref(session, data_dir: str, family_id: int, *, token: str,
+def _seed_ref(session, data_dir: str, family_id: int, *, marker: str,
               angle: str = "front", salt: str = "") -> ProductReferenceAsset:
     rel = f"product_reference_assets/family/{family_id}/{uuid.uuid4().hex}.png"
     abs_path = os.path.join(data_dir, *rel.split("/"))
     os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-    content = _png(token, salt=salt or angle)
+    content = _png(marker, salt=salt or angle)
     with open(abs_path, "wb") as f:
         f.write(content)
     ref = ProductReferenceAsset(
@@ -91,7 +92,7 @@ def _seed_ref(session, data_dir: str, family_id: int, *, token: str,
     return ref
 
 
-def _seed_image_asset(session, data_dir: str, *, token: str) -> Asset:
+def _seed_image_asset(session, data_dir: str, *, marker: str) -> Asset:
     tag = uuid.uuid4().hex[:8]
     sd = SourceDirectory(
         name=f"va-{tag}", mount_path="/app/source", include_extensions=["jpg"],
@@ -103,8 +104,8 @@ def _seed_image_asset(session, data_dir: str, *, token: str) -> Asset:
         source_directory_id=sd.id, relative_path=f"{tag}.jpg",
         normalized_relative_path=f"{tag}.jpg", filename=f"{tag}.jpg", extension="jpg",
         file_size=10, media_kind="image", status=AssetStatus.INDEXED,
-        first_seen_at=__import__("clipmind_shared.db.base", fromlist=["utcnow"]).utcnow(),
-        last_seen_at=__import__("clipmind_shared.db.base", fromlist=["utcnow"]).utcnow(),
+        first_seen_at=utcnow(),
+        last_seen_at=utcnow(),
     )
     session.add(asset)
     session.commit()
@@ -112,7 +113,7 @@ def _seed_image_asset(session, data_dir: str, *, token: str) -> Asset:
     abs_path = os.path.join(data_dir, *rel.split("/"))
     os.makedirs(os.path.dirname(abs_path), exist_ok=True)
     with open(abs_path, "wb") as f:
-        f.write(_png(token, salt="poster"))
+        f.write(_png(marker, salt="poster"))
     asset.poster_path = rel
     session.commit()
     return asset
@@ -129,7 +130,7 @@ def _index_refs_and_load(session, settings, provider, refs):
 def test_embedding_persist_and_content_cache(session, tmp_path):
     settings = _settings(str(tmp_path))
     provider = build_visual_provider(settings)
-    asset = _seed_image_asset(session, str(tmp_path), token="cachetok")
+    asset = _seed_image_asset(session, str(tmp_path), marker="cachetok")
     emb, status = upsert_embedding(session, settings, provider, "asset", asset.id)
     assert status == "ok" and emb.status == "completed" and emb.dimension == 768
     session.commit()
@@ -143,13 +144,13 @@ def test_matching_reference_creates_pending_candidate(session, tmp_path):
     provider = build_visual_provider(settings)
     fam = _seed_family(session)
     refs = [
-        _seed_ref(session, str(tmp_path), fam.id, token="tokA", angle="front"),
-        _seed_ref(session, str(tmp_path), fam.id, token="tokA", angle="left"),
+        _seed_ref(session, str(tmp_path), fam.id, marker="tokA", angle="front"),
+        _seed_ref(session, str(tmp_path), fam.id, marker="tokA", angle="left"),
     ]
     families, revision = _index_refs_and_load(session, settings, provider, refs)
     assert [f.family_id for f in families] == [fam.id]
 
-    asset = _seed_image_asset(session, str(tmp_path), token="tokA")
+    asset = _seed_image_asset(session, str(tmp_path), marker="tokA")
     emb, _ = upsert_embedding(session, settings, provider, "asset", asset.id)
     result = refresh_candidates(
         session, settings, emb, families=families, revision=revision,
@@ -173,11 +174,11 @@ def test_unrelated_image_writes_watermark_but_no_candidate(session, tmp_path):
     provider = build_visual_provider(settings)
     fam = _seed_family(session)
     refs = [
-        _seed_ref(session, str(tmp_path), fam.id, token="tokB", angle="front"),
-        _seed_ref(session, str(tmp_path), fam.id, token="tokB", angle="left"),
+        _seed_ref(session, str(tmp_path), fam.id, marker="tokB", angle="front"),
+        _seed_ref(session, str(tmp_path), fam.id, marker="tokB", angle="left"),
     ]
     families, revision = _index_refs_and_load(session, settings, provider, refs)
-    asset = _seed_image_asset(session, str(tmp_path), token="totally-different")
+    asset = _seed_image_asset(session, str(tmp_path), marker="totally-different")
     emb, _ = upsert_embedding(session, settings, provider, "asset", asset.id)
     result = refresh_candidates(
         session, settings, emb, families=families, revision=revision,
@@ -199,11 +200,11 @@ def test_dismissed_combination_not_resurrected(session, tmp_path):
     provider = build_visual_provider(settings)
     fam = _seed_family(session)
     refs = [
-        _seed_ref(session, str(tmp_path), fam.id, token="tokC", angle="front"),
-        _seed_ref(session, str(tmp_path), fam.id, token="tokC", angle="left"),
+        _seed_ref(session, str(tmp_path), fam.id, marker="tokC", angle="front"),
+        _seed_ref(session, str(tmp_path), fam.id, marker="tokC", angle="left"),
     ]
     families, revision = _index_refs_and_load(session, settings, provider, refs)
-    asset = _seed_image_asset(session, str(tmp_path), token="tokC")
+    asset = _seed_image_asset(session, str(tmp_path), marker="tokC")
     emb, _ = upsert_embedding(session, settings, provider, "asset", asset.id)
     refresh_candidates(session, settings, emb, families=families, revision=revision,
                        confusion_pairs={})
@@ -235,11 +236,11 @@ def test_reference_change_marks_stale_in_sweep(session, tmp_path):
     provider = build_visual_provider(settings)
     fam = _seed_family(session)
     refs = [
-        _seed_ref(session, str(tmp_path), fam.id, token="tokD", angle="front"),
-        _seed_ref(session, str(tmp_path), fam.id, token="tokD", angle="left"),
+        _seed_ref(session, str(tmp_path), fam.id, marker="tokD", angle="front"),
+        _seed_ref(session, str(tmp_path), fam.id, marker="tokD", angle="left"),
     ]
     families, revision = _index_refs_and_load(session, settings, provider, refs)
-    asset = _seed_image_asset(session, str(tmp_path), token="tokD")
+    asset = _seed_image_asset(session, str(tmp_path), marker="tokD")
     emb, _ = upsert_embedding(session, settings, provider, "asset", asset.id)
     refresh_candidates(session, settings, emb, families=families, revision=revision,
                        confusion_pairs={})
@@ -249,7 +250,7 @@ def test_reference_change_marks_stale_in_sweep(session, tmp_path):
     assert ("asset", asset.id) not in plan0["stale_candidates"]  # 水位新鲜
 
     # 新参考图 → 参考集摘要变化 → 该嵌入行候选水位落后
-    _seed_ref(session, str(tmp_path), fam.id, token="tokD", angle="top")
+    _seed_ref(session, str(tmp_path), fam.id, marker="tokD", angle="top")
     plan1 = sweep_targets(session, settings, provider)
     assert ("asset", asset.id) in plan1["stale_candidates"]
 
@@ -262,11 +263,11 @@ def test_candidates_never_write_links(session, tmp_path):
     provider = build_visual_provider(settings)
     fam = _seed_family(session)
     refs = [
-        _seed_ref(session, str(tmp_path), fam.id, token="tokE", angle="front"),
-        _seed_ref(session, str(tmp_path), fam.id, token="tokE", angle="left"),
+        _seed_ref(session, str(tmp_path), fam.id, marker="tokE", angle="front"),
+        _seed_ref(session, str(tmp_path), fam.id, marker="tokE", angle="left"),
     ]
     families, revision = _index_refs_and_load(session, settings, provider, refs)
-    asset = _seed_image_asset(session, str(tmp_path), token="tokE")
+    asset = _seed_image_asset(session, str(tmp_path), marker="tokE")
     emb, _ = upsert_embedding(session, settings, provider, "asset", asset.id)
     refresh_candidates(session, settings, emb, families=families, revision=revision,
                        confusion_pairs={})
@@ -277,3 +278,35 @@ def test_candidates_never_write_links(session, tmp_path):
     assert links == []
     emb_rows = session.execute(select(VisualMediaEmbedding)).scalars().all()
     assert all(e.target_type in ("asset", "reference") for e in emb_rows)
+
+
+def test_reference_embedding_backfill_changes_revision(session, tmp_path):
+    """竞态自愈：素材候选先于参考向量算完 → 参考向量补齐使 revision 变化，
+    sweep 发现素材水位落后并重算（否则素材永远停在 insufficient 旧决策）。"""
+    settings = _settings(str(tmp_path))
+    provider = build_visual_provider(settings)
+    fam = _seed_family(session)
+    refs = [
+        _seed_ref(session, str(tmp_path), fam.id, marker="tokF", angle="front"),
+        _seed_ref(session, str(tmp_path), fam.id, marker="tokF", angle="left"),
+    ]
+    # 参考向量尚未算得时素材先完成候选决策（insufficient，只记水位）
+    families0, revision0 = load_family_ref_vectors(session, settings, provider)
+    asset = _seed_image_asset(session, str(tmp_path), marker="tokF")
+    emb, _ = upsert_embedding(session, settings, provider, "asset", asset.id)
+    result0 = refresh_candidates(session, settings, emb, families=families0,
+                                 revision=revision0, confusion_pairs={})
+    session.commit()
+    assert result0["written"] == 0  # 参考向量缺席 → 无候选
+
+    # 参考向量补齐 → revision 必须变化 → sweep 发现该素材行落后
+    families1, revision1 = _index_refs_and_load(session, settings, provider, refs)
+    assert revision1 != revision0
+    plan = sweep_targets(session, settings, provider)
+    assert ("asset", asset.id) in plan["stale_candidates"]
+
+    # 重算后候选出现
+    result1 = refresh_candidates(session, settings, emb, families=families1,
+                                 revision=revision1, confusion_pairs={})
+    session.commit()
+    assert result1["decision"] == "candidate" and result1["written"] == 1

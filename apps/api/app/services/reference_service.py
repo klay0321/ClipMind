@@ -380,3 +380,164 @@ async def _commit(db: AsyncSession, asset: ProductReferenceAsset) -> ProductRefe
         raise CatalogConflict("参考图更新冲突（如主图唯一约束）") from exc
     await db.refresh(asset)
     return asset
+
+
+# --------------------------------------------------------------------------- #
+# EVAL：从已确认绑定的图片素材提升为参考图（人工逐张采纳，不自动执行）
+# --------------------------------------------------------------------------- #
+
+# 建议阈值：活动参考图少于该数的 family 出现在建议清单里
+SUGGEST_MIN_ACTIVE_REFS = 3
+
+
+class _ReadOnlyFileStream:
+    """把只读打开的源文件适配成 upload_reference 的 async stream 接口。"""
+
+    def __init__(self, f):  # noqa: ANN001
+        self._f = f
+
+    async def read(self, n: int) -> bytes:
+        return self._f.read(n)
+
+
+async def _asset_source_abs(db: AsyncSession, asset) -> str:  # noqa: ANN001
+    """素材源文件绝对路径：白名单根校验 + 包含校验（只读用途）。"""
+    from clipmind_shared.models import SourceDirectory
+
+    from app.security.paths import validate_mount_path
+
+    sd = await db.get(SourceDirectory, asset.source_directory_id)
+    if sd is None:
+        raise CatalogError("素材所属源目录不存在")
+    root = validate_mount_path(sd.mount_path)
+    return safe_join_within_root(root, *asset.normalized_relative_path.split("/"))
+
+
+async def promote_from_asset(
+    db: AsyncSession,
+    *,
+    target_type: str,
+    target_id: int,
+    asset_id: int,
+    angle: str | None = None,
+    state: str | None = None,
+) -> ProductReferenceAsset:
+    """把一张已入库的图片素材复制为目标的参考图。
+
+    源文件只读（open "rb"），复用 upload_reference 的全部守卫
+    （魔数/大小/像素/sha 去重/数量上限/缩略图/审计/视觉嵌入入队）。
+    """
+    from clipmind_shared.models import Asset
+
+    asset = await db.get(Asset, int(asset_id))
+    if asset is None:
+        raise CatalogError(f"素材不存在: {asset_id}")
+    if asset.media_kind != "image":
+        raise CatalogError("只能从图片素材提升参考图")
+    if asset.status.value == "source_missing":
+        raise CatalogError("素材源文件缺失，无法提升")
+    src_abs = await _asset_source_abs(db, asset)
+    if not os.path.isfile(src_abs):
+        raise CatalogError("素材源文件不可读（可能已被移动）")
+
+    with open(src_abs, "rb") as f:
+        row = await upload_reference(
+            db,
+            target_type=target_type,
+            target_id=target_id,
+            filename=asset.filename,
+            stream=_ReadOnlyFileStream(f),
+            angle=angle,
+            state=state,
+        )
+    # 标注来源（upload_reference 已 commit；此处二次小提交补 source 语义）
+    row.source_type = "asset_promote"
+    row.description = f"提升自素材 #{asset.id}"
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+async def promotion_suggestions(db: AsyncSession) -> list[dict]:
+    """参考图不足的 active family + 其已确认绑定图片素材的建议清单。
+
+    只读投影：排除 sha 已存在于该 family 活动参考图的素材（内容重复），
+    primary 角色优先、再按绑定时间。绝不自动创建任何参考图。
+    """
+    from clipmind_shared.models import Asset, ProductFamily
+    from clipmind_shared.models.product_media import ProductMediaLink
+
+    fam_rows = (
+        await db.execute(
+            select(
+                ProductFamily.id, ProductFamily.code, ProductFamily.name_zh,
+                func.count(ProductReferenceAsset.id).filter(
+                    ProductReferenceAsset.archived_at.is_(None)
+                ),
+            )
+            .outerjoin(
+                ProductReferenceAsset,
+                ProductReferenceAsset.family_id == ProductFamily.id,
+            )
+            .where(ProductFamily.status == "active")
+            .group_by(ProductFamily.id, ProductFamily.code, ProductFamily.name_zh)
+        )
+    ).all()
+    lacking = {
+        fid: {"family_id": fid, "code": code, "name_zh": name, "active_refs": int(cnt)}
+        for fid, code, name, cnt in fam_rows
+        if int(cnt) < SUGGEST_MIN_ACTIVE_REFS
+    }
+    if not lacking:
+        return []
+
+    link_rows = (
+        await db.execute(
+            select(
+                ProductMediaLink.family_id, ProductMediaLink.role,
+                ProductMediaLink.created_at, Asset,
+            )
+            .join(Asset, Asset.id == ProductMediaLink.asset_id)
+            .where(
+                ProductMediaLink.family_id.in_(list(lacking)),
+                ProductMediaLink.asset_id.is_not(None),
+                Asset.media_kind == "image",
+            )
+            .order_by(ProductMediaLink.family_id, ProductMediaLink.created_at)
+        )
+    ).all()
+
+    # 该 family 已有参考图的内容指纹（内容级去重——同图不重复建议）
+    existing_sha = {
+        (fid, sha)
+        for fid, sha in (
+            await db.execute(
+                select(ProductReferenceAsset.family_id, ProductReferenceAsset.sha256)
+                .where(
+                    ProductReferenceAsset.family_id.in_(list(lacking)),
+                    ProductReferenceAsset.archived_at.is_(None),
+                    ProductReferenceAsset.sha256.is_not(None),
+                )
+            )
+        ).all()
+    }
+
+    out: dict[int, dict] = {
+        fid: {**info, "candidates": []} for fid, info in lacking.items()
+    }
+    for fid, role, created_at, asset in link_rows:
+        if asset.full_hash and (fid, asset.full_hash) in existing_sha:
+            continue
+        out[fid]["candidates"].append(
+            {
+                "asset_id": asset.id,
+                "filename": asset.filename,
+                "role": role,
+                "linked_at": created_at.isoformat() if created_at else None,
+                "has_poster": bool(asset.poster_path),
+            }
+        )
+    for info in out.values():
+        info["candidates"].sort(key=lambda c: (c["role"] != "primary", c["linked_at"] or ""))
+    # 有候选的排前面；全部返回（缺参考图但无候选也提示，引导手动上传）
+    return sorted(out.values(), key=lambda x: (not x["candidates"], x["family_id"]))

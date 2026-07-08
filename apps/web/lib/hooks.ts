@@ -1725,6 +1725,32 @@ export function useUploadReferences(level: AttributeTargetLevel, targetId: numbe
 }
 
 // 参考图单张/批量写操作聚合（set-primary / archive / restore / update / delete / batch）
+// EVAL：参考图提升建议 + 逐张采纳
+export function usePromotionSuggestions(enabled = true) {
+  return useQuery({
+    queryKey: ["reference-promotion-suggestions"],
+    queryFn: () => api.promotionSuggestions(),
+    enabled,
+  });
+}
+
+export function usePromoteReference(level: AttributeTargetLevel, targetId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { assetId: number; angle?: string }) =>
+      api.promoteReferenceFromAsset({
+        targetLevel: level,
+        targetId,
+        assetId: input.assetId,
+        angle: input.angle,
+      }),
+    onSuccess: () => {
+      invalidateReferenceTarget(qc, level, targetId);
+      qc.invalidateQueries({ queryKey: ["reference-promotion-suggestions"] });
+    },
+  });
+}
+
 export function useReferenceMutations(level: AttributeTargetLevel, targetId: number) {
   const qc = useQueryClient();
   const invalidate = () => invalidateReferenceTarget(qc, level, targetId);

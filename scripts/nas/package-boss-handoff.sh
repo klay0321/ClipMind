@@ -10,7 +10,11 @@
 # 用法：
 #   bash scripts/nas/package-boss-handoff.sh \
 #     --private-env /absolute/path/to/private.env \
-#     --release-archive dist/clipmind-nas-release.tar.gz
+#     --release-archive dist/clipmind-nas-release.tar.gz \
+#     [--data-package dist/clipmind-data-YYYYMMDD.tar.gz]
+#
+#   --data-package（可选）：当前环境数据包（tar.gz，内含 db.sql 与 data/ 派生文件），
+#   让 NAS 直接接管既有素材库与人工成果，无需重扫描重打标。PRIVATE（含真实业务数据）。
 #
 # 前置：先运行 scripts/nas/package.sh 生成 dist/clipmind-nas-release.tar.gz（及其 .sha256）。
 set -euo pipefail
@@ -34,10 +38,12 @@ abspath() {
 # ---- 解析参数 ----
 PRIVATE_ENV=""
 RELEASE_ARCHIVE=""
+DATA_PACKAGE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --private-env)      PRIVATE_ENV="${2:-}"; shift 2 ;;
     --release-archive)  RELEASE_ARCHIVE="${2:-}"; shift 2 ;;
+    --data-package)     DATA_PACKAGE="${2:-}"; shift 2 ;;
     -h|--help)
       grep -E '^#( |$)' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "未知参数：$1（用 --help 查看用法）" ;;
@@ -56,6 +62,13 @@ RELEASE_ARCHIVE="$(abspath "$RELEASE_ARCHIVE")"
 [ -e "$RELEASE_ARCHIVE" ] || die "发布包不存在：$RELEASE_ARCHIVE（请先运行 scripts/nas/package.sh）"
 [ ! -L "$RELEASE_ARCHIVE" ] || die "发布包不能是符号链接：$RELEASE_ARCHIVE"
 [ -f "$RELEASE_ARCHIVE" ] || die "发布包不是普通文件：$RELEASE_ARCHIVE"
+if [ -n "$DATA_PACKAGE" ]; then
+  DATA_PACKAGE="$(abspath "$DATA_PACKAGE")"
+  [ -e "$DATA_PACKAGE" ]   || die "数据包不存在：$DATA_PACKAGE"
+  [ ! -L "$DATA_PACKAGE" ] || die "数据包不能是符号链接：$DATA_PACKAGE"
+  [ -f "$DATA_PACKAGE" ]   || die "数据包不是普通文件：$DATA_PACKAGE"
+  tar -tzf "$DATA_PACKAGE" | grep -q '^db\.sql$' || die "数据包内缺少 db.sql（应由 pg_dump plain 产生）"
+fi
 
 echo "==> 校验发布包完整性（SHA256）"
 SIDECAR="${RELEASE_ARCHIVE}.sha256"
@@ -140,7 +153,7 @@ cp -p "$RELEASE_ARCHIVE"                  "$DELIVERY/clipmind-nas-release.tar.gz
 cp -p "$TMP_VER/clipmind-nas/VERSION"     "$DELIVERY/VERSION"
 cp -p "$TMP_VER/clipmind-nas/README.md"   "$DELIVERY/README.md"
 cp -p "$TMP_VER/clipmind-nas/CHECKSUMS.txt" "$DELIVERY/CHECKSUMS.txt"
-for d in BOSS_QUICKSTART.md NAS_DEPLOYMENT.md CONFIGURATION.md DEMO_ACCEPTANCE_CHECKLIST.md; do
+for d in BOSS_QUICKSTART.md USER_GUIDE.md NAS_DEPLOYMENT.md CONFIGURATION.md DEMO_ACCEPTANCE_CHECKLIST.md; do
   [ -f "$ROOT/docs/$d" ] || die "缺少 docs/$d"
   cp -p "$ROOT/docs/$d" "$DELIVERY/docs/$d"
 done
@@ -148,6 +161,15 @@ done
 # ---- 10. 复制私密 .env（严格权限；绝不回显内容）----
 cp -p "$PRIVATE_ENV" "$DELIVERY/private/.env"
 chmod 600 "$DELIVERY/private/.env" 2>/dev/null || true
+
+# ---- 10b. 可选：当前环境数据包（PRIVATE，含真实业务数据）----
+DATA_NOTE="未附带（NAS 侧将从零扫描并重新 AI 打标）。"
+if [ -n "$DATA_PACKAGE" ]; then
+  cp -p "$DATA_PACKAGE" "$DELIVERY/private/clipmind-data.tar.gz"
+  chmod 600 "$DELIVERY/private/clipmind-data.tar.gz" 2>/dev/null || true
+  DATA_SIZE="$(du -h "$DELIVERY/private/clipmind-data.tar.gz" | awk '{print $1}')"
+  DATA_NOTE="已附带（private/clipmind-data.tar.gz，${DATA_SIZE}）：含现有数据库与派生文件，恢复后直接接管既有素材库、AI 打标与人工审核成果，无需重扫描重打标。"
+fi
 
 # AI 状态对应的中文提示
 case "$AI_STATUS" in
@@ -195,6 +217,7 @@ cat > "$DELIVERY/01-请先阅读.md" <<EOF
 - 版本：\`$VERSION_FULL\`
 - 发布包 \`clipmind-nas-release.tar.gz\` 的 SHA256：\`$ACTUAL_SHA\`
 - AI 打标状态：$AI_NOTE
+- 环境数据：$DATA_NOTE
 
 ## 包内是什么
 
@@ -209,6 +232,7 @@ cat > "$DELIVERY/01-请先阅读.md" <<EOF
 | \`docs/DEMO_ACCEPTANCE_CHECKLIST.md\` | 验收清单 |
 | \`private/.env\` | **真实私密配置**（PRIVATE，安装时复制为 \`.env\`） |
 | \`private/部署前需要修改的配置.md\` | 上 NAS 前还需确认 / 修改的变量 |
+| \`private/clipmind-data.tar.gz\` | （可选附带）当前环境数据：数据库 + 派生文件，见下方第 5 步 |
 
 ## 怎么用（交给 NAS 管理员）
 
@@ -217,6 +241,13 @@ cat > "$DELIVERY/01-请先阅读.md" <<EOF
    （或先按 \`private/部署前需要修改的配置.md\` 核对路径 / 绑定地址再放入）。
 3. 进入 \`clipmind-nas/\`，运行 \`bash scripts/nas/install.sh\`。
 4. 浏览器访问 \`http://<CLIPMIND_BIND_ADDR>:<WEB_PORT>\`。
+5. **若附带了 \`private/clipmind-data.tar.gz\`（接管现有素材库）**：
+   在 \`clipmind-nas/\` 目录执行
+   \`bash scripts/nas/restore.sh ../private/clipmind-data.tar.gz\`（输入 RESTORE 确认，恢复数据库），
+   然后把数据包内 \`data/\` 目录解到 \`CLIPMIND_DATA_ROOT/data\`：
+   \`tar -xzf ../private/clipmind-data.tar.gz -C <CLIPMIND_DATA_ROOT> data\`，
+   重启：\`bash scripts/nas/restart.sh\`。注意：源素材需先按原目录结构放到 \`CLIPMIND_SOURCE_DIR\`，
+   文件位置变了也没关系——下次扫描会按内容指纹自动对上（期间显示"源缺失"属正常）。
 
 > 业务使用方法见 \`docs/BOSS_QUICKSTART.md\`；详细部署 / 备份 / 升级见 \`docs/NAS_DEPLOYMENT.md\`。
 > **本系统无应用级登录鉴权，请仅在可信内网 / VPN 内使用，勿裸露公网。**

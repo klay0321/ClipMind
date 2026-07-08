@@ -5,6 +5,7 @@ import Link from "next/link";
 import { TopNav } from "@/components/TopNav";
 import { cn } from "@/lib/cn";
 import {
+  usePipelineHealth,
   usePmSummary,
   usePmUnassigned,
   useProcessingOverview,
@@ -24,6 +25,7 @@ export function DashboardView() {
         </p>
         <div className="space-y-5">
           <PipelineSection />
+          <PipelineHealthSection />
           <div className="grid gap-5 lg:grid-cols-2">
             <ProductCoverageSection />
             <UsageTodoSection />
@@ -97,6 +99,83 @@ function Stat({
 
 function LoadingRow() {
   return <div className="h-16 animate-pulse rounded-lg bg-gray-100" />;
+}
+
+// OBS：管线健康——各环节滞后/失败计数（0=健康隐藏，非零才占视线）+ 队列积压
+const HEALTH_LABELS: Record<string, string> = {
+  assets_no_shots: "视频无镜头",
+  shots_ai_missing: "镜头缺 AI",
+  ai_failed: "AI 失败",
+  img_ai_missing: "图片缺 AI 理解",
+  runs_stuck_running: "运行卡住 >2h",
+  shot_docs_missing: "镜头缺检索文档",
+  shot_docs_degraded: "向量降级",
+  asset_docs_missing: "素材缺检索文档",
+  visual_emb_failed: "视觉向量失败",
+};
+
+const HEALTH_SEVERE = new Set(["ai_failed", "runs_stuck_running", "visual_emb_failed"]);
+
+function PipelineHealthSection() {
+  const health = usePipelineHealth();
+  const d = health.data;
+  if (health.isError) {
+    return (
+      <SectionCard title="管线健康" testId="dash-health">
+        <p className="text-xs text-gray-400">健康数据暂不可用</p>
+      </SectionCard>
+    );
+  }
+  if (!d) {
+    return (
+      <SectionCard title="管线健康" testId="dash-health">
+        <LoadingRow />
+      </SectionCard>
+    );
+  }
+  const issues = Object.entries(d.counters).filter(([, v]) => v > 0);
+  const queued = Object.entries(d.queues).filter(([, v]) => (v ?? 0) > 0);
+  const allGreen = issues.length === 0;
+  return (
+    <SectionCard
+      title="管线健康"
+      testId="dash-health"
+      action={
+        <span
+          className={cn(
+            "rounded px-2 py-0.5 text-xs",
+            allGreen ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700",
+          )}
+          data-testid="dash-health-badge"
+        >
+          {allGreen ? "全部环节正常" : `${issues.length} 项待处理`}
+        </span>
+      }
+    >
+      {allGreen ? (
+        <p className="text-xs text-gray-400" data-testid="dash-health-ok">
+          扫描 → 拆镜头 → AI → 检索文档 → 向量 全链无滞后、无失败。
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4" data-testid="dash-health-issues">
+          {issues.map(([k, v]) => (
+            <Stat
+              key={k}
+              label={HEALTH_LABELS[k] ?? k}
+              value={v}
+              tone={HEALTH_SEVERE.has(k) ? "amber" : "gray"}
+              testId={`health-${k}`}
+            />
+          ))}
+        </div>
+      )}
+      {queued.length > 0 ? (
+        <p className="mt-2 text-xs text-gray-500" data-testid="dash-health-queues">
+          队列积压：{queued.map(([q, v]) => `${q} ${v}`).join("、")}
+        </p>
+      ) : null}
+    </SectionCard>
+  );
 }
 
 function PipelineSection() {

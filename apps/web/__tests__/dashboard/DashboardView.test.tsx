@@ -8,6 +8,7 @@ import { query } from "../search/fixtures";
 
 vi.mock("@/lib/hooks", () => ({
   useProcessingOverview: vi.fn(),
+  usePipelineHealth: vi.fn(),
   usePmSummary: vi.fn(),
   usePmUnassigned: vi.fn(),
   useUsageReviewSummary: vi.fn(),
@@ -55,6 +56,19 @@ function makeFamily(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(hooks.useProcessingOverview).mockReturnValue(query({ data: makeOverview() }));
+  vi.mocked(hooks.usePipelineHealth).mockReturnValue(
+    query({
+      data: {
+        counters: {
+          assets_no_shots: 0, shots_ai_missing: 0, ai_failed: 0, img_ai_missing: 0,
+          runs_stuck_running: 0, shot_docs_missing: 0, shot_docs_degraded: 0,
+          asset_docs_missing: 0, visual_emb_failed: 0,
+        },
+        queues: { default: 0, scan: 0, media: 0, ai: 0, search: 0, export: 0 },
+        generated_at: "2026-07-08T00:00:00Z",
+      },
+    }),
+  );
   vi.mocked(hooks.usePmSummary).mockReturnValue(
     query({
       data: [
@@ -110,6 +124,35 @@ describe("DashboardView 运营仪表盘", () => {
     // 其他区块仍正常
     expect(screen.getByTestId("dash-videos-total")).toHaveTextContent("342");
     expect(screen.getByTestId("dash-needs-review")).toHaveTextContent("8");
+  });
+
+  it("管线健康：全绿显示正常徽标", () => {
+    render(<DashboardView />);
+    expect(screen.getByTestId("dash-health-badge")).toHaveTextContent("全部环节正常");
+    expect(screen.getByTestId("dash-health-ok")).toBeInTheDocument();
+  });
+
+  it("管线健康：有滞后只显示非零项并给队列积压", () => {
+    vi.mocked(hooks.usePipelineHealth).mockReturnValue(
+      query({
+        data: {
+          counters: {
+            assets_no_shots: 4, shots_ai_missing: 0, ai_failed: 2, img_ai_missing: 10,
+            runs_stuck_running: 0, shot_docs_missing: 0, shot_docs_degraded: 0,
+            asset_docs_missing: 0, visual_emb_failed: 0,
+          },
+          queues: { default: 0, scan: 0, media: 0, ai: 5, search: 0, export: 0 },
+          generated_at: "2026-07-08T00:00:00Z",
+        },
+      }),
+    );
+    render(<DashboardView />);
+    expect(screen.getByTestId("dash-health-badge")).toHaveTextContent("3 项待处理");
+    expect(screen.getByTestId("health-img_ai_missing")).toHaveTextContent("10");
+    expect(screen.getByTestId("health-ai_failed")).toHaveTextContent("2");
+    // 零值项不渲染
+    expect(screen.queryByTestId("health-shots_ai_missing")).toBeNull();
+    expect(screen.getByTestId("dash-health-queues")).toHaveTextContent("ai 5");
   });
 
   it("管线空闲态与全部归类态", () => {

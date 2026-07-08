@@ -12,9 +12,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.db import get_db
 from app.routers.health import _check_redis
+from app.schemas.observability import PipelineHealthOut
 from app.schemas.system import SystemStatusOut
+from app.services import observability_service
 
 router = APIRouter(prefix="/system", tags=["system"])
+
+
+@router.get("/pipeline-health", response_model=PipelineHealthOut)
+async def pipeline_health(db: AsyncSession = Depends(get_db)) -> PipelineHealthOut:
+    """OBS：管线健康——各环节滞后/失败计数 + Celery 队列积压，只读。"""
+    settings = get_settings()
+    return await observability_service.pipeline_health(db, settings.redis_url)
 
 
 @router.get("/status", response_model=SystemStatusOut)

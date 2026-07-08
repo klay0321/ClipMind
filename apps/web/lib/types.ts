@@ -2978,3 +2978,34 @@ export interface ImageAnalysisView {
   effective_source: string; // human | ai | rejected | none
   effective_result?: Record<string, unknown> | null;
 }
+
+// ===== OBS 可观测性：链路诊断与管线健康 =====
+export type TraceStageStatus =
+  | "ok"
+  | "pending"
+  | "lagging"
+  | "failed"
+  | "excluded"
+  | "not_applicable";
+
+export interface TraceStage {
+  stage: "scan" | "derive" | "ai" | "review" | "document" | "embedding";
+  title: string;
+  status: TraceStageStatus;
+  detail: Record<string, unknown>;
+  hint: string;
+}
+
+export interface AssetTrace {
+  asset_id: number;
+  media_kind: string;
+  filename: string;
+  stages: TraceStage[];
+  generated_at: string;
+}
+
+export interface PipelineHealth {
+  counters: Record<string, number>;
+  queues: Record<string, number | null>;
+  generated_at: string;
+}

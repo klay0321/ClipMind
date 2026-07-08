@@ -13,6 +13,39 @@ import pytest
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL")
 
+# CI-SPEED：pytest-xdist 并行时每个 worker 用独立测试库（库名加 _gwN 后缀），
+# 避免共库互相 TRUNCATE（并行共库假失败的既有教训）。重写 env 使所有下游
+# （apps/api tests conftest、worker tests 直接读 env 处）自动继承。
+_XDIST_WORKER = os.getenv("PYTEST_XDIST_WORKER")
+if TEST_DATABASE_URL and _XDIST_WORKER:
+    TEST_DATABASE_URL = f"{TEST_DATABASE_URL}_{_XDIST_WORKER}"
+    os.environ["TEST_DATABASE_URL"] = TEST_DATABASE_URL
+
+
+def _ensure_worker_database() -> None:
+    """xdist worker 库不存在则从维护库创建（幂等；串行模式无后缀不建）。"""
+    if not (TEST_DATABASE_URL and _XDIST_WORKER):
+        return
+    from sqlalchemy import create_engine, text
+
+    url = sync_test_url()
+    assert url is not None
+    base, dbname = url.rsplit("/", 1)
+    admin = create_engine(f"{base}/postgres", isolation_level="AUTOCOMMIT", future=True)
+    with admin.connect() as conn:
+        # PG 不允许并发从同一 template 建库（CI 全新实例上多 worker 同时启动会撞），
+        # 用 advisory lock 串行化建库段。
+        conn.execute(text("SELECT pg_advisory_lock(897201)"))
+        try:
+            exists = conn.execute(
+                text("SELECT 1 FROM pg_database WHERE datname = :n"), {"n": dbname}
+            ).scalar()
+            if not exists:
+                conn.execute(text(f'CREATE DATABASE "{dbname}"'))
+        finally:
+            conn.execute(text("SELECT pg_advisory_unlock(897201)"))
+    admin.dispose()
+
 
 def sync_test_url() -> str | None:
     if not TEST_DATABASE_URL:
@@ -42,6 +75,7 @@ def _schema():
 
     from clipmind_shared.models import Base
 
+    _ensure_worker_database()
     engine = create_engine(sync_test_url(), future=True)
     # PR-04：检索文档表含 vector 列与 pg_trgm GIN 索引；create_all 前必须先建扩展
     # （测试库镜像须为 pgvector/pgvector:pg16）。

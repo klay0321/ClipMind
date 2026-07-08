@@ -67,6 +67,8 @@ npm test                    # 前端测试
 ## 6. 测试命令
 
 - 后端：`pytest`（仓库根运行；DB/ffmpeg 测试需 `TEST_DATABASE_URL`（指向 pgvector/pg16）+ 本机 ffmpeg，否则自动跳过）
+  - 并行：`pytest -n 4 --dist loadfile`（pytest-xdist；根 conftest 会给每个 worker 建独立测试库 `<db>_gwN`，互不 TRUNCATE）。串行共库跑多个 pytest 进程会互清数据，禁止。
+  - rootdir 坑：**带路径参数**（如 `pytest apps/api/tests/xxx.py`）会让 `apps/api/pyproject.toml` 抢走 rootdir，根 conftest（建表/清库/per-worker 库）整个不加载，测试因残留数据假失败——必须加 `-c pytest.ini` 锚定仓库根。
 - 前端：`cd apps/web && npm run lint && npm run typecheck && npm test && npm run build`
 - 集成：`docker compose config` 校验；`docker compose up` 后端到端拆镜头合成夹具（不提交真实视频）
 

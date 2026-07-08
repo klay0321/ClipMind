@@ -29,6 +29,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            apps/api/pyproject.toml
+            services/worker/pyproject.toml
+            packages/shared/pyproject.toml
       - name: 安装 ffmpeg
         # ffmpeg 传递安装 GLib 运行时，PySceneDetect 的 opencv-python-headless 凭此导入；
         # 不指定发行版相关的 libglib 包名（避免 Debian/Ubuntu t64 改名问题）。
@@ -42,7 +47,9 @@ jobs:
       - name: Ruff 静态检查
         run: ruff check packages/shared apps/api services/worker services/embedder
       - name: Pytest
-        run: pytest
+        # CI-SPEED：xdist 并行（loadfile=同文件同 worker，保文件内顺序语义）；
+        # conftest 按 PYTEST_XDIST_WORKER 给每个 worker 建独立测试库，绝不共库。
+        run: pytest -n 4 --dist loadfile
 
   frontend:
     runs-on: ubuntu-latest
@@ -87,7 +94,8 @@ jobs:
           test -f dist/clipmind-nas-release.tar.gz.sha256
           echo "NAS_PACKAGE_E2E_OK"
 
-  # PR-02：云端真实镜像构建 + 全栈端到端（本地 Claude 环境无 apt 网络，无法构建镜像）
+  # CI-SPEED：docker-e2e 拆两并行 job（core=基础链路，domain=域功能）。
+  # 各起独立栈：PR-E/E.1 与 PR-D 的跨脚本快照时序耦合随隔离自动解除。
   docker-e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -136,8 +144,6 @@ jobs:
             echo "$svc: $state"
             [ "$state" = "running" ] || { echo "$svc 未运行"; exit 1; }
           done
-      - name: media-worker 中校验 PySceneDetect/OpenCV 真实可用
-        run: docker compose exec -T media-worker python -c "import cv2, scenedetect; print('cv2', cv2.__version__, 'scenedetect', scenedetect.__version__)"
       - name: 健康探针
         run: |
           curl -fsS http://localhost:8000/health/live
@@ -149,6 +155,8 @@ jobs:
           else
             echo "源目录只读 OK（写入被拒绝）"
           fi
+      - name: media-worker 中校验 PySceneDetect/OpenCV 真实可用
+        run: docker compose exec -T media-worker python -c "import cv2, scenedetect; print('cv2', cv2.__version__, 'scenedetect', scenedetect.__version__)"
       - name: 数据库备份 sidecar（启动即备份一次 + 恢复演练到临时库）
         run: |
           set -o pipefail
@@ -212,6 +220,158 @@ jobs:
           for flag in PROJECTS_GATE_A_E2E_OK PROJECTS_ARCHIVE_GUARD_OK COLLECTIONS_GATE_A_E2E_OK PROJECTS_DELETE_SAFETY_OK; do
             grep -q "$flag" projects_gate_a.log || { echo "缺少标志 $flag"; exit 1; }
           done
+      - name: 统一使用记录中心 端到端（PR-D；Read Model→typed bulk→clue 补录→隔离；置于 PR-E 之后——其全库 usage 行数快照须为重启前最后写入）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_pr_d_usage_review_e2e.py --mode full | tee prd.log
+          for flag in PR_D_UNIFIED_READ_MODEL_OK PR_D_FORMAL_BULK_REVIEW_OK                       PR_D_LEGACY_BULK_REVIEW_OK PR_D_MIXED_TYPE_GUARD_OK                       PR_D_MANUAL_LINEAGE_FROM_CLUE_OK PR_D_USAGE_COUNT_ISOLATION_OK                       PR_D_BACKWARD_COMPAT_OK PR_D_API_E2E_OK; do
+            grep -q "$flag" prd.log || { echo "缺少标志 $flag"; exit 1; }
+          done
+      - name: 导出中心/多格式/Bundle/保存搜索/收藏/动态集合 端到端（PR-06B；FakeProvider；export+media worker）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          set -o pipefail
+          python scripts/ci_pr06b_e2e.py --mode full | tee pr06b.log
+          for flag in MULTI_FORMAT_EXPORT_E2E_OK BUNDLE_EXPORT_E2E_OK EXPORT_CENTER_E2E_OK \
+                      EXPORT_DELETE_SAFETY_E2E_OK SAVED_SEARCH_E2E_OK FAVORITE_E2E_OK \
+                      DYNAMIC_COLLECTION_E2E_OK PR06B_E2E_OK; do
+            grep -q "$flag" pr06b.log || { echo "缺少标志 $flag"; exit 1; }
+          done
+      - name: 已有数据库升级路径端到端（0008→head 含 0009-0018 + 幂等；独立测试库，不碰业务库）
+        run: |
+          set -o pipefail
+          python scripts/ci_db_upgrade_e2e.py | tee db_upgrade.log
+          grep -q "SCRIPT_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "PROJECTS_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "EXPORT_CENTER_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "CATALOG_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "ATTR_REF_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "GOVERNANCE_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "LINEAGE_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "IDENTITY_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "LEGACY_DB_UPGRADE_OK" db_upgrade.log
+          grep -q "SCRIPT_DB_UPGRADE_IDEMPOTENT_OK" db_upgrade.log
+      - name: AI 链路 DB 级持久化断言（不以 Celery task 自报成功为准）
+        run: |
+          q() { docker compose exec -T postgres psql -U clipmind -d clipmind -tAc "$1"; }
+          runs=$(q "select count(*) from ai_analysis_run where status='completed'")
+          shots=$(q "select count(*) from ai_shot_analysis where status='completed'")
+          tags=$(q "select count(*) from shot_tag where active")
+          revs=$(q "select count(*) from shot_review_state where review_status in ('confirmed','modified')")
+          docs=$(q "select count(*) from shot_search_document where embedding_status='completed' and embedding is not null")
+          echo "completed_runs=$runs ai_shot=$shots active_shot_tag=$tags reviewed=$revs search_docs=$docs"
+          [ "${runs:-0}" -ge 1 ] || { echo "ai_analysis_run 未持久化为 completed"; exit 1; }
+          [ "${shots:-0}" -ge 1 ] || { echo "ai_shot_analysis 未持久化"; exit 1; }
+          [ "${tags:-0}" -ge 1 ] || { echo "shot_tag 投影未持久化"; exit 1; }
+          [ "${revs:-0}" -ge 1 ] || { echo "shot_review_state 未持久化"; exit 1; }
+          [ "${docs:-0}" -ge 1 ] || { echo "shot_search_document 未持久化（含向量）"; exit 1; }
+      - name: 重启服务并校验记录持久化（含 AI 链路）
+        env:
+          API_BASE: http://localhost:8000
+        run: |
+          docker compose restart api worker media-worker ai-worker search-worker export-worker
+          for i in $(seq 1 40); do
+            [ "$(docker compose ps api --format '{{.Health}}')" = "healthy" ] && break
+            sleep 3
+          done
+          python scripts/ci_pr02_e2e.py --mode check-persist
+          python scripts/ci_ai_e2e.py --mode check-persist
+          python scripts/ci_search_e2e.py --mode check-persist
+          python scripts/ci_hybrid_search_e2e.py --mode check-persist
+          set -o pipefail
+          python scripts/ci_script_gate_a_e2e.py --mode check-persist | tee script_gate_a_persist.log
+          grep -q "SCRIPT_GATE_A_PERSIST_OK" script_gate_a_persist.log
+          python scripts/ci_script_gate_b_e2e.py --mode check-persist | tee script_gate_b_persist.log
+          grep -q "SCRIPT_GATE_B_PERSIST_OK" script_gate_b_persist.log
+          python scripts/ci_projects_gate_a_e2e.py --mode check-persist | tee projects_gate_a_persist.log
+          grep -q "PROJECTS_GATE_A_PERSIST_OK" projects_gate_a_persist.log
+          python scripts/ci_pr06b_e2e.py --mode check-persist | tee pr06b_persist.log
+          grep -q "PR06B_PERSIST_OK" pr06b_persist.log
+          python scripts/ci_pr_d_usage_review_e2e.py --mode check-persist | tee prd_persist.log
+          grep -q "PR_D_RESTART_PERSIST_OK" prd_persist.log
+      - name: 失败时收集日志（脱敏：不输出 env / key）
+        if: failure()
+        run: |
+          echo "===== compose ps ====="; docker compose ps
+          echo "===== migrate logs ====="; docker compose logs migrate || true
+          echo "===== api logs ====="; docker compose logs api || true
+          echo "===== worker logs ====="; docker compose logs worker || true
+          echo "===== media-worker logs ====="; docker compose logs media-worker || true
+          echo "===== ai-worker logs ====="; docker compose logs ai-worker || true
+          echo "===== search-worker logs ====="; docker compose logs search-worker || true
+          echo "===== export-worker logs ====="; docker compose logs export-worker || true
+          echo "===== postgres logs ====="; docker compose logs postgres || true
+          echo "===== AI / 检索链路计数 ====="
+          docker compose exec -T postgres psql -U clipmind -d clipmind -tAc "select 'run:'||status, count(*) from ai_analysis_run group by status; select 'ai_shot', count(*) from ai_shot_analysis; select 'shot_tag_active', count(*) from shot_tag where active; select 'review:'||review_status, count(*) from shot_review_state group by review_status; select 'searchdoc_emb:'||embedding_status, count(*) from shot_search_document group by embedding_status; select 'searchdoc_doc:'||document_status, count(*) from shot_search_document group by document_status;" || true
+      - name: 清理
+        if: always()
+        run: docker compose down -v
+
+  # PR-04 Gate C：FakeProvider + FakeEmbedding 下的**真实页面** UI E2E（Playwright Chromium）。
+  # 仅运行 e2e/search-ui.spec.ts（provider 无关）；e2e/real-provider.spec.ts 受 RUN_REAL_PROVIDER_E2E
+  # 域功能 e2e（catalog/lineage/identity/usage-search/visual/pm/ops/AAP 窗口）
+  docker-e2e-domain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装 ffmpeg（生成合成测试视频用）
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: 生成合成多场景测试视频到 sample_media（不提交、无公司素材）
+        run: |
+          ffmpeg -y \
+            -f lavfi -i "testsrc=size=320x240:rate=10:duration=2" \
+            -f lavfi -i "smptebars=size=320x240:rate=10:duration=2" \
+            -f lavfi -i "rgbtestsrc=size=320x240:rate=10:duration=2" \
+            -filter_complex "[0:v][1:v][2:v]concat=n=3:v=1[v]" \
+            -map "[v]" -c:v libx264 -pix_fmt yuv420p sample_media/ci_demo.mp4
+          ls -la sample_media/
+      - name: 准备 .env 并构建镜像
+        run: |
+          cp .env.example .env
+          # 用确定性 FakeProvider 让 AI 链路在无真实密钥时也能端到端验证
+          echo "AI_PROVIDER=fake" >> .env
+          # PR-04：用确定性 FakeEmbedding 让检索文档索引链路水密验证（不下载 torch/模型）
+          echo "EMBEDDING_PROVIDER=fake" >> .env
+          # PR-05 Gate B：Fake 向量相似度不稳定，置 0 让已索引镜头均成候选，匹配链路可确定性回归
+          echo "SCRIPT_MATCH_MIN_SCORE=0.0" >> .env
+          # PR-F：视觉识别实验用确定性 FakeVisualProvider（不下载权重、不触 embedder）
+          echo "VISUAL_RECOGNITION_ENABLED=true" >> .env
+          echo "VISUAL_EMBEDDING_PROVIDER=fake" >> .env
+          docker compose build
+      - name: 启动全栈
+        run: docker compose up -d
+      - name: 等待 postgres/redis/api 健康，web/worker/media-worker 运行
+        run: |
+          for i in $(seq 1 60); do
+            api=$(docker compose ps api --format '{{.Health}}')
+            pg=$(docker compose ps postgres --format '{{.Health}}')
+            rd=$(docker compose ps redis --format '{{.Health}}')
+            if [ "$api" = "healthy" ] && [ "$pg" = "healthy" ] && [ "$rd" = "healthy" ]; then
+              echo "核心服务健康"; break
+            fi
+            sleep 3
+          done
+          docker compose ps
+          for svc in web worker media-worker ai-worker search-worker export-worker; do
+            state=$(docker compose ps "$svc" --format '{{.State}}')
+            echo "$svc: $state"
+            [ "$state" = "running" ] || { echo "$svc 未运行"; exit 1; }
+          done
+      - name: 健康探针
+        run: |
+          curl -fsS http://localhost:8000/health/live
+          curl -fsS http://localhost:8000/health/ready
+      - name: 源目录只读（写入必须失败）
+        run: |
+          if docker compose exec -T api sh -c "touch /app/source/should_fail.txt" 2>/dev/null; then
+            echo "源目录可写，违反只读约束"; exit 1
+          else
+            echo "源目录只读 OK（写入被拒绝）"
+          fi
       - name: 通用产品目录核心 端到端（PR-A1；纯 API/中性合成名；层级/更名/合并重定向/旧 /api/products 兼容）
         env:
           API_BASE: http://localhost:8000
@@ -353,55 +513,7 @@ jobs:
             [ "$(docker compose ps api --format '{{.Health}}')" = "healthy" ] && break
             sleep 3
           done
-      - name: 统一使用记录中心 端到端（PR-D；Read Model→typed bulk→clue 补录→隔离；置于 PR-E 之后——其全库 usage 行数快照须为重启前最后写入）
-        env:
-          API_BASE: http://localhost:8000
-        run: |
-          set -o pipefail
-          python scripts/ci_pr_d_usage_review_e2e.py --mode full | tee prd.log
-          for flag in PR_D_UNIFIED_READ_MODEL_OK PR_D_FORMAL_BULK_REVIEW_OK                       PR_D_LEGACY_BULK_REVIEW_OK PR_D_MIXED_TYPE_GUARD_OK                       PR_D_MANUAL_LINEAGE_FROM_CLUE_OK PR_D_USAGE_COUNT_ISOLATION_OK                       PR_D_BACKWARD_COMPAT_OK PR_D_API_E2E_OK; do
-            grep -q "$flag" prd.log || { echo "缺少标志 $flag"; exit 1; }
-          done
-      - name: 导出中心/多格式/Bundle/保存搜索/收藏/动态集合 端到端（PR-06B；FakeProvider；export+media worker）
-        env:
-          API_BASE: http://localhost:8000
-        run: |
-          set -o pipefail
-          python scripts/ci_pr06b_e2e.py --mode full | tee pr06b.log
-          for flag in MULTI_FORMAT_EXPORT_E2E_OK BUNDLE_EXPORT_E2E_OK EXPORT_CENTER_E2E_OK \
-                      EXPORT_DELETE_SAFETY_E2E_OK SAVED_SEARCH_E2E_OK FAVORITE_E2E_OK \
-                      DYNAMIC_COLLECTION_E2E_OK PR06B_E2E_OK; do
-            grep -q "$flag" pr06b.log || { echo "缺少标志 $flag"; exit 1; }
-          done
-      - name: 已有数据库升级路径端到端（0008→head 含 0009-0018 + 幂等；独立测试库，不碰业务库）
-        run: |
-          set -o pipefail
-          python scripts/ci_db_upgrade_e2e.py | tee db_upgrade.log
-          grep -q "SCRIPT_DB_UPGRADE_OK" db_upgrade.log
-          grep -q "PROJECTS_DB_UPGRADE_OK" db_upgrade.log
-          grep -q "EXPORT_CENTER_DB_UPGRADE_OK" db_upgrade.log
-          grep -q "CATALOG_DB_UPGRADE_OK" db_upgrade.log
-          grep -q "ATTR_REF_DB_UPGRADE_OK" db_upgrade.log
-          grep -q "GOVERNANCE_DB_UPGRADE_OK" db_upgrade.log
-          grep -q "LINEAGE_DB_UPGRADE_OK" db_upgrade.log
-          grep -q "IDENTITY_DB_UPGRADE_OK" db_upgrade.log
-          grep -q "LEGACY_DB_UPGRADE_OK" db_upgrade.log
-          grep -q "SCRIPT_DB_UPGRADE_IDEMPOTENT_OK" db_upgrade.log
-      - name: AI 链路 DB 级持久化断言（不以 Celery task 自报成功为准）
-        run: |
-          q() { docker compose exec -T postgres psql -U clipmind -d clipmind -tAc "$1"; }
-          runs=$(q "select count(*) from ai_analysis_run where status='completed'")
-          shots=$(q "select count(*) from ai_shot_analysis where status='completed'")
-          tags=$(q "select count(*) from shot_tag where active")
-          revs=$(q "select count(*) from shot_review_state where review_status in ('confirmed','modified')")
-          docs=$(q "select count(*) from shot_search_document where embedding_status='completed' and embedding is not null")
-          echo "completed_runs=$runs ai_shot=$shots active_shot_tag=$tags reviewed=$revs search_docs=$docs"
-          [ "${runs:-0}" -ge 1 ] || { echo "ai_analysis_run 未持久化为 completed"; exit 1; }
-          [ "${shots:-0}" -ge 1 ] || { echo "ai_shot_analysis 未持久化"; exit 1; }
-          [ "${tags:-0}" -ge 1 ] || { echo "shot_tag 投影未持久化"; exit 1; }
-          [ "${revs:-0}" -ge 1 ] || { echo "shot_review_state 未持久化"; exit 1; }
-          [ "${docs:-0}" -ge 1 ] || { echo "shot_search_document 未持久化（含向量）"; exit 1; }
-      - name: 重启服务并校验记录持久化（含 AI 链路）
+      - name: 重启服务并校验记录持久化（域功能）
         env:
           API_BASE: http://localhost:8000
         run: |
@@ -410,19 +522,6 @@ jobs:
             [ "$(docker compose ps api --format '{{.Health}}')" = "healthy" ] && break
             sleep 3
           done
-          python scripts/ci_pr02_e2e.py --mode check-persist
-          python scripts/ci_ai_e2e.py --mode check-persist
-          python scripts/ci_search_e2e.py --mode check-persist
-          python scripts/ci_hybrid_search_e2e.py --mode check-persist
-          set -o pipefail
-          python scripts/ci_script_gate_a_e2e.py --mode check-persist | tee script_gate_a_persist.log
-          grep -q "SCRIPT_GATE_A_PERSIST_OK" script_gate_a_persist.log
-          python scripts/ci_script_gate_b_e2e.py --mode check-persist | tee script_gate_b_persist.log
-          grep -q "SCRIPT_GATE_B_PERSIST_OK" script_gate_b_persist.log
-          python scripts/ci_projects_gate_a_e2e.py --mode check-persist | tee projects_gate_a_persist.log
-          grep -q "PROJECTS_GATE_A_PERSIST_OK" projects_gate_a_persist.log
-          python scripts/ci_pr06b_e2e.py --mode check-persist | tee pr06b_persist.log
-          grep -q "PR06B_PERSIST_OK" pr06b_persist.log
           python scripts/ci_pr_a1_catalog_e2e.py --mode check-persist | tee catalog_a1_persist.log
           grep -q "GENERIC_CATALOG_PERSIST_OK" catalog_a1_persist.log
           python scripts/ci_pr_a2a_e2e.py --mode check-persist | tee a2a_persist.log
@@ -437,8 +536,6 @@ jobs:
           grep -q "PR_C_PERSIST_OK" prc_persist.log
           python scripts/ci_pr_c_b_legacy_e2e.py --mode check-persist | tee prcb_persist.log
           grep -q "PR_C_B_RESTART_PERSIST_OK" prcb_persist.log
-          python scripts/ci_pr_d_usage_review_e2e.py --mode check-persist | tee prd_persist.log
-          grep -q "PR_D_RESTART_PERSIST_OK" prd_persist.log
           python scripts/ci_pr_e_usage_search_e2e.py --mode check-persist | tee pre_persist.log
           grep -q "PR_E_SAVED_SEARCH_PERSIST_OK" pre_persist.log
           grep -q "PR_E_RESTART_PERSIST_OK" pre_persist.log

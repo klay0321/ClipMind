@@ -29,6 +29,8 @@ test.describe.serial("PM 产品素材库 UI", () => {
     test.skip(fams == null, "缺少 PMA-E2E 播种数据（先跑 API E2E full）");
 
     await page.goto("/product-media");
+    // PM-UX：产品列表在「按产品浏览」Tab
+    await page.getByTestId("pm-worktab-browse").click();
     await expect(page.getByRole("heading", { name: "产品素材库" })).toBeVisible();
     await expect(page.getByText("人工确认的产品素材关系是系统正式事实")).toBeVisible();
 

@@ -269,6 +269,11 @@ async def unassigned(
     raise HTTPException(status_code=422, detail=f"未知素材类型: {kind}")
 
 
+@router.get("/unassigned/counts")
+async def unassigned_counts(db: AsyncSession = Depends(get_db)) -> dict:
+    return await svc.unassigned_counts(db)
+
+
 @router.get("/unassigned/groups")
 async def unassigned_groups(
     kind: str = Query("image"),

@@ -17,6 +17,8 @@ test.describe.serial("OPS 分组审核 UI", () => {
   test("分组队列/覆盖徽标/操作历史可见", async ({ page, request }) => {
     test.skip(!(await hasPopsFamily(request)), "缺少 POPS-E2E 播种数据");
     await page.goto("/product-media");
+    // PM-UX：分组审核=待归类工作台的「按建议分组」视图
+    await page.getByTestId("unassigned-view-grouped").click();
     // 分组审核区
     await expect(page.getByTestId("grouped-review")).toBeVisible();
     await expect(page.getByTestId("review-total")).toBeVisible();
@@ -37,6 +39,8 @@ test.describe.serial("OPS 分组审核 UI", () => {
   test("@persist 重启后审计与统计保持", async ({ page, request }) => {
     test.skip(!(await hasPopsFamily(request)), "缺少 POPS-E2E 播种数据");
     await page.goto("/product-media");
+    // PM-UX：分组审核=待归类工作台的「按建议分组」视图
+    await page.getByTestId("unassigned-view-grouped").click();
     await page.getByTestId("toggle-operations").click();
     await expect(page.getByTestId("operations-panel")).toContainText("undo");
     await expect(page.locator('[data-testid^="coverage-"]').first()).toBeVisible();

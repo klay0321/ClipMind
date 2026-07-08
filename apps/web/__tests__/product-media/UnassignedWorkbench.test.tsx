@@ -44,7 +44,7 @@ describe("UnassignedWorkbench 待归类工作台", () => {
   it("类型计数角标 + 翻页浏览全部未标注（真实事故回归：117 项只能看 24）", async () => {
     const list = vi
       .spyOn(api, "pmUnassigned")
-      .mockImplementation(async (_k: string, page: number) =>
+      .mockImplementation(async (_k: string, page = 1) =>
         unassignedPage(30, page, page === 1 ? 24 : 6) as never,
       );
     const user = userEvent.setup();
@@ -86,7 +86,7 @@ describe("UnassignedWorkbench 待归类工作台", () => {
   });
 
   it("换页清空选择（避免看不见的已选被误绑定）", async () => {
-    vi.spyOn(api, "pmUnassigned").mockImplementation(async (_k: string, page: number) =>
+    vi.spyOn(api, "pmUnassigned").mockImplementation(async (_k: string, page = 1) =>
       unassignedPage(30, page, page === 1 ? 24 : 6) as never,
     );
     const user = userEvent.setup();

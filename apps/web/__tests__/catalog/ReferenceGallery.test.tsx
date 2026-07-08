@@ -8,6 +8,8 @@ import * as hooks from "@/lib/hooks";
 import { makeReference, mutation, query } from "./fixtures";
 
 vi.mock("@/lib/hooks", () => ({
+  usePromotionSuggestions: vi.fn(() => ({ data: [], isLoading: false })),
+  usePromoteReference: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useReferences: vi.fn(),
   useUploadReferences: vi.fn(),
   useReferenceMutations: vi.fn(),

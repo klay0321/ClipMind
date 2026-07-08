@@ -165,6 +165,7 @@ import type {
   FinalVideoUsage,
   OccurrenceCreateRequest,
   PipelineHealth,
+  PromotionSuggestion,
   ProposeFromProjectResult,
   ShotUsageCount,
   ShotUsageSummary,
@@ -1181,6 +1182,37 @@ export const api = {
     for (const f of input.files) fd.append("files", f);
     // 不手动设 Content-Type，浏览器自动带 multipart boundary
     const res = await fetch(`${BASE}/product-reference-assets`, {
+      method: "POST",
+      body: fd,
+    });
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const body = await res.json();
+        detail = body?.detail ?? detail;
+      } catch {
+        // 忽略非 JSON 错误体
+      }
+      throw new ApiError(res.status, typeof detail === "string" ? detail : JSON.stringify(detail));
+    }
+    return res.json();
+  },
+  // EVAL：参考图提升建议（只读）与逐张采纳
+  promotionSuggestions(): Promise<PromotionSuggestion[]> {
+    return http<PromotionSuggestion[]>("/product-reference-assets/promotion/suggestions");
+  },
+  async promoteReferenceFromAsset(input: {
+    targetLevel: AttributeTargetLevel;
+    targetId: number;
+    assetId: number;
+    angle?: string;
+  }): Promise<ReferenceAsset> {
+    const fd = new FormData();
+    fd.append("target_level", input.targetLevel);
+    fd.append("target_id", String(input.targetId));
+    fd.append("asset_id", String(input.assetId));
+    if (input.angle) fd.append("angle", input.angle);
+    const res = await fetch(`${BASE}/product-reference-assets/promotion/promote`, {
       method: "POST",
       body: fd,
     });

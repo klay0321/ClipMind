@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 
 import { referenceFileUrl, referenceThumbnailUrl } from "@/lib/api";
 import { Button, Chip, Dialog } from "@/components/ui";
-import { useReferenceMutations, useReferences, useUploadReferences } from "@/lib/hooks";
+import { usePromoteReference, usePromotionSuggestions, useReferenceMutations, useReferences, useUploadReferences } from "@/lib/hooks";
 import {
   QUALITY_STATUSES,
   REFERENCE_ANGLES,
@@ -216,6 +216,75 @@ function ReferenceCard({
 }
 
 // 上传区：点击选择或拖拽多图，multipart 上传；单张失败进 errors 但成功图不消失
+// EVAL：从已确认绑定的图片素材提升参考图（仅 family 级、参考图不足时显示；逐张人工采纳）
+function PromotionZone({ familyId }: { familyId: number }) {
+  const suggestions = usePromotionSuggestions();
+  const promote = usePromoteReference("family", familyId);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const mine = suggestions.data?.find((s) => s.family_id === familyId);
+  if (!mine) return null;
+  return (
+    <div
+      className="space-y-2 rounded border border-amber-200 bg-amber-50 p-3"
+      data-testid="ref-promotion-zone"
+    >
+      <p className="text-xs text-amber-800">
+        该产品参考图不足（当前 {mine.active_refs} 张）。可从<b>人工确认过</b>的绑定图片中逐张提升为参考图
+        （复制文件，不动源素材；提升后自动计算视觉向量并刷新识别基准）。
+      </p>
+      {mine.candidates.length === 0 ? (
+        <p className="text-xs text-amber-700" data-testid="ref-promotion-empty">
+          暂无可提升的已确认绑定图片——请在上方直接上传标准产品图。
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="ref-promotion-list">
+          {mine.candidates.slice(0, 12).map((c) => (
+            <div key={c.asset_id} className="rounded border border-amber-100 bg-white p-1.5">
+              {c.has_poster ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={`/api/assets/${c.asset_id}/poster`}
+                  alt={c.filename}
+                  className="aspect-square w-full rounded object-cover"
+                />
+              ) : (
+                <div className="flex aspect-square items-center justify-center rounded bg-gray-100 text-[10px] text-gray-400">
+                  无预览
+                </div>
+              )}
+              <p className="mt-1 truncate text-[10px] text-gray-500" title={c.filename}>
+                {c.filename}
+              </p>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="mt-1 w-full"
+                disabled={promote.isPending}
+                data-testid={`ref-promote-${c.asset_id}`}
+                onClick={() => {
+                  setLastError(null);
+                  promote.mutate(
+                    { assetId: c.asset_id },
+                    { onError: (e) => setLastError(e instanceof Error ? e.message : "提升失败") },
+                  );
+                }}
+              >
+                设为参考图
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+      {lastError ? (
+        <p className="text-xs text-red-600" data-testid="ref-promotion-error">
+          {lastError}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+
 function UploadZone({ level, targetId }: { level: AttributeTargetLevel; targetId: number }) {
   const upload = useUploadReferences(level, targetId);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -388,6 +457,7 @@ export function ReferenceGallery({
       </div>
 
       {!readOnly ? <UploadZone level={level} targetId={targetId} /> : null}
+      {!readOnly && level === "family" ? <PromotionZone familyId={targetId} /> : null}
 
       <CatalogError error={listQ.error} />
 

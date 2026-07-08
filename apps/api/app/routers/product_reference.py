@@ -202,3 +202,36 @@ async def serve_thumbnail(ref_id: int, db: AsyncSession = Depends(get_db)) -> Fi
     rel = obj.thumbnail_path or obj.image_path
     mt = "image/webp" if obj.thumbnail_path else (obj.content_type or "application/octet-stream")
     return files.serve_derived(rel, media_type=mt)
+
+
+# ============================ EVAL：素材提升为参考图 ============================
+
+
+@router.get("/product-reference-assets/promotion/suggestions")
+async def promotion_suggestions(db: AsyncSession = Depends(get_db)) -> list[dict]:
+    """参考图不足的产品 + 可提升的已确认绑定图片建议清单（只读，不自动执行）。"""
+    return await svc.promotion_suggestions(db)
+
+
+@router.post(
+    "/product-reference-assets/promotion/promote",
+    response_model=ReferenceAssetOut,
+    status_code=201,
+)
+async def promote_from_asset(
+    target_level: str = Form(...),
+    target_id: int = Form(...),
+    asset_id: int = Form(...),
+    angle: str | None = Form(None),
+    state: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+) -> ReferenceAssetOut:
+    """把一张已确认绑定的图片素材复制为参考图（源只读；逐张人工采纳）。"""
+    try:
+        row = await svc.promote_from_asset(
+            db, target_type=target_level, target_id=target_id,
+            asset_id=asset_id, angle=angle, state=state,
+        )
+    except CatalogError as exc:
+        raise _err(exc) from exc
+    return _out(row)

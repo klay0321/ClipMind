@@ -3009,3 +3009,21 @@ export interface PipelineHealth {
   queues: Record<string, number | null>;
   generated_at: string;
 }
+
+
+// ===== EVAL：参考图提升建议 =====
+export interface PromotionCandidate {
+  asset_id: number;
+  filename: string;
+  role: string;
+  linked_at?: string | null;
+  has_poster: boolean;
+}
+
+export interface PromotionSuggestion {
+  family_id: number;
+  code: string;
+  name_zh: string;
+  active_refs: number;
+  candidates: PromotionCandidate[];
+}

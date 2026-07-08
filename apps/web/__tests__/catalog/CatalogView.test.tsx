@@ -9,6 +9,8 @@ import { makeTree, mutation, query } from "./fixtures";
 
 // 只 mock 本页与内嵌 ProductsView 用到的 hooks；产品值全部由 mock 数据提供（无硬编码 seed）。
 vi.mock("@/lib/hooks", () => ({
+  usePromotionSuggestions: vi.fn(() => ({ data: [], isLoading: false })),
+  usePromoteReference: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useCatalogTree: vi.fn(),
   useCatalogSearch: vi.fn(),
   useCatalogResolve: vi.fn(),

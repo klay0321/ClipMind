@@ -9,6 +9,8 @@ import * as hooks from "@/lib/hooks";
 import { makeFamily, makeSku, makeVariant, mutation, query } from "./fixtures";
 
 vi.mock("@/lib/hooks", () => ({
+  usePromotionSuggestions: vi.fn(() => ({ data: [], isLoading: false })),
+  usePromoteReference: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useCatalogNode: vi.fn(),
   useCategories: vi.fn(),
   useCatalogAliases: vi.fn(),

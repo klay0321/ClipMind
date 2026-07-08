@@ -2091,6 +2091,26 @@ export function useAssetUsageSummary(assetId: number | null) {
 }
 
 // ============================================================
+// OBS 链路诊断 / 管线健康（只读观测）
+// ============================================================
+
+export function useAssetTrace(assetId: number | null, enabled = true) {
+  return useQuery({
+    queryKey: ["asset-trace", assetId],
+    queryFn: () => api.getAssetTrace(assetId as number),
+    enabled: enabled && assetId != null,
+  });
+}
+
+export function usePipelineHealth() {
+  return useQuery({
+    queryKey: ["pipeline-health"],
+    queryFn: () => api.getPipelineHealth(),
+    refetchInterval: 60_000,
+  });
+}
+
+// ============================================================
 // PR-C 素材身份 / 位置 / 指纹 / 分析代次(全部只读派生;指纹为后台任务)
 // ============================================================
 

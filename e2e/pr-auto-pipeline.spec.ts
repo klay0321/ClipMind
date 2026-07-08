@@ -36,6 +36,20 @@ test.describe.serial("AAP 素材页与自动化 UI", () => {
     console.log("AAP_UI_E2E_OK");
   });
 
+  test("OBS 链路诊断：素材详情抽屉展开六环节诊断", async ({ page }) => {
+    await page.goto("/assets");
+    // 视频表格视图的「查看详情」在行内更多操作菜单里
+    await page.getByRole("button", { name: /更多操作/ }).first().click();
+    await page.getByRole("menuitem", { name: "查看详情" }).click();
+    // 默认折叠；展开后按服务端权威判定渲染六环节
+    await page.getByTestId("asset-trace-toggle").click();
+    await expect(page.getByTestId("asset-trace-stages")).toBeVisible();
+    for (const stage of ["scan", "derive", "ai", "review", "document", "embedding"]) {
+      await expect(page.getByTestId(`trace-stage-${stage}`)).toBeVisible();
+    }
+    console.log("OBS_UI_TRACE_OK");
+  });
+
   test("@persist 重启后处理状态与 Tab 保持可用", async ({ page }) => {
     await page.goto("/assets");
     await expect(page.getByTestId("processing-overview")).toBeVisible();

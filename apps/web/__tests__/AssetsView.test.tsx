@@ -21,6 +21,8 @@ vi.mock("@/lib/hooks", () => ({
   // IMG-REVIEW（AssetDetailDrawer → ImageReviewPanel 依赖）
   useAssetImageAnalysis: vi.fn(() => ({ data: undefined, isLoading: false })),
   useImageReviewAction: vi.fn(() => ({ mutate: vi.fn(), isPending: false, isError: false, error: null })),
+  // OBS（AssetDetailDrawer → AssetTracePanel 依赖；默认折叠不请求）
+  useAssetTrace: vi.fn(() => ({ data: undefined, isLoading: false, isError: false })),
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

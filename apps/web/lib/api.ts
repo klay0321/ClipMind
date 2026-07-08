@@ -153,6 +153,7 @@ import type {
   AnalysisGenerations,
   AssetIdentity,
   AssetLocationEntry,
+  AssetTrace,
   AssetUsageSummary,
   FingerprintJob,
   FinalVideo,
@@ -163,6 +164,7 @@ import type {
   FinalVideoUpdateRequest,
   FinalVideoUsage,
   OccurrenceCreateRequest,
+  PipelineHealth,
   ProposeFromProjectResult,
   ShotUsageCount,
   ShotUsageSummary,
@@ -1436,6 +1438,14 @@ export const api = {
   },
   getAssetUsageSummary(assetId: number): Promise<AssetUsageSummary> {
     return http<AssetUsageSummary>(`/assets/${assetId}/usage-summary`);
+  },
+
+  // ===== OBS 链路诊断 / 管线健康 =====
+  getAssetTrace(assetId: number): Promise<AssetTrace> {
+    return http<AssetTrace>(`/assets/${assetId}/trace`);
+  },
+  getPipelineHealth(): Promise<PipelineHealth> {
+    return http<PipelineHealth>("/system/pipeline-health");
   },
 
   // ===== PR-C 素材身份 / 位置 / 指纹 / 代次 =====

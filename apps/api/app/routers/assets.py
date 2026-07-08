@@ -20,6 +20,7 @@ from app.schemas.identity import (
     FingerprintRequest,
 )
 from app.schemas.legacy_evidence import AssetLegacySummaryOut
+from app.schemas.observability import AssetTraceOut
 from app.schemas.shot import (
     AnalyzeAcceptedOut,
     ShotAnalysisOut,
@@ -34,6 +35,7 @@ from app.services import (
     final_video_service,
     identity_service,
     legacy_evidence_service,
+    observability_service,
     product_media_service,
     scan_dispatch,
     shot_dispatch,
@@ -152,6 +154,17 @@ async def rescan_asset(
 
 
 # ---------------- 素材海报（FFmpeg 抽一帧封面）----------------
+
+
+@router.get("/{asset_id}/trace", response_model=AssetTraceOut)
+async def get_asset_trace(
+    asset_id: int, db: AsyncSession = Depends(get_db)
+) -> AssetTraceOut:
+    """OBS：单素材六环节链路诊断（扫描→派生→AI→审核→文档→向量），只读。"""
+    asset = await asset_service.get_asset(db, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="素材不存在")
+    return await observability_service.asset_trace(db, asset)
 
 
 @router.get("/{asset_id}/usage-summary", response_model=AssetUsageSummaryOut)

@@ -3,6 +3,7 @@
 import Link from "next/link";
 
 import { AssetIdentityPanel } from "@/components/assets/AssetIdentityPanel";
+import { AssetTracePanel } from "@/components/assets/AssetTracePanel";
 import { ImageReviewPanel } from "@/components/assets/ImageReviewPanel";
 import { ProductLinkPanel } from "@/components/product-media/ProductLinkPanel";
 import { ProcessingChain } from "@/components/assets/ProcessingChain";
@@ -117,6 +118,9 @@ export function AssetDetailDrawer({
             分析失败：{asset.error_message}
           </div>
         ) : null}
+
+        {/* OBS：六环节链路诊断（展开加载；回答"为什么搜不到"） */}
+        <AssetTracePanel assetId={asset.id} />
 
         {/* IMG-REVIEW：图片 AI 理解 + 人工审核（仅图片素材） */}
         {asset.media_kind === "image" ? <ImageReviewPanel assetId={asset.id} /> : null}

@@ -12,6 +12,10 @@ test.describe.serial("P2b 导航与仪表盘", () => {
     await expect(page.getByTestId("dash-quick-links")).toBeVisible();
     // 处理进度数字为真实 API 值（不是骨架/空白）
     await expect(page.getByTestId("dash-videos-total")).not.toHaveText("");
+    // OBS：管线健康卡片来自真实 /system/pipeline-health（徽标必有终态文案）
+    await expect(page.getByTestId("dash-health")).toBeVisible();
+    await expect(page.getByTestId("dash-health-badge")).toHaveText(/全部环节正常|项待处理/);
+    console.log("OBS_UI_HEALTH_OK");
     // 快捷入口直达搜索工作台
     await page.getByTestId("dash-quick-links").getByRole("link", { name: /搜索/ }).click();
     await expect(page).toHaveURL(/\/search/);

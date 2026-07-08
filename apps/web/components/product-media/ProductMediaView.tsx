@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 
-import { GroupedReview } from "@/components/product-media/GroupedReview";
+import { UnassignedWorkbench } from "@/components/product-media/UnassignedWorkbench";
 import { ProductSectionTabs } from "@/components/products/ProductSectionTabs";
 import {
   usePmFamilyItems,
@@ -56,7 +56,7 @@ function ItemThumb({ it }: { it: ProductMediaItem }) {
 }
 
 /** 未标注队列卡片（多选 + 候选建议 + 视觉候选拒绝）。 */
-function UnassignedCard({
+export function UnassignedCard({
   it,
   selected,
   onToggle,
@@ -174,51 +174,17 @@ export function ProductMediaView() {
   const [page, setPage] = useState(1);
   const [includeHistorical, setIncludeHistorical] = useState(false);
   const items = usePmFamilyItems(familyId, tab, page, includeHistorical);
-
-  // 未标注队列
-  const [uKind, setUKind] = useState("image");
-  const [uPage, setUPage] = useState(1);
-  const unassigned = usePmUnassigned(uKind, uPage);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [bulkFamily, setBulkFamily] = useState<string>("");
-  const [bulkRole, setBulkRole] = useState("related");
-  const [bulkMsg, setBulkMsg] = useState<string | null>(null);
+  // PM-UX：任务导向主 Tab——待归类工作台（默认）| 按产品浏览。
+  // URL 带 ?family= 时直达浏览 Tab（既有深链语义不变）。
+  const [workTab, setWorkTab] = useState<"unassigned" | "browse">(() =>
+    params.get("family") ? "browse" : "unassigned",
+  );
 
   const fam: FamilyMediaSummary | undefined = useMemo(
     () => summary.data?.find((f) => f.family_id === familyId),
     [summary.data, familyId],
   );
 
-  const keyOf = (it: ProductMediaItem) =>
-    `${it.type === "shot" ? "shot" : "asset"}:${it.type === "shot" ? it.shot_id : it.asset_id}`;
-
-  const toggle = (it: ProductMediaItem) => {
-    const k = keyOf(it);
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(k)) next.delete(k);
-      else next.add(k);
-      return next;
-    });
-  };
-
-  const runBulk = async () => {
-    if (!bulkFamily || selected.size === 0) return;
-    const itemsPayload = [...selected].map((k) => {
-      const [t, id] = k.split(":");
-      return { target_type: t, target_id: Number(id) };
-    });
-    const res = await bulk.mutateAsync({
-      items: itemsPayload,
-      family_id: Number(bulkFamily),
-      role: bulkRole,
-      origin: "bulk_manual",
-    });
-    setBulkMsg(
-      `绑定完成：成功 ${res.completed.length}，跳过 ${res.skipped.length}，失败 ${res.failed.length}`,
-    );
-    setSelected(new Set());
-  };
 
   return (
     <div className="space-y-6">
@@ -230,6 +196,37 @@ export function ProductMediaView() {
         </p>
       </div>
 
+      {/* PM-UX：任务导向主 Tab */}
+      <div className="flex gap-1 border-b border-gray-200" role="tablist" aria-label="工作台分区">
+        {(
+          [
+            { key: "unassigned", label: "待归类工作台" },
+            { key: "browse", label: "按产品浏览" },
+          ] as const
+        ).map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={workTab === t.key}
+            data-testid={`pm-worktab-${t.key}`}
+            onClick={() => setWorkTab(t.key)}
+            className={cn(
+              "rounded-t px-3 py-2 text-sm",
+              workTab === t.key
+                ? "border-b-2 border-brand font-medium text-brand"
+                : "text-gray-500 hover:text-gray-800",
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {workTab === "unassigned" ? (
+        <UnassignedWorkbench families={summary.data ?? []} />
+      ) : (
+        <>
       {/* 产品列表 */}
       <section className="rounded-lg border border-gray-200 bg-white p-4" data-testid="pm-family-list">
         <h2 className="mb-2 text-sm font-medium text-gray-700">产品列表</h2>
@@ -428,123 +425,8 @@ export function ProductMediaView() {
         </section>
       ) : null}
 
-      {/* OPS：候选批量审核（分组工作流——主入口） */}
-      <GroupedReview families={summary.data ?? []} />
-
-      {/* 未标注素材（平铺模式：逐项精修备用） */}
-      <section className="rounded-lg border border-gray-200 bg-white p-4" data-testid="pm-unassigned">
-        <div className="mb-2 flex flex-wrap items-center gap-3">
-          <h2 className="text-sm font-medium text-gray-700">未标注素材</h2>
-          <div className="flex gap-1">
-            {["image", "video", "shot"].map((k) => (
-              <button
-                key={k}
-                type="button"
-                data-testid={`unassigned-tab-${k}`}
-                onClick={() => {
-                  setUKind(k);
-                  setUPage(1);
-                  setSelected(new Set());
-                }}
-                className={cn(
-                  "rounded-full border px-2.5 py-1 text-xs",
-                  uKind === k
-                    ? "border-brand bg-brand/10 text-brand"
-                    : "border-gray-300 text-gray-600",
-                )}
-              >
-                {k === "image" ? "图片" : k === "video" ? "视频" : "Shot"}
-              </button>
-            ))}
-          </div>
-          {unassigned.data ? (
-            <span className="text-xs text-gray-400" data-testid="unassigned-total">
-              共 {unassigned.data.total} 项待标注
-            </span>
-          ) : null}
-          {unassigned.data && unassigned.data.items.length > 0 ? (
-            <button
-              type="button"
-              className="text-xs text-brand hover:underline"
-              data-testid="select-all-page"
-              onClick={() =>
-                setSelected(new Set(unassigned.data!.items.map((it) => keyOf(it))))
-              }
-            >
-              全选本页
-            </button>
-          ) : null}
-        </div>
-        <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-4">
-          {(unassigned.data?.items ?? []).map((it) => (
-            <UnassignedCard
-              key={keyOf(it)}
-              it={it}
-              selected={selected.has(keyOf(it))}
-              onToggle={() => toggle(it)}
-              onPickSuggestion={(fid, origin) => {
-                const targetType = it.type === "shot" ? "shot" : "asset";
-                const targetId = it.type === "shot" ? it.shot_id : it.asset_id;
-                create.mutate({
-                  target_type: targetType,
-                  target_id: targetId,
-                  family_id: fid,
-                  role: "related",
-                  origin,
-                });
-              }}
-              onDismissVisual={(cid) => dismissVisual.mutate(cid)}
-            />
-          ))}
-        </div>
-        {unassigned.data && unassigned.data.items.length === 0 ? (
-          <p className="text-xs text-gray-400">该类型没有未标注素材 🎉</p>
-        ) : null}
-
-        {/* 批量绑定条 */}
-        <div
-          className="mt-3 flex flex-wrap items-center gap-2 rounded border border-gray-200 bg-gray-50 p-2 text-xs"
-          data-testid="bulk-bar"
-        >
-          <span className="text-gray-500">已选 {selected.size} 项</span>
-          <select
-            value={bulkFamily}
-            onChange={(e) => setBulkFamily(e.target.value)}
-            data-testid="bulk-family"
-            className="rounded border border-gray-300 px-2 py-1"
-          >
-            <option value="">选择产品…</option>
-            {(summary.data ?? []).map((f) => (
-              <option key={f.family_id} value={f.family_id}>
-                {f.name_zh}（{f.code}）
-              </option>
-            ))}
-          </select>
-          <select
-            value={bulkRole}
-            onChange={(e) => setBulkRole(e.target.value)}
-            data-testid="bulk-role"
-            className="rounded border border-gray-300 px-2 py-1"
-          >
-            <option value="related">关联产品</option>
-            <option value="primary">主产品</option>
-          </select>
-          <button
-            type="button"
-            disabled={selected.size === 0 || !bulkFamily || bulk.isPending}
-            onClick={runBulk}
-            data-testid="bulk-assign"
-            className="rounded bg-brand px-3 py-1 font-medium text-white disabled:opacity-50"
-          >
-            {bulk.isPending ? "绑定中…" : "批量绑定"}
-          </button>
-          {bulkMsg ? (
-            <span className="text-emerald-700" data-testid="bulk-result">
-              {bulkMsg}
-            </span>
-          ) : null}
-        </div>
-      </section>
+        </>
+      )}
     </div>
   );
 }

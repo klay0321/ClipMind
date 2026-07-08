@@ -29,6 +29,8 @@ test.describe.serial("PM 产品素材库 UI", () => {
     test.skip(fams == null, "缺少 PMA-E2E 播种数据（先跑 API E2E full）");
 
     await page.goto("/product-media");
+    // PM-UX：产品列表在「按产品浏览」Tab
+    await page.getByTestId("pm-worktab-browse").click();
     await expect(page.getByRole("heading", { name: "产品素材库" })).toBeVisible();
     await expect(page.getByText("人工确认的产品素材关系是系统正式事实")).toBeVisible();
 
@@ -53,7 +55,8 @@ test.describe.serial("PM 产品素材库 UI", () => {
       page.getByTestId("pm-items").getByText("本镜头独立设置").first(),
     ).toBeVisible();
 
-    // 未标注队列：切图片 → 若有项则测多选+批量绑定往返（绑定后立即解除还原）
+    // 未标注队列在「待归类工作台」Tab：切回后选图片类型
+    await page.getByTestId("pm-worktab-unassigned").click();
     await page.getByTestId("unassigned-tab-image").click();
     await expect(page.getByTestId("unassigned-total")).toBeVisible();
     console.log("PM_UI_E2E_OK");

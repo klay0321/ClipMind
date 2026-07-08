@@ -315,3 +315,12 @@ async def test_legacy_asset_product_untouched(client, session):
         )
     ).scalar_one_or_none()
     assert rows is None
+
+
+async def test_unassigned_counts_endpoint(client, session):
+    """PM-UX：各类型未标注计数（工作台 Tab 角标）。"""
+    r = await client.get("/api/product-media/unassigned/counts")
+    assert r.status_code == 200
+    body = r.json()
+    assert set(body) == {"image", "video", "shot"}
+    assert all(isinstance(v, int) and v >= 0 for v in body.values())

@@ -1684,6 +1684,9 @@ export const api = {
   pmDeleteLink(linkId: number): Promise<void> {
     return http<void>(`/product-media/links/${linkId}`, { method: "DELETE" });
   },
+  pmUnassignedCounts(): Promise<{ image: number; video: number; shot: number }> {
+    return http(`/product-media/unassigned/counts`);
+  },
   pmUnassignedGroups(kind: string, groupBy: string): Promise<UnassignedGroups> {
     return http<UnassignedGroups>(
       `/product-media/unassigned/groups?kind=${kind}&group_by=${groupBy}`,

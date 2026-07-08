@@ -374,6 +374,40 @@ async def shot_links_view(db: AsyncSession, shot_id: int) -> dict:
     }
 
 
+async def unassigned_counts(db: AsyncSession) -> dict:
+    """各类型未标注计数（工作台 Tab 角标；shot 排除继承已绑的）。"""
+    from sqlalchemy import func
+
+    img = await db.scalar(
+        select(func.count()).select_from(Asset).where(
+            Asset.media_kind == "image",
+            ~select(ProductMediaLink.id)
+            .where(ProductMediaLink.asset_id == Asset.id)
+            .exists(),
+        )
+    )
+    vid = await db.scalar(
+        select(func.count()).select_from(Asset).where(
+            Asset.media_kind == "video",
+            ~select(ProductMediaLink.id)
+            .where(ProductMediaLink.asset_id == Asset.id)
+            .exists(),
+        )
+    )
+    shot = await db.scalar(
+        select(func.count()).select_from(Shot).where(
+            Shot.retired_at.is_(None),
+            ~select(ProductMediaLink.id)
+            .where(ProductMediaLink.shot_id == Shot.id)
+            .exists(),
+            ~select(ProductMediaLink.id)
+            .where(ProductMediaLink.asset_id == Shot.asset_id)
+            .exists(),
+        )
+    )
+    return {"image": int(img or 0), "video": int(vid or 0), "shot": int(shot or 0)}
+
+
 async def unassigned_assets(
     db: AsyncSession, *, media_kind: str, page: int, page_size: int
 ) -> tuple[list[Asset], int]:

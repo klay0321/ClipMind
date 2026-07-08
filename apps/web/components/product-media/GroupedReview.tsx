@@ -118,30 +118,42 @@ function GroupCard({
               （排除仅对预览项生效）
             </p>
           ) : null}
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={familySel}
-              onChange={(e) => setFamilySel(e.target.value)}
-              className="rounded border border-gray-300 px-2 py-1"
-              data-testid={`group-family-${group.key}`}
+          {suggested ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={familySel}
+                onChange={(e) => setFamilySel(e.target.value)}
+                className="rounded border border-gray-300 px-2 py-1"
+                data-testid={`group-family-${group.key}`}
+              >
+                <option value="">选择产品…</option>
+                {families.map((f) => (
+                  <option key={f.family_id} value={f.family_id}>
+                    {f.name_zh}（{f.code}）
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={!familySel || effective.length === 0 || bulk.isPending}
+                onClick={confirm}
+                className="rounded bg-brand px-3 py-1 font-medium text-white disabled:opacity-50"
+                data-testid={`group-confirm-${group.key}`}
+              >
+                {bulk.isPending ? "绑定中…" : `绑定 ${effective.length} 项`}
+              </button>
+            </div>
+          ) : (
+            /* PM-UX 守卫：无候选=系统没有任何证据，整组绑定到同一产品几乎必然
+               混入错绑（真实事故：200 项误绑）。改走逐项处理或以图搜图。 */
+            <p
+              className="rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-[11px] text-amber-800"
+              data-testid={`group-no-suggestion-${group.key}`}
             >
-              <option value="">选择产品…</option>
-              {families.map((f) => (
-                <option key={f.family_id} value={f.family_id}>
-                  {f.name_zh}（{f.code}）
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              disabled={!familySel || effective.length === 0 || bulk.isPending}
-              onClick={confirm}
-              className="rounded bg-brand px-3 py-1 font-medium text-white disabled:opacity-50"
-              data-testid={`group-confirm-${group.key}`}
-            >
-              {bulk.isPending ? "绑定中…" : `绑定 ${effective.length} 项`}
-            </button>
-          </div>
+              该组没有任何候选证据，不提供整组绑定（避免批量绑错）。请切换到
+              「逐项处理」视图翻页多选绑定，或先用以图搜图确认产品。
+            </p>
+          )}
         </div>
       ) : null}
     </div>

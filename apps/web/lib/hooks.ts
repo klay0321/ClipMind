@@ -2462,6 +2462,7 @@ export function useDismissVisualCandidate() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["pm-suggestions"] });
       qc.invalidateQueries({ queryKey: ["pm-unassigned"] });
+    qc.invalidateQueries({ queryKey: ["pm-unassigned-counts"] });
       qc.invalidateQueries({ queryKey: ["pm-groups"] });
     },
   });
@@ -2473,6 +2474,7 @@ export function usePmMutations() {
     qc.invalidateQueries({ queryKey: ["pm-summary"] });
     qc.invalidateQueries({ queryKey: ["pm-items"] });
     qc.invalidateQueries({ queryKey: ["pm-unassigned"] });
+    qc.invalidateQueries({ queryKey: ["pm-unassigned-counts"] });
     qc.invalidateQueries({ queryKey: ["pm-asset-links"] });
     qc.invalidateQueries({ queryKey: ["pm-shot-links"] });
   };
@@ -2498,6 +2500,13 @@ export function usePmMutations() {
 
 // ===== OPS 运营效率增强 =====
 
+export function useUnassignedCounts() {
+  return useQuery({
+    queryKey: ["pm-unassigned-counts"],
+    queryFn: () => api.pmUnassignedCounts(),
+  });
+}
+
 export function usePmUnassignedGroups(kind: string, groupBy: string, enabled = true) {
   return useQuery({
     queryKey: ["pm-groups", kind, groupBy],
@@ -2522,6 +2531,7 @@ export function usePmUndo() {
       qc.invalidateQueries({ queryKey: ["pm-summary"] });
       qc.invalidateQueries({ queryKey: ["pm-items"] });
       qc.invalidateQueries({ queryKey: ["pm-unassigned"] });
+    qc.invalidateQueries({ queryKey: ["pm-unassigned-counts"] });
       qc.invalidateQueries({ queryKey: ["pm-groups"] });
     },
   });
